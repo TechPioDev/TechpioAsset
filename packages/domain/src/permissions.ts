@@ -317,6 +317,9 @@ export const ROLE_PERMISSIONS: Readonly<Record<SystemRole, readonly Permission[]
 
   OFFICE_ADMIN: [
     P.VENDOR_PRODUCTS_READ,
+    // Most suppliers never sign in to the portal, so staff keep the catalogue
+    // for them. Cost entry stays with the roles authorised to touch money.
+    P.VENDOR_PRODUCTS_MANAGE,
     P.VENDOR_PRODUCTS_REVIEW,
     P.ASSETS_READ,
     P.ASSETS_CREATE,
@@ -352,6 +355,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<SystemRole, readonly Permission[]
 
   FINANCE: [
     P.VENDOR_PRODUCTS_READ,
+    P.VENDOR_PRODUCTS_MANAGE,
     P.VENDOR_PRODUCTS_REVIEW,
     P.ANALYTICS_READ,
     P.ASSETS_READ,
@@ -483,6 +487,7 @@ export const ROLE_PERMISSIONS: Readonly<Record<SystemRole, readonly Permission[]
   // Sourcing and purchasing. Owns vendors + POs; approves requests.
   PROCUREMENT_MANAGER: [
     P.VENDOR_PRODUCTS_READ,
+    P.VENDOR_PRODUCTS_MANAGE,
     P.VENDOR_PRODUCTS_REVIEW,
     P.ASSETS_READ,
     P.PROCUREMENT_RFQ_MANAGE,

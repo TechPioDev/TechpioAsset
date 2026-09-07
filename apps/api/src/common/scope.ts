@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '@techpioasset/contracts';
+import { AppError } from './errors/app-error.js';
 
 /**
  * Data-scope filters.
@@ -47,6 +48,25 @@ export function vendorScopeFilter(user: AuthUser): { companyId: string; vendorId
     );
   }
   return { ...base, vendorId: user.vendorId };
+}
+
+/**
+ * Refuses an external supplier outright (v2.42).
+ *
+ * For the things a supplier must never reach at all, rather than reach a scoped
+ * view of: how its offer scored against a competitor's, and which offer the
+ * buyer chose. A permission gate is not enough on its own here, because vendors
+ * legitimately hold vendor-products:manage for their own drafts - so the gate
+ * that keeps them out of a comparison has to be about who they are, not what
+ * they may edit.
+ *
+ * Checked against the vendor link rather than the role, so an administrator
+ * granting a supplier account an extra role cannot open this door.
+ */
+export function denyVendorUsers(user: AuthUser, what: string): void {
+  if (isVendorUser(user) || user.roles.includes('VENDOR')) {
+    throw AppError.forbidden(`Vendor users may not ${what}`);
+  }
 }
 
 /** Restricts assets to what the actor's scope permits. */

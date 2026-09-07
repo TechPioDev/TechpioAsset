@@ -10,6 +10,7 @@ import {
   decidePurchaseRequestSchema,
   prListQuerySchema,
   receiveGrnSchema,
+  qualityCheckSchema,
   type AuthUser,
   type ConvertPurchaseRequestInput,
   type CreatePurchaseRequestInput,
@@ -19,6 +20,7 @@ import {
   type DeclineQuoteInput,
   type PrListQuery,
   type ReceiveGrnInput,
+  type RecordQualityCheckInput,
   type RecordQuoteInput,
 } from '@techpioasset/contracts';
 import { PERMISSIONS } from '@techpioasset/domain';
@@ -27,6 +29,7 @@ import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
 import { z } from 'zod';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { ProcurementService } from './procurement.service.js';
+import { QualityCheckService } from './quality-check.service.js';
 import { MatchService } from './match.service.js';
 import { RfqService } from './rfq.service.js';
 
@@ -44,6 +47,7 @@ const reasonSchema = z.object({ reason: z.string().trim().max(500).optional() })
 export class ProcurementController {
   constructor(
     private readonly procurement: ProcurementService,
+    private readonly quality: QualityCheckService,
     private readonly match: MatchService,
     private readonly rfq: RfqService,
   ) {}
@@ -291,5 +295,41 @@ export class ProcurementController {
     @Body(zodBody(receiveGrnSchema)) body: ReceiveGrnInput,
   ) {
     return this.procurement.receive(actor, id, body);
+  }
+
+  // ── Quality check ─────────────────────────────────────────────────────────
+
+  @Post('receipt-lines/:lineId/quality-check')
+  @RequirePermissions(PERMISSIONS.PROCUREMENT_RECEIVE)
+  @ApiOperation({
+    summary: 'Inspect what arrived on a receipt line',
+    description:
+      'The counts are checked against what the receipt says arrived, and the outcome is derived ' +
+      'from them rather than sent. Accepted asset units become AVAILABLE - this is the step that ' +
+      'takes them out of RECEIVED. Rejected stock is taken back off the shelf.',
+  })
+  recordQualityCheck(
+    @CurrentUser() actor: AuthUser,
+    @Param('lineId') lineId: string,
+    @Body(zodBody(qualityCheckSchema)) body: RecordQualityCheckInput,
+  ) {
+    return this.quality.record(actor, lineId, body);
+  }
+
+  @Get('receipts/:receiptId')
+  @RequirePermissions(PERMISSIONS.PROCUREMENT_RECEIVE)
+  @ApiOperation({
+    summary: 'One receipt, with its lines, the units they created and any inspection',
+    description: 'What an inspector needs in one call, rather than three that can disagree.',
+  })
+  receipt(@CurrentUser() actor: AuthUser, @Param('receiptId') receiptId: string) {
+    return this.quality.findReceipt(actor, receiptId);
+  }
+
+  @Get('receipts/:receiptId/quality-checks')
+  @RequirePermissions(PERMISSIONS.PROCUREMENT_RECEIVE)
+  @ApiOperation({ summary: 'The inspections recorded against one receipt' })
+  qualityChecks(@CurrentUser() actor: AuthUser, @Param('receiptId') receiptId: string) {
+    return this.quality.listForReceipt(actor, receiptId);
   }
 }

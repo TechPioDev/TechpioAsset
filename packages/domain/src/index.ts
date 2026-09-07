@@ -32,3 +32,5 @@ export * from './equipment-catalog';
 export * from './asset-types';
 export * from './request-policy';
 export * from './vendor-catalog';
+export * from './vendor-comparison';
+export * from './quality-check';

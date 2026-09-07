@@ -11,6 +11,8 @@ import { HealthModule } from './health/health.module.js';
 import { AssetsModule } from './assets/assets.module.js';
 import { MarketingModule } from './marketing/marketing.module.js';
 import { OrgModule } from './org/org.module.js';
+import { SpecTemplatesModule } from './spec-templates/spec-templates.module.js';
+import { VendorProductsModule } from './vendor-products/vendor-products.module.js';
 import { UsersModule } from './users/users.module.js';
 import { RolesModule } from './roles/roles.module.js';
 import { LicensesModule } from './licenses/licenses.module.js';
@@ -92,6 +94,8 @@ import { TenantThrottlerGuard } from './common/guards/tenant-throttler.guard.js'
     StockModule,
     BudgetsModule,
     OrgModule,
+    SpecTemplatesModule,
+    VendorProductsModule,
     AssetsModule,
     MarketingModule,
     RequestsModule,

@@ -13,6 +13,8 @@ import {
   type LifecycleState,
   type AvailabilityState,
   type OwnershipType,
+  OFFER_LIFECYCLES,
+  type OfferLifecycle,
 } from '@techpioasset/domain';
 import type { Tone } from './tones';
 
@@ -138,6 +140,26 @@ export const OWNERSHIP_TYPE_TOKENS: Readonly<Record<OwnershipType, StatusToken>>
   LOANER: { label: 'Loaner', tone: 'warning', icon: 'Handshake' },
 };
 
+/**
+ * Vendor catalogue offers (v2.42).
+ *
+ * Three of these are derived from time and stock rather than stored, so the
+ * badge is doing real work: "Expiring soon" is the difference between a price
+ * somebody can still buy at and one they are about to lose.
+ */
+export const OFFER_LIFECYCLE_TOKENS: Readonly<Record<OfferLifecycle, StatusToken>> = {
+  DRAFT: { label: 'Draft', tone: 'muted', icon: 'FileEdit' },
+  PENDING_REVIEW: { label: 'Awaiting review', tone: 'progress', icon: 'Hourglass' },
+  APPROVED: { label: 'Approved', tone: 'info', icon: 'BadgeCheck' },
+  ACTIVE: { label: 'Available', tone: 'success', icon: 'CircleCheck' },
+  EXPIRING_SOON: { label: 'Expiring soon', tone: 'warning', icon: 'CalendarClock' },
+  OUT_OF_STOCK: { label: 'Out of stock', tone: 'warning', icon: 'PackageX' },
+  EXPIRED: { label: 'Expired', tone: 'danger', icon: 'CalendarX' },
+  PAUSED: { label: 'Paused', tone: 'neutral', icon: 'PauseCircle' },
+  REJECTED: { label: 'Rejected', tone: 'danger', icon: 'CircleX' },
+  DISCONTINUED: { label: 'Withdrawn', tone: 'muted', icon: 'PackageMinus' },
+};
+
 /** Every status enum paired with its token map, for exhaustiveness testing. */
 export const STATUS_TOKEN_REGISTRY = [
   { name: 'AssetStatus', values: ASSET_STATUSES, tokens: ASSET_STATUS_TOKENS },
@@ -147,4 +169,5 @@ export const STATUS_TOKEN_REGISTRY = [
   { name: 'LifecycleState', values: LIFECYCLE_STATES, tokens: LIFECYCLE_STATE_TOKENS },
   { name: 'AvailabilityState', values: AVAILABILITY_STATES, tokens: AVAILABILITY_STATE_TOKENS },
   { name: 'OwnershipType', values: OWNERSHIP_TYPES, tokens: OWNERSHIP_TYPE_TOKENS },
+  { name: 'OfferLifecycle', values: OFFER_LIFECYCLES, tokens: OFFER_LIFECYCLE_TOKENS },
 ] as const;

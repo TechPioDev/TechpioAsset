@@ -4,6 +4,7 @@ import { StockModule } from '../stock/stock.module.js';
 import { ProcurementController } from './procurement.controller.js';
 import { ProcurementService } from './procurement.service.js';
 import { MatchService } from './match.service.js';
+import { QualityCheckService } from './quality-check.service.js';
 import { RfqService } from './rfq.service.js';
 
 @Module({
@@ -11,7 +12,7 @@ import { RfqService } from './rfq.service.js';
   // StockModule: receiving into a lot happens inside the receipt transaction.
   imports: [BudgetsModule, StockModule],
   controllers: [ProcurementController],
-  providers: [ProcurementService, MatchService, RfqService],
+  providers: [ProcurementService, MatchService, RfqService, QualityCheckService],
   exports: [MatchService],
 })
 export class ProcurementModule {}

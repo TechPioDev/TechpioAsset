@@ -90,3 +90,27 @@ export const receiveGrnSchema = z.object({
     .min(1, 'Receive at least one line'),
 });
 export type ReceiveGrnInput = z.infer<typeof receiveGrnSchema>;
+
+/**
+ * Inspecting a receipt line (v2.42).
+ *
+ * The counts are checked against what actually arrived on the server, so a
+ * caller cannot pass an inspection off against a quantity nobody received. The
+ * outcome is derived from the counts rather than sent - "passed" alongside two
+ * rejected units would be a contradiction the record could not resolve.
+ */
+export const qualityCheckSchema = z.object({
+  // Not `qty`: that is positive, and a clean pass rejects zero units.
+  quantityAccepted: z.number().nonnegative().max(1_000_000),
+  quantityRejected: z.number().nonnegative().max(1_000_000),
+  rejectionReason: z.string().trim().min(1).max(1000).optional().nullable(),
+  disposition: z.enum(['RETURN_TO_VENDOR', 'HOLD_DAMAGED']).optional().nullable(),
+  /**
+   * Which units failed, for an asset line. Named explicitly because the
+   * inspector holds them in their hands and knows which ones - guessing by
+   * position would condemn an arbitrary laptop.
+   */
+  rejectedAssetIds: z.array(z.string().min(1)).max(500).optional(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+});
+export type RecordQualityCheckInput = z.infer<typeof qualityCheckSchema>;

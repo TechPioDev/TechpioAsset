@@ -46,6 +46,20 @@ export const Button = forwardRef<
   );
 });
 
+/**
+ * Button styling for a Link (v2.42).
+ *
+ * Button itself cannot take Radix's asChild: it always renders a loading slot
+ * beside its children, so Slot receives two children and throws. Rather than
+ * leave every caller to paste the same class string, the two looks live here.
+ */
+export const linkButtonCls = {
+  primary:
+    'inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--color-brand)] px-3 text-sm font-semibold text-[var(--color-brand-contrast)] hover:bg-[var(--color-brand-hover)]',
+  secondary:
+    'inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]',
+} as const;
+
 export const Input = ShadInput;
 
 /**

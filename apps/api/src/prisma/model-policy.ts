@@ -23,6 +23,7 @@ export const SOFT_DELETABLE_MODELS = new Set<string>([
   'Vendor',
   // v2.42 - a withdrawn offer stays readable: a purchase approved against it
   // must still be explainable months later.
+  'CategorySpecField',
   'VendorProduct',
   'PurchaseOrder',
   'Invoice',

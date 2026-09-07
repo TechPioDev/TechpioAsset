@@ -568,6 +568,8 @@ model Company {
   vendorProductImages   VendorProductImage[]
   vendorProductReviews  VendorProductReview[]
   procurementSelections ProcurementSelection[]
+  categorySpecFields    CategorySpecField[]
+  qualityChecks         QualityCheck[]
 
   @@index([deletedAt])
   @@map("companies")
@@ -650,6 +652,7 @@ model User {
   delegationsReceived      ApprovalDelegation[]       @relation("DelegationDelegate")
   licenseAssignments       LicenseAssignment[]        @relation("LicenseAssignee")
   purchaseRequests         PurchaseRequest[]          @relation("PurchaseRequester")
+  qualityChecks            QualityCheck[]             @relation("QualityInspector")
   requestAssessments       RequestAssessment[]        @relation("AssessmentAssessor")
   vendorProductReviews     VendorProductReview[]      @relation("VendorProductReviewer")
   procurementSelections    ProcurementSelection[]     @relation("ProcurementSelector")
@@ -1038,10 +1041,58 @@ model Category {
   invoiceLines   InvoiceLine[]   @relation("SuggestedCategory")
   catalogItems   CatalogItem[]
   vendorProducts VendorProduct[]
+  specFields     CategorySpecField[]
 
   @@unique([companyId, key])
   @@index([companyId, isActive, sortOrder])
   @@map("categories")
+}
+
+/// What a category's offers are described by, and therefore what they can be
+/// compared on (v2.42). Editable by an administrator: the fields worth asking a
+/// laptop supplier for are not the ones worth asking a chair supplier for, and
+/// nobody wants a release to add a row to a template.
+model CategorySpecField {
+  id         String @id @default(cuid())
+  companyId  String
+  categoryId String
+
+  /// Machine key, matching the key used in VendorProduct.specs.
+  key      String
+  label    String
+  dataType SpecFieldType @default(TEXT)
+  unit     String?
+
+  /// How a numeric requirement is read. "16 GB" means at least; "1.4 kg" means
+  /// at most. Guessing from the name is how a comparison quietly inverts.
+  intent NumericIntent?
+  /// How far off still counts as a partial match, as a fraction. Null uses the
+  /// default in @techpioasset/domain.
+  tolerance Decimal? @db.Decimal(4, 3)
+
+  /// Allowed values when dataType is ENUM.
+  options String[] @default([])
+
+  /// A vendor must fill this in before an offer can be submitted for review.
+  isRequired Boolean @default(false)
+  /// Offered for comparison. A field can be worth recording without being worth
+  /// ranking on.
+  isComparable Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, categoryId, key])
+  @@index([companyId, categoryId, sortOrder])
+  @@index([deletedAt])
+  @@map("category_spec_fields")
 }
 
 model Subcategory {
@@ -3131,6 +3182,46 @@ model GoodsReceipt {
   @@map("goods_receipts")
 }
 
+/// Whether what arrived is fit to use (v2.42).
+///
+/// Receiving says a box turned up; this says the contents pass. It is also what
+/// lets a received asset become available - until now nothing did that
+/// automatically, so assets sat in RECEIVED until somebody edited them by hand.
+///
+/// One per receipt line: a line is inspected once, and a second opinion is a
+/// deliberate act rather than an accident of double submission.
+model QualityCheck {
+  id        String @id @default(cuid())
+  companyId String
+
+  goodsReceiptLineId String
+
+  outcome QualityOutcome
+  /// Always equals the quantity on the receipt line; held so the arithmetic
+  /// that was checked stays visible even if the line is later corrected.
+  quantityInspected Decimal @db.Decimal(14, 3)
+  quantityAccepted  Decimal @db.Decimal(14, 3)
+  quantityRejected  Decimal @db.Decimal(14, 3)
+
+  /// Required whenever anything was rejected: a rejection nobody explained is
+  /// one the vendor cannot be held to.
+  rejectionReason String?
+  disposition     RejectDisposition?
+  notes           String?
+
+  inspectedById String?
+  inspectedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  goodsReceiptLine GoodsReceiptLine @relation(fields: [goodsReceiptLineId], references: [id], onDelete: Cascade)
+  inspectedBy      User?            @relation("QualityInspector", fields: [inspectedById], references: [id], onDelete: SetNull)
+
+  @@unique([goodsReceiptLineId])
+  @@index([companyId, outcome])
+  @@map("quality_checks")
+}
+
 model GoodsReceiptLine {
   id             String @id @default(cuid())
   goodsReceiptId String
@@ -3150,6 +3241,7 @@ model GoodsReceiptLine {
   inventoryItem     InventoryItem?    @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
   /// v2.9 C1 — the assets this line brought into existence.
   assets            Asset[]           @relation("AssetFromReceipt")
+  qualityCheck      QualityCheck?
 
   @@index([purchaseOrderLineId])
   @@map("goods_receipt_lines")
@@ -3659,6 +3751,35 @@ enum VendorProductCondition {
   REFURBISHED
   OPEN_BOX
   OTHER
+}
+
+/// Quality check result, derived from the counts rather than stated (v2.42).
+enum QualityOutcome {
+  PASSED
+  PARTIAL
+  FAILED
+}
+
+/// Where rejected units go. Both map to transitions the asset state machine
+/// already allows out of RECEIVED, so no new asset status was invented.
+enum RejectDisposition {
+  RETURN_TO_VENDOR
+  HOLD_DAMAGED
+}
+
+/// How a spec field is compared (v2.42).
+enum SpecFieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  ENUM
+}
+
+/// Which way a numeric requirement points.
+enum NumericIntent {
+  AT_LEAST
+  AT_MOST
+  EXACTLY
 }
 
 enum VendorProductStatus {

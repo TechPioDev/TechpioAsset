@@ -4,13 +4,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, PackageCheck, Send } from 'lucide-react';
+import { AlertTriangle, ChevronDown, PackageCheck, Send } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { ApiError, apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, Skeleton } from '@/components/ui';
 import { PO_STATUS_TONE, TonePill, fmtDate, inputCls } from '@/components/procurement/shared';
+import { QualityPanel } from '@/components/procurement/quality-panel';
 
 interface PoLine {
   id: string;
@@ -78,6 +79,8 @@ export default function PurchaseOrderPage() {
   });
 
   const canReceive = can(PERMISSIONS.PROCUREMENT_RECEIVE);
+  /** Which receipt is expanded for inspection; one at a time keeps it readable. */
+  const [openReceipt, setOpenReceipt] = useState<string | null>(null);
   const refs = useQuery({
     queryKey: ['stock-refs'],
     enabled: canReceive,
@@ -423,14 +426,40 @@ export default function PurchaseOrderPage() {
       {po.receipts.length > 0 ? (
         <Card className="p-4">
           <h2 className="text-sm font-semibold">Goods receipts</h2>
-          <ul className="mt-2 grid gap-1.5">
-            {po.receipts.map((r) => (
-              <li key={r.id} className="text-sm text-[var(--color-content-muted)]">
-                <span className="font-medium text-[var(--color-content)]">{r.grnNumber}</span> ·{' '}
-                {r.lines.reduce((s2, l) => s2 + Number(l.quantity), 0)} unit(s) · {fmtDate(r.receivedAt)}
-                {r.notes ? ` · ${r.notes}` : ''}
-              </li>
-            ))}
+          <p className="mt-0.5 text-xs text-[var(--color-content-muted)]">
+            Open a receipt to inspect what arrived. A passing inspection is what makes a received asset
+            available to assign.
+          </p>
+          <ul className="mt-3 grid gap-2">
+            {po.receipts.map((r) => {
+              const open = openReceipt === r.id;
+              return (
+                <li key={r.id} className="rounded-[var(--radius-control)] border border-[var(--color-border)]">
+                  <button
+                    type="button"
+                    onClick={() => setOpenReceipt(open ? null : r.id)}
+                    aria-expanded={open}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm"
+                  >
+                    <span className="text-[var(--color-content-muted)]">
+                      <span className="font-medium text-[var(--color-content)]">{r.grnNumber}</span> ·{' '}
+                      {r.lines.reduce((s2, l) => s2 + Number(l.quantity), 0)} unit(s) ·{' '}
+                      {fmtDate(r.receivedAt)}
+                      {r.notes ? ` · ${r.notes}` : ''}
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className={`size-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {open ? (
+                    <div className="border-t border-[var(--color-border)] p-3">
+                      <QualityPanel receiptId={r.id} canInspect={canReceive} />
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </Card>
       ) : null}

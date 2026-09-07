@@ -25,3 +25,5 @@ export * from './discovery';
 export * from './integrations';
 export * from './org';
 export * from './marketing';
+export * from './vendor-products';
+export * from './spec-templates';

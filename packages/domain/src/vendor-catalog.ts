@@ -148,17 +148,24 @@ export function youtubeVideoId(input: string | null | undefined): string | null 
   return null;
 }
 
-export type OfferLifecycle =
-  | 'DRAFT'
-  | 'PENDING_REVIEW'
-  | 'APPROVED'
-  | 'ACTIVE'
-  | 'EXPIRING_SOON'
-  | 'OUT_OF_STOCK'
-  | 'EXPIRED'
-  | 'PAUSED'
-  | 'REJECTED'
-  | 'DISCONTINUED';
+/**
+ * In lifecycle order. An array rather than a bare union so the shared token
+ * package can prove it has a badge for every one of them.
+ */
+export const OFFER_LIFECYCLES = [
+  'DRAFT',
+  'PENDING_REVIEW',
+  'APPROVED',
+  'ACTIVE',
+  'EXPIRING_SOON',
+  'OUT_OF_STOCK',
+  'EXPIRED',
+  'PAUSED',
+  'REJECTED',
+  'DISCONTINUED',
+] as const;
+
+export type OfferLifecycle = (typeof OFFER_LIFECYCLES)[number];
 
 /** Statuses a person set deliberately; time and stock must not overwrite them. */
 const MANUAL_STATUSES: ReadonlySet<OfferLifecycle> = new Set([

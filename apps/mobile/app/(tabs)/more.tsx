@@ -37,6 +37,13 @@ const GROUPS: { title: string; items: Item[] }[] = [
     title: 'Records',
     items: [
       { icon: 'cube-outline', label: 'Receive orders', href: '/purchase-orders', perm: PERMISSIONS.PROCUREMENT_RECEIVE },
+      {
+        icon: 'pricetags-outline',
+        label: 'Catalogue',
+        href: '/catalogue',
+        // Suppliers hold this too - it is the one screen a vendor account needs.
+        perm: PERMISSIONS.VENDOR_PRODUCTS_READ,
+      },
       { icon: 'layers-outline', label: 'Stock', href: '/stock', perm: PERMISSIONS.INVENTORY_READ },
       { icon: 'key-outline', label: 'Licenses', href: '/licenses', perm: PERMISSIONS.LICENSES_READ },
       { icon: 'document-attach-outline', label: 'Invoices', href: '/invoices', perm: PERMISSIONS.INVOICES_READ },

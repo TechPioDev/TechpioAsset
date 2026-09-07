@@ -22,6 +22,8 @@ import { Sparkles,
   PanelLeftOpen,
   Radar,
   Receipt,
+  ListChecks,
+  ShoppingBag,
   ShoppingCart,
   ScrollText,
   KeyRound,
@@ -118,6 +120,15 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Buying & stock',
     items: [
       {
+        href: '/catalogue',
+        label: 'Catalogue',
+        Icon: ShoppingBag,
+        // Suppliers hold this too: it is the one page a vendor account needs,
+        // and the API shows it only its own offers.
+        permission: PERMISSIONS.VENDOR_PRODUCTS_READ,
+        ownScopeHidden: true,
+      },
+      {
         href: '/procurement',
         label: 'Procurement',
         Icon: ShoppingCart,
@@ -161,6 +172,12 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Vendors',
         Icon: Store,
         permission: PERMISSIONS.VENDORS_MANAGE,
+      },
+      {
+        href: '/settings/spec-templates',
+        label: 'Spec templates',
+        Icon: ListChecks,
+        permission: PERMISSIONS.VENDOR_PRODUCTS_REVIEW,
       },
       { href: '/settings/roles', label: 'Roles', Icon: ShieldCheck, permission: PERMISSIONS.ROLES_MANAGE },
       {

@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
@@ -7,7 +7,7 @@ import { ApiError } from '../../src/lib/api-client';
 import { buildReceiveLines, canSubmitReceipt } from '../../src/lib/receive';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, Chevron, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { PO_TONE, poLabel } from '../purchase-orders';
 
 interface PoLine {
@@ -45,6 +45,7 @@ interface PoDetail {
 export default function PurchaseOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, user } = useSession();
+  const router = useRouter();
   const { c, scheme, spacing } = useTheme();
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
 
@@ -313,27 +314,37 @@ export default function PurchaseOrderScreen() {
         <>
           <SectionTitle>Receipts</SectionTitle>
           <Card style={{ padding: 0 }}>
+            {/* Tappable: a receipt is where the quality check lives, and the
+                person who can judge the goods is standing next to them. */}
             {po.receipts.map((r, i) => (
-              <View
+              <Pressable
                 key={r.id}
-                style={{
+                onPress={() => router.push(`/receipt/${r.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Inspect receipt ${r.grnNumber}`}
+                style={({ pressed }) => ({
                   flexDirection: 'row',
+                  alignItems: 'center',
                   justifyContent: 'space-between',
                   paddingHorizontal: 16,
                   paddingVertical: 12,
+                  opacity: pressed ? 0.7 : 1,
                   borderBottomWidth: i === po.receipts.length - 1 ? 0 : 1,
                   borderBottomColor: c.border,
-                }}
+                })}
               >
                 <Text style={{ color: c.text, fontWeight: '600', fontSize: 13 }}>{r.grnNumber}</Text>
-                <Text style={{ color: c.muted, fontSize: 12 }}>
-                  {new Date(r.receivedAt).toLocaleDateString(undefined, {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </Text>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ color: c.muted, fontSize: 12 }}>
+                    {new Date(r.receivedAt).toLocaleDateString(undefined, {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                  <Chevron />
+                </View>
+              </Pressable>
             ))}
           </Card>
         </>
