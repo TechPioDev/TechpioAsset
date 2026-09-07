@@ -45,7 +45,14 @@ const PUBLIC_PREFIXES = [
   '/accept-invite',
 ];
 
-const WIDGET_SRC = 'https://piotrack.com:8443/widget/piotrack-chat.js';
+/**
+ * Where the widget is served from. Moved off :8443 to :5050 on 2026-09-08.
+ *
+ * A non-standard port means the widget is one firewall rule away from being
+ * unreachable while everything else on the host keeps answering, so this is
+ * worth checking whenever the bubble goes missing.
+ */
+const WIDGET_SRC = 'https://piotrack.com:5050/widget/piotrack-chat.js';
 
 /**
  * Which PioTrack widget the conversations land in.
