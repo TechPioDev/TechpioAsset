@@ -20,6 +20,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   ALL_PERMISSIONS,
+  READ_ONLY_ROLES,
+  ROLE_LABELS,
   ROLE_PERMISSIONS,
   SYSTEM_ROLES,
   isReadOnlyPermission,
@@ -32,6 +34,29 @@ const lines = [
   '-- matrix no longer contains removed. Custom (non-system) roles untouched.',
   '',
 ];
+
+/** Single-quote a literal for SQL, doubling any quote inside it. */
+const sql = (value) => `'${String(value).replace(/'/g, "''")}'`;
+
+// 0. Roles a tenant never received (v2.43).
+//
+//    Roles are rows copied when a tenant is created, so a role added to the
+//    matrix afterwards simply does not exist for anybody already running - and
+//    a grant has nothing to attach to. This shipped the vendor portal to a
+//    tenant with no Vendor role: every permission present, nothing able to hold
+//    them. One row per company that is missing it, named exactly as the seed
+//    would have named it.
+for (const roleKey of SYSTEM_ROLES) {
+  const label = ROLE_LABELS[roleKey];
+  const isReadOnly = READ_ONLY_ROLES.includes(roleKey);
+  lines.push(
+    `INSERT INTO "roles" ("id", "companyId", "key", "name", "description", "isSystem", "isReadOnly", "createdAt", "updatedAt")` +
+      ` SELECT gen_random_uuid()::text, c.id, ${sql(roleKey)}, ${sql(label.name)}, ${sql(label.description)}, true, ${isReadOnly}, now(), now()` +
+      ` FROM "companies" c WHERE NOT EXISTS (` +
+      `SELECT 1 FROM "roles" r WHERE r."companyId" = c.id AND r."key" = ${sql(roleKey)});`,
+  );
+}
+lines.push('');
 
 // 1. Permission rows for anything new. gen_random_uuid() only stands in for
 //    the client-side cuid; nothing depends on the id's shape.
