@@ -123,10 +123,11 @@ const NAV_GROUPS: NavGroup[] = [
         href: '/catalogue',
         label: 'Catalogue',
         Icon: ShoppingBag,
-        // Suppliers hold this too: it is the one page a vendor account needs,
-        // and the API shows it only its own offers.
+        // No ownScopeHidden, deliberately. A supplier's scope is OWN, so that
+        // flag hid the one page a vendor account exists to use. The permission
+        // is gate enough: employees do not hold it, and the API shows a
+        // supplier only its own offers.
         permission: PERMISSIONS.VENDOR_PRODUCTS_READ,
-        ownScopeHidden: true,
       },
       {
         href: '/procurement',

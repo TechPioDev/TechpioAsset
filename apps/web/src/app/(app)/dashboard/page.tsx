@@ -13,6 +13,7 @@ import {
   FileBarChart,
   Package,
   Plus,
+  ShoppingBag,
   ShieldAlert,
   ShieldCheck,
   Upload,
@@ -219,6 +220,37 @@ function SectionHead({ kicker, title, action }: { kicker: string; title: string;
 // Employee quick actions (OWN scope): the three things an employee actually
 // comes to do, phrased as intents. Each lands on the request form with the
 // type pre-selected.
+/**
+ * A supplier is not a colleague with a laptop (v2.44).
+ *
+ * Its scope is OWN, so without this it landed on the employee dashboard and was
+ * told to confirm equipment it had received and report faults on kit it does
+ * not have. Nothing here is about kit; it is about the catalogue, which is the
+ * only reason a supplier has an account.
+ */
+const VENDOR_QUICK_ACTIONS: {
+  href: string;
+  label: string;
+  icon: ReactNode;
+  tone: string;
+  perm?: Permission;
+}[] = [
+  {
+    href: '/catalogue',
+    label: 'Your offers',
+    icon: <ShoppingBag className="size-[18px]" />,
+    tone: 'info',
+    perm: PERMISSIONS.VENDOR_PRODUCTS_READ,
+  },
+  {
+    href: '/catalogue/new',
+    label: 'Add an offer',
+    icon: <Plus className="size-[18px]" />,
+    tone: 'progress',
+    perm: PERMISSIONS.VENDOR_PRODUCTS_MANAGE,
+  },
+];
+
 const EMPLOYEE_QUICK_ACTIONS: {
   href: string;
   label: string;
@@ -335,7 +367,10 @@ export default function DashboardPage() {
     !!user && user.permissions.length > 0 && user.permissions.every((p) => isReadOnlyPermission(p as Permission));
   const roleLabel = user?.roles?.[0] ? formatRole(user.roles[0]) : null;
   const scopeLabel = scope ? SCOPE_LABELS[scope] : null;
-  const quickActions = (user?.scope === 'OWN' ? EMPLOYEE_QUICK_ACTIONS : QUICK_ACTIONS).filter(
+  const isVendor = Boolean(user?.roles?.includes('VENDOR'));
+  const quickActions = (
+    isVendor ? VENDOR_QUICK_ACTIONS : user?.scope === 'OWN' ? EMPLOYEE_QUICK_ACTIONS : QUICK_ACTIONS
+  ).filter(
     (a) => !a.perm || can(a.perm),
   );
 
@@ -608,8 +643,9 @@ export default function DashboardPage() {
           </div>
         ) : (
           <p className="relative mt-3 max-w-xl text-sm text-[var(--color-content-muted)]">
-            Here&apos;s what&apos;s assigned to you and where you can help. Confirm equipment you
-            have received, and raise a ticket the moment something misbehaves.
+            {isVendor
+              ? 'Your catalogue with this buyer. Add what you are offering, keep prices and stock current, and send new offers for approval.'
+              : "Here's what's assigned to you and where you can help. Confirm equipment you have received, and raise a ticket the moment something misbehaves."}
           </p>
         )}
       </section>
