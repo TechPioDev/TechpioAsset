@@ -46,6 +46,25 @@ const PUBLIC_PREFIXES = [
 ];
 
 const WIDGET_SRC = 'https://piotrack.com:8443/widget/piotrack-chat.js';
+
+/**
+ * Which PioTrack widget the conversations land in.
+ *
+ * Changing this moves where visitors' messages arrive. The previous widget
+ * stops receiving them the moment a build ships, and nothing on either side
+ * announces the switch - so the id has to be provisioned on piotrack.com
+ * BEFORE it is set here.
+ *
+ * An id that does not exist fails silently and looks like success: the script
+ * loads, the network tab is clean, and no bubble appears. The corner spacing
+ * is keyed on `onLoad` (see below), so even the layout is unchanged. The only
+ * honest check is opening a public page and seeing the bubble.
+ *
+ * Changed 2026-09-08 from `wc_gsrzx7yeiqu6x0ddp7ff7lrp`. That edit was swept
+ * into commit 2c66563, "Suppliers can state what the template never asked
+ * for", by an unrelated `git add -A`, so `git log` on this file explains the
+ * change with a commit about vendor catalogues. This note is the record.
+ */
 const WIDGET_ID = 'wc_bokfg1y9zfafyzsrqalxpvbq';
 
 /**
