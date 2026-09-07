@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { PERMISSIONS, formatInr, type OfferLifecycle } from '@techpioasset/domain';
 import { OFFER_LIFECYCLE_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
+import { OfferPhotoSheet } from '../../src/components/offer-photo-sheet';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
-import { offerExpiry } from '../catalogue';
+import { offerExpiry } from '../(tabs)/catalogue';
 
 /**
  * One offer, on a phone (v2.42).
@@ -43,6 +44,8 @@ interface OfferDetail {
   leadTimeDays: number | null;
   warrantyMonths: number | null;
   paymentTerms: string | null;
+  images: { id: string; isPrimary: boolean }[];
+  proposedSpecs: { id: string; label: string; value: string }[];
   specs: Record<string, string> | null;
   categoryId: string;
   subcategoryId: string | null;
@@ -58,6 +61,7 @@ interface SpecField {
 export default function OfferScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, user } = useSession();
+  const router = useRouter();
   const { c, scheme, spacing } = useTheme();
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
 
@@ -66,9 +70,13 @@ export default function OfferScreen() {
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState('1');
   const [choosing, setChoosing] = useState(false);
+  const [acting, setActing] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   const isVendor = !!user?.roles?.includes('VENDOR');
-  const canSelect = !!user?.permissions.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE) && !isVendor;
+  const canManage = !!user?.permissions.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE);
+  const canReview = !!user?.permissions.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW) && !isVendor;
+  const canSelect = canManage && !isVendor;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +117,7 @@ export default function OfferScreen() {
   const token = OFFER_LIFECYCLE_TOKENS[offer.effectiveStatus];
   const tone = palette[token.tone];
   const buyable = ['ACTIVE', 'EXPIRING_SOON'].includes(offer.effectiveStatus);
+  const editable = ['DRAFT', 'REJECTED', 'PAUSED'].includes(offer.status);
 
   const goods = Number(offer.unitPrice) - Number(offer.discount);
   const taxable = goods + Number(offer.shippingCost) + Number(offer.installationCost);
@@ -138,6 +147,27 @@ export default function OfferScreen() {
       </Text>
     </View>
   );
+
+  /** One shape for every simple action: do it, say what happened, reload. */
+  async function act(
+    path: string,
+    body: Record<string, unknown> | undefined,
+    done: string,
+    failed: string,
+  ) {
+    setActing(true);
+    try {
+      await api.request(path, { method: 'POST', ...(body ? { body } : {}) });
+      await load();
+      Alert.alert(done);
+    } catch (error) {
+      // The server names the actual rule - no picture yet, a required
+      // specification still blank - better than anything generic here.
+      Alert.alert(failed, error instanceof ApiError ? error.message : 'Please try again.');
+    } finally {
+      setActing(false);
+    }
+  }
 
   const choose = async () => {
     setChoosing(true);
@@ -214,6 +244,154 @@ export default function OfferScreen() {
           </Card>
         </>
       ) : null}
+
+
+      {canManage ? (
+        <>
+          <SectionTitle>Manage this offer</SectionTitle>
+          <Card>
+            <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
+              {offer.images.length === 0
+                ? 'This offer has no picture yet, so it cannot go for review.'
+                : `${offer.images.length} picture${offer.images.length === 1 ? '' : 's'}.`}
+            </Text>
+            <Button
+              label="Add a picture"
+              icon="camera-outline"
+              variant={offer.images.length === 0 ? 'primary' : 'secondary'}
+              onPress={() => setPhotoOpen(true)}
+            />
+            {editable ? (
+              <Button
+                label="Edit details"
+                icon="create-outline"
+                variant="secondary"
+                onPress={() => router.push(`/offer/edit?id=${offer.id}`)}
+                style={{ marginTop: 6 }}
+              />
+            ) : null}
+            {offer.status === 'DRAFT' || offer.status === 'REJECTED' ? (
+              <Button
+                label="Send for review"
+                icon="send-outline"
+                loading={acting}
+                disabled={offer.images.length === 0}
+                onPress={() =>
+                  void act(
+                    `/vendor-products/${offer.id}/submit`,
+                    undefined,
+                    'Sent for review',
+                    'Could not send it for review',
+                  )
+                }
+                style={{ marginTop: 6 }}
+              />
+            ) : null}
+            <Button
+              label="Withdraw this offer"
+              variant="danger"
+              icon="close-outline"
+              loading={acting}
+              onPress={() =>
+                Alert.alert(
+                  'Withdraw this offer?',
+                  'It stays readable, so past purchases still make sense.',
+                  [
+                    { text: 'Keep it', style: 'cancel' },
+                    {
+                      text: 'Withdraw',
+                      style: 'destructive',
+                      onPress: () => {
+                        void (async () => {
+                          setActing(true);
+                          try {
+                            await api.request(`/vendor-products/${offer.id}`, { method: 'DELETE' });
+                            router.replace('/catalogue');
+                          } catch (error) {
+                            Alert.alert(
+                              'Could not withdraw it',
+                              error instanceof ApiError ? error.message : 'Please try again.',
+                            );
+                          } finally {
+                            setActing(false);
+                          }
+                        })();
+                      },
+                    },
+                  ],
+                )
+              }
+              style={{ marginTop: 6 }}
+            />
+          </Card>
+        </>
+      ) : null}
+
+      {canReview && offer.status === 'PENDING_REVIEW' ? (
+        <>
+          <SectionTitle>Review</SectionTitle>
+          <Card>
+            <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
+              Approving publishes it to buyers. A rejection must say why, or the supplier cannot act
+              on it.
+            </Text>
+            <Button
+              label="Approve"
+              icon="checkmark-done-outline"
+              loading={acting}
+              onPress={() =>
+                void act(
+                  `/vendor-products/${offer.id}/review`,
+                  { decision: 'APPROVED' },
+                  'Approved',
+                  'Could not record the decision',
+                )
+              }
+            />
+            <Button
+              label="Ask for a correction"
+              variant="secondary"
+              loading={acting}
+              onPress={() =>
+                Alert.prompt?.(
+                  'What needs changing?',
+                  'The supplier sees this.',
+                  (reason?: string) => {
+                    if (!reason?.trim()) return;
+                    void act(
+                      `/vendor-products/${offer.id}/review`,
+                      { decision: 'CORRECTION_REQUESTED', comments: reason.trim() },
+                      'Sent back to the supplier',
+                      'Could not record the decision',
+                    );
+                  },
+                )
+              }
+              style={{ marginTop: 6 }}
+            />
+          </Card>
+        </>
+      ) : null}
+
+      {offer.proposedSpecs?.length ? (
+        <>
+          <SectionTitle>Also stated by the supplier</SectionTitle>
+          <Card>
+            <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Not asked of everybody in this category, so not compared.
+            </Text>
+            {offer.proposedSpecs.map((spec) => row(spec.label, spec.value))}
+          </Card>
+        </>
+      ) : null}
+
+      <OfferPhotoSheet
+        visible={photoOpen}
+        productId={offer.id}
+        imageCount={offer.images?.length ?? 0}
+        onClose={() => setPhotoOpen(false)}
+        onUploaded={() => void load()}
+      />
 
       {canSelect ? (
         <>

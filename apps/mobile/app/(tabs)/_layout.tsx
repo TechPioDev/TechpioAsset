@@ -83,6 +83,16 @@ export default function TabsLayout() {
           href: gate(PERMISSIONS.REQUESTS_APPROVE, PERMISSIONS.REQUESTS_ASSESS),
         }}
       />
+      <Tabs.Screen
+        name="catalogue"
+        options={{
+          title: 'Catalogue',
+          tabBarIcon: icon('pricetags-outline'),
+          // A supplier's whole reason for an account; buried in More it was two
+          // taps from everything it does.
+          href: gate(PERMISSIONS.VENDOR_PRODUCTS_READ),
+        }}
+      />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: icon('grid-outline') }} />
 
       {/* Reached from the More menu — hidden from the bar. */}

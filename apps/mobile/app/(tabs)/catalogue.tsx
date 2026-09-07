@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { formatInr, type OfferLifecycle } from '@techpioasset/domain';
+import { formatInr, PERMISSIONS, type OfferLifecycle } from '@techpioasset/domain';
 import { OFFER_LIFECYCLE_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
-import { useSession } from '../src/providers/session';
-import { useTheme } from '../src/theme';
-import { Card, Chevron, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { useSession } from '../../src/providers/session';
+import { useTheme } from '../../src/theme';
+import { Button, Card, Chevron, EmptyState, IconBadge, StatusPill } from '../../src/components/ui';
 
 /**
  * The catalogue on a phone (v2.42).
@@ -50,6 +50,7 @@ export default function CatalogueScreen() {
   const [liveOnly, setLiveOnly] = useState(false);
 
   const isVendor = !!user?.roles?.includes('VENDOR');
+  const canManage = !!user?.permissions.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +82,14 @@ export default function CatalogueScreen() {
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListHeaderComponent={
         <View style={{ marginBottom: spacing.md }}>
+          {canManage ? (
+            <Button
+              label="New offer"
+              icon="add-outline"
+              onPress={() => router.push('/offer/edit')}
+              style={{ marginBottom: spacing.md }}
+            />
+          ) : null}
           <TextInput
             value={search}
             onChangeText={setSearch}
