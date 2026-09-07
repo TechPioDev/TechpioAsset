@@ -429,6 +429,48 @@ describe('specifications suppliers volunteer', () => {
   });
 });
 
+describe('what a supplier is offered on its dashboard', () => {
+  it('offers no tile that leads somewhere it cannot open', async () => {
+    // The failure this prevents: two tiles reading zero, both linking to pages
+    // that answer "you do not have permission". A supplier holds neither
+    // assets:read nor requests:read.
+    const res = await api(app).get('/api/v1/dashboard').set(vendorAuth());
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+
+    const keys = res.body.data.tiles.map((t: { key: string }) => t.key);
+    expect(keys).not.toContain('my-assets');
+    expect(keys).not.toContain('my-open-requests');
+  });
+
+  it('offers tiles about the catalogue instead', async () => {
+    const res = await api(app).get('/api/v1/dashboard').set(vendorAuth());
+    const keys = res.body.data.tiles.map((t: { key: string }) => t.key);
+    expect(keys).toContain('vendor-live-offers');
+    expect(keys).toContain('vendor-awaiting-review');
+    expect(keys).toContain('vendor-needs-you');
+  });
+
+  it('still gives an employee their own kit and requests', async () => {
+    // The gate must not take these away from the people they were built for.
+    const res = await api(app).get('/api/v1/dashboard').set(auth(s.employee));
+    const keys = res.body.data.tiles.map((t: { key: string }) => t.key);
+    expect(keys).toContain('my-assets');
+    expect(keys).toContain('my-open-requests');
+  });
+
+  it('counts only that supplier’s own offers', async () => {
+    // Vendor B's offers must never reach Vendor A's numbers.
+    await liveOffer(vendorB, { ram_gb: '32' });
+    const res = await api(app).get('/api/v1/dashboard').set(vendorAuth());
+    const live = res.body.data.tiles.find((t: { key: string }) => t.key === 'vendor-live-offers');
+
+    const mine = await prisma.vendorProduct.count({
+      where: { vendorId: vendorA, status: 'APPROVED', deletedAt: null, availableUntil: { gt: new Date() } },
+    });
+    expect(live.value).toBe(mine);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

@@ -47,31 +47,93 @@ export class DashboardService {
     const db = this.prisma.client;
     const tiles: DashboardTile[] = [];
 
-    // Everyone: their own kit and their own requests. Counted in parallel -
-    // these tiles do not depend on each other, and awaiting them in turn made
-    // the dashboard as slow as the sum of its parts.
-    const [myAssets, myOpenRequests] = await Promise.all([
-      db.asset.count({ where: { ...tenant, assignedUserId: actor.id, deletedAt: null } }),
-      db.assetRequest.count({
-        where: { ...tenant, requesterId: actor.id, status: { notIn: [...CLOSED_REQUEST_STATUSES] } },
-      }),
-    ]);
-    tiles.push({
-      key: 'my-assets',
-      label: 'My assets',
-      value: myAssets,
-      href: '/my-assets',
-      icon: 'Boxes',
-      tone: 'info',
-    });
-    tiles.push({
-      key: 'my-open-requests',
-      label: 'My open requests',
-      value: myOpenRequests,
-      href: '/requests?mine=true&open=true',
-      icon: 'ClipboardList',
-      tone: 'progress',
-    });
+    // A supplier is not a colleague with a laptop (v2.44).
+    //
+    // These two were pushed for everyone, on the assumption that every account
+    // belongs to somebody with kit and requests. A supplier holds neither
+    // permission, so it got two tiles reading zero that led to two pages saying
+    // "you do not have permission" - gated now on the permission each tile's
+    // page actually needs.
+    const isVendorUser = Boolean(actor.vendorId);
+
+    if (has('assets:read') || has('requests:read')) {
+      // Counted in parallel - these tiles do not depend on each other, and
+      // awaiting them in turn made the dashboard as slow as the sum of its parts.
+      const [myAssets, myOpenRequests] = await Promise.all([
+        has('assets:read')
+          ? db.asset.count({ where: { ...tenant, assignedUserId: actor.id, deletedAt: null } })
+          : Promise.resolve(0),
+        has('requests:read')
+          ? db.assetRequest.count({
+              where: {
+                ...tenant,
+                requesterId: actor.id,
+                status: { notIn: [...CLOSED_REQUEST_STATUSES] },
+              },
+            })
+          : Promise.resolve(0),
+      ]);
+      if (has('assets:read')) {
+        tiles.push({
+          key: 'my-assets',
+          label: 'My assets',
+          value: myAssets,
+          href: '/my-assets',
+          icon: 'Boxes',
+          tone: 'info',
+        });
+      }
+      if (has('requests:read')) {
+        tiles.push({
+          key: 'my-open-requests',
+          label: 'My open requests',
+          value: myOpenRequests,
+          href: '/requests?mine=true&open=true',
+          icon: 'ClipboardList',
+          tone: 'progress',
+        });
+      }
+    }
+
+    // What a supplier actually came here for. Scoped by its own vendor link, so
+    // these counts can only ever be its own offers.
+    if (isVendorUser && has('vendor-products:read') && actor.vendorId) {
+      const vendorScope = { ...tenant, vendorId: actor.vendorId, deletedAt: null };
+      const [live, awaitingReview, needsAttention] = await Promise.all([
+        db.vendorProduct.count({
+          where: { ...vendorScope, status: 'APPROVED', availableUntil: { gt: new Date() } },
+        }),
+        db.vendorProduct.count({ where: { ...vendorScope, status: 'PENDING_REVIEW' } }),
+        // Drafts and anything turned down: the offers only this supplier can move.
+        db.vendorProduct.count({
+          where: { ...vendorScope, status: { in: ['DRAFT', 'REJECTED'] } },
+        }),
+      ]);
+      tiles.push({
+        key: 'vendor-live-offers',
+        label: 'Offers on sale',
+        value: live,
+        href: '/catalogue?liveOnly=true',
+        icon: 'Boxes',
+        tone: 'success',
+      });
+      tiles.push({
+        key: 'vendor-awaiting-review',
+        label: 'Awaiting the buyer',
+        value: awaitingReview,
+        href: '/catalogue?status=PENDING_REVIEW',
+        icon: 'ClipboardList',
+        tone: 'progress',
+      });
+      tiles.push({
+        key: 'vendor-needs-you',
+        label: 'Needs your attention',
+        value: needsAttention,
+        href: '/catalogue?status=DRAFT',
+        icon: 'Wrench',
+        tone: needsAttention > 0 ? 'warning' : 'info',
+      });
+    }
 
     // Whoever the live step points at - which is not only approvers (v2.27).
     //

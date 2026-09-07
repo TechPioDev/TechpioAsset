@@ -90,8 +90,16 @@ const NAV_GROUPS: NavGroup[] = [
     key: 'workspace',
     label: 'My workspace',
     items: [
-      { href: '/my-assets', label: 'My assets', Icon: Package },
-      { href: '/requests', label: 'Requests', Icon: ClipboardList },
+      // Permissioned, because "my workspace" assumes the reader is a colleague
+      // with kit and requests. A supplier holds neither, and offering the pages
+      // anyway led to two dead ends that only said "you do not have permission".
+      { href: '/my-assets', label: 'My assets', Icon: Package, permission: PERMISSIONS.ASSETS_READ },
+      {
+        href: '/requests',
+        label: 'Requests',
+        Icon: ClipboardList,
+        permission: PERMISSIONS.REQUESTS_READ,
+      },
     ],
   },
   {

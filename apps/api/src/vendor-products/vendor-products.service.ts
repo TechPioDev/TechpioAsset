@@ -359,7 +359,8 @@ export class VendorProductsService {
    */
   async submitForReview(actor: AuthUser, id: string) {
     const product = await this.loadForWrite(actor, id);
-    if (!['DRAFT', 'REJECTED', 'RETURNED_TO_VENDOR'].includes(product.status)) {
+    // RETURNED_TO_VENDOR is a review decision, not a status a product can hold.
+    if (!['DRAFT', 'REJECTED'].includes(product.status)) {
       throw new AppError('CONFLICT', `This offer is ${product.status.toLowerCase()} and is not a draft`);
     }
     const problem = imageSetProblem(product._count.images);
