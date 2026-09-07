@@ -45,6 +45,21 @@ const vendorProductFields = z
     /** Category-shaped fields, checked against the template for the category. */
     specs: z.record(z.string(), z.string()).optional(),
 
+    /**
+     * Specifications the template never asked for (v2.44).
+     *
+     * Recorded and shown, never compared. This is where something genuinely new
+     * goes when the buyer's template has no box for it yet.
+     */
+    proposedSpecs: z
+      .array(
+        z
+          .object({ label: trimmed(80), value: trimmed(200) })
+          .strict(),
+      )
+      .max(10)
+      .optional(),
+
     /** A full YouTube URL; only the video id is stored. */
     youtubeUrl: z.string().max(300).optional(),
 

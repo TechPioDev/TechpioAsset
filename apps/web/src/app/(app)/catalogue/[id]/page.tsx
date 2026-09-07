@@ -47,6 +47,7 @@ type OfferDetail = Offer & {
   vendor: { id: string; name: string; contactEmail: string | null } | null;
   images: { id: string; isPrimary: boolean; sortOrder: number; mimeType: string; sizeBytes: number }[];
   reviews: { decision: string; comments: string | null; createdAt: string }[];
+  proposedSpecs: { id: string; label: string; normalizedKey: string; value: string }[];
 };
 
 type SpecField = { key: string; label: string; unit: string | null };
@@ -345,6 +346,27 @@ export default function OfferPage() {
                       {value}
                       {unitFor(key) ? ` ${unitFor(key)}` : ''}
                     </dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          ) : null}
+
+          {offer.proposedSpecs?.length ? (
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold">Also stated by the supplier</h2>
+              <p className="mb-3 text-xs text-[var(--color-content-muted)]">
+                Things this supplier told us that the category does not ask everybody. Shown for
+                information — these are not compared.
+              </p>
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                {offer.proposedSpecs.map((spec) => (
+                  <div
+                    key={spec.id}
+                    className="flex justify-between gap-3 border-b border-[var(--color-border)] pb-1"
+                  >
+                    <dt className="text-[var(--color-content-muted)]">{spec.label}</dt>
+                    <dd className="text-right font-medium">{spec.value}</dd>
                   </div>
                 ))}
               </dl>

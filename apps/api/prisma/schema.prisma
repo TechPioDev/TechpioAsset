@@ -567,6 +567,7 @@ model Company {
   vendorProducts        VendorProduct[]
   vendorProductImages   VendorProductImage[]
   vendorProductReviews  VendorProductReview[]
+  vendorProposedSpecs   VendorProposedSpec[]
   procurementSelections ProcurementSelection[]
   categorySpecFields    CategorySpecField[]
   qualityChecks         QualityCheck[]
@@ -1104,6 +1105,39 @@ model CategorySpecField {
   @@index([companyId, categoryId, sortOrder])
   @@index([deletedAt])
   @@map("category_spec_fields")
+}
+
+/// A specification a supplier offered that the template never asked for (v2.44).
+///
+/// Recorded and shown, never compared and never required: a value nobody asked
+/// for must not decide a purchase. Its worth is in the aggregate - when several
+/// suppliers independently volunteer the same field, the template is out of
+/// date, and an administrator can promote it into the template.
+///
+/// A row rather than a JSON blob on the offer, because the whole point is
+/// counting how many different suppliers said the same thing.
+model VendorProposedSpec {
+  id        String @id @default(cuid())
+  companyId String
+
+  vendorProductId String
+
+  /// As the supplier typed it, shown back to them unchanged.
+  label String
+  /// The grouping key: normalizeSpecLabel(label). "NPU TOPS" and "npu (tops)"
+  /// are the same question and must land in the same bucket.
+  normalizedKey String
+  value         String
+
+  createdAt DateTime @default(now())
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorProduct VendorProduct @relation(fields: [vendorProductId], references: [id], onDelete: Cascade)
+
+  /// One answer per question per offer.
+  @@unique([vendorProductId, normalizedKey])
+  @@index([companyId, normalizedKey])
+  @@map("vendor_proposed_specs")
 }
 
 model Subcategory {
@@ -3878,6 +3912,7 @@ model VendorProduct {
   category    Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   subcategory Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
 
+  proposedSpecs VendorProposedSpec[]
   images     VendorProductImage[]
   reviews    VendorProductReview[]
   selections ProcurementSelection[]

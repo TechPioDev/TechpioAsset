@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
-import type { AuthUser, CreateSpecFieldInput, UpdateSpecFieldInput } from '@techpioasset/contracts';
-import type { SpecFieldDefinition } from '@techpioasset/domain';
+import type {
+  AuthUser,
+  CreateSpecFieldInput,
+  PromoteProposalInput,
+  UpdateSpecFieldInput,
+} from '@techpioasset/contracts';
+import { isWorthAsking, type SpecFieldDefinition } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { denyVendorUsers, tenantFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -111,6 +116,152 @@ export class SpecTemplatesService {
       intent: r.intent,
       tolerance: r.tolerance === null ? null : Number(r.tolerance),
     }));
+  }
+
+
+  /**
+   * What suppliers have volunteered that the template never asked for.
+   *
+   * Grouped by the normalized key and counted by DISTINCT SUPPLIER, not by
+   * offer: one supplier listing the same field on eight laptops is one opinion,
+   * and counting rows would make it look like eight.
+   */
+  async proposals(actor: AuthUser, categoryId: string, subcategoryId?: string) {
+    await this.categoryOrThrow(actor, categoryId);
+    denyVendorUsers(actor, 'see what other suppliers have suggested');
+
+    const rows = await this.prisma.client.vendorProposedSpec.findMany({
+      where: {
+        ...tenantFilter(actor),
+        vendorProduct: {
+          categoryId,
+          deletedAt: null,
+          ...(subcategoryId ? { subcategoryId } : {}),
+        },
+      },
+      select: {
+        normalizedKey: true,
+        label: true,
+        value: true,
+        vendorProduct: { select: { vendorId: true, vendor: { select: { name: true } } } },
+      },
+      take: 2000,
+    });
+
+    const groups = new Map<
+      string,
+      { key: string; label: string; vendors: Set<string>; vendorNames: Set<string>; examples: string[] }
+    >();
+    for (const row of rows) {
+      const group = groups.get(row.normalizedKey) ?? {
+        key: row.normalizedKey,
+        // The first spelling seen is as good as any; the label is a suggestion
+        // an administrator edits when promoting.
+        label: row.label,
+        vendors: new Set<string>(),
+        vendorNames: new Set<string>(),
+        examples: [],
+      };
+      group.vendors.add(row.vendorProduct.vendorId);
+      group.vendorNames.add(row.vendorProduct.vendor.name);
+      if (group.examples.length < 4 && !group.examples.includes(row.value)) {
+        group.examples.push(row.value);
+      }
+      groups.set(row.normalizedKey, group);
+    }
+
+    return [...groups.values()]
+      .map((g) => ({
+        key: g.key,
+        label: g.label,
+        vendorCount: g.vendors.size,
+        vendors: [...g.vendorNames].sort(),
+        examples: g.examples,
+        worthAsking: isWorthAsking({ vendorCount: g.vendors.size }),
+      }))
+      // Most-agreed first: that ordering is the recommendation.
+      .sort((a, b) => b.vendorCount - a.vendorCount || a.label.localeCompare(b.label));
+  }
+
+  /**
+   * Promote a volunteered specification into the template.
+   *
+   * Two halves, and the second is what makes it worth doing: the field is
+   * created, and every offer that already answered it has its answer moved into
+   * the compared specification. Without that, promoting a field would compare
+   * nothing until every supplier happened to edit their offer again.
+   */
+  async promote(actor: AuthUser, input: PromoteProposalInput) {
+    denyVendorUsers(actor, 'change what offers are described by');
+    await this.categoryOrThrow(actor, input.categoryId);
+
+    const clash = await this.prisma.client.categorySpecField.findFirst({
+      where: {
+        categoryId: input.categoryId,
+        subcategoryId: input.subcategoryId ?? null,
+        key: input.normalizedKey,
+        ...tenantFilter(actor),
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new AppError('CONFLICT', 'That specification is already in the template');
+    }
+
+    const { normalizedKey, ...rest } = input;
+
+    return this.prisma.client.$transaction(async (tx) => {
+      const field = await tx.categorySpecField.create({
+        data: {
+          ...rest,
+          key: normalizedKey,
+          companyId: actor.companyId,
+          tolerance: input.tolerance === undefined ? null : new Prisma.Decimal(input.tolerance),
+          createdById: actor.id,
+        },
+        select: SpecTemplatesService.FIELDS,
+      });
+
+      const answered = await tx.vendorProposedSpec.findMany({
+        where: {
+          normalizedKey,
+          ...tenantFilter(actor),
+          vendorProduct: {
+            categoryId: input.categoryId,
+            deletedAt: null,
+            ...(input.subcategoryId ? { subcategoryId: input.subcategoryId } : {}),
+          },
+        },
+        select: { id: true, value: true, vendorProductId: true, vendorProduct: { select: { specs: true } } },
+        take: 2000,
+      });
+
+      for (const row of answered) {
+        const specs = (row.vendorProduct.specs ?? {}) as Record<string, string>;
+        await tx.vendorProduct.update({
+          where: { id: row.vendorProductId },
+          data: { specs: { ...specs, [normalizedKey]: row.value } as Prisma.InputJsonValue },
+        });
+      }
+      // Moved, not copied: leaving them behind would show the same fact twice.
+      await tx.vendorProposedSpec.deleteMany({ where: { id: { in: answered.map((r) => r.id) } } });
+
+      await this.audit.record({
+        companyId: actor.companyId,
+        actorId: actor.id,
+        action: AuditAction.SETTING_CHANGED,
+        entityType: 'CategorySpecField',
+        entityId: field.id,
+        newValues: {
+          promotedFrom: normalizedKey,
+          offersBackfilled: answered.length,
+          categoryId: input.categoryId,
+        },
+      });
+
+      return { ...field, offersBackfilled: answered.length };
+    });
   }
 
   async create(actor: AuthUser, input: CreateSpecFieldInput) {

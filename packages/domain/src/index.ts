@@ -34,3 +34,4 @@ export * from './request-policy';
 export * from './vendor-catalog';
 export * from './vendor-comparison';
 export * from './quality-check';
+export * from './spec-proposals';

@@ -46,7 +46,7 @@ const PUBLIC_PREFIXES = [
 ];
 
 const WIDGET_SRC = 'https://piotrack.com:8443/widget/piotrack-chat.js';
-const WIDGET_ID = 'wc_gsrzx7yeiqu6x0ddp7ff7lrp';
+const WIDGET_ID = 'wc_bokfg1y9zfafyzsrqalxpvbq';
 
 /**
  * Cross from a public page into the signed-in app with a FULL page load.

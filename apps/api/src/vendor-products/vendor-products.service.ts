@@ -4,6 +4,8 @@ import type { AuthUser, CreateVendorProductInput, UpdateVendorProductInput, Revi
 import {
   PERMISSIONS,
   calculateLandedCost,
+  normalizeSpecLabel,
+  proposedSpecsProblem,
   effectiveOfferStatus,
   imageSetProblem,
   youtubeVideoId,
@@ -13,6 +15,12 @@ import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter, vendorScopeFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+/** Same shape the other services use for a transaction handle. */
+type Tx = Omit<
+  PrismaService['client'],
+  '$connect' | '$disconnect' | '$on' | '$use' | '$transaction' | '$extends'
+>;
 
 /**
  * Vendor catalogue (v2.42).
@@ -108,6 +116,55 @@ export class VendorProductsService {
     };
   }
 
+
+  /**
+   * Replace an offer's volunteered specifications.
+   *
+   * Rewritten wholesale rather than merged: the supplier is looking at the
+   * complete list on screen, so anything they removed there must go here too,
+   * and a merge would quietly resurrect it.
+   */
+  private async writeProposedSpecs(
+    tx: Tx,
+    actor: AuthUser,
+    productId: string,
+    categoryId: string,
+    subcategoryId: string | null,
+    proposals: { label: string; value: string }[],
+  ) {
+    // Checked against the questions this offer is actually asked, so a supplier
+    // cannot answer the same thing twice - once compared and once not.
+    const template = await tx.categorySpecField.findMany({
+      where: {
+        categoryId,
+        companyId: actor.companyId,
+        deletedAt: null,
+        ...(subcategoryId
+          ? { OR: [{ subcategoryId: null }, { subcategoryId }] }
+          : { subcategoryId: null }),
+      },
+      select: { key: true, label: true },
+    });
+    // Both, because the supplier is looking at the labels. A field keyed
+    // "ram_gb" and labelled "RAM" is duplicated by somebody typing "RAM", and
+    // matching on the key alone would let that through.
+    const asked = template.flatMap((f) => [f.key, normalizeSpecLabel(f.label)]);
+    const problem = proposedSpecsProblem(proposals, asked);
+    if (problem) throw new AppError('VALIDATION_FAILED', problem);
+
+    await tx.vendorProposedSpec.deleteMany({ where: { vendorProductId: productId } });
+    if (proposals.length === 0) return;
+    await tx.vendorProposedSpec.createMany({
+      data: proposals.map((proposal) => ({
+        companyId: actor.companyId,
+        vendorProductId: productId,
+        label: proposal.label.trim(),
+        normalizedKey: normalizeSpecLabel(proposal.label),
+        value: proposal.value.trim(),
+      })),
+    });
+  }
+
   async create(actor: AuthUser, input: CreateVendorProductInput) {
     const vendorId = this.resolveVendorId(actor, input.vendorId);
 
@@ -127,7 +184,7 @@ export class VendorProductsService {
     if (!category) throw AppError.notFound('Category', input.categoryId);
 
     const videoId = this.videoIdOrThrow(input.youtubeUrl);
-    const { vendorId: _ignored, youtubeUrl: _url, specs, ...rest } = input;
+    const { vendorId: _ignored, youtubeUrl: _url, specs, proposedSpecs, ...rest } = input;
 
     const product = await this.prisma.client.vendorProduct.create({
       data: {
@@ -145,6 +202,19 @@ export class VendorProductsService {
       },
       select: { ...VendorProductsService.LIST_FIELDS, specs: true, youtubeVideoId: true },
     });
+
+    if (proposedSpecs?.length) {
+      await this.prisma.client.$transaction((tx) =>
+        this.writeProposedSpecs(
+          tx,
+          actor,
+          product.id,
+          input.categoryId,
+          input.subcategoryId ?? null,
+          proposedSpecs,
+        ),
+      );
+    }
 
     await this.audit.record({
       companyId: actor.companyId,
@@ -208,7 +278,7 @@ export class VendorProductsService {
       this.touchesReviewedFields(input);
 
     const videoId = input.youtubeUrl === undefined ? undefined : this.videoIdOrThrow(input.youtubeUrl);
-    const { youtubeUrl: _url, specs, ...rest } = input;
+    const { youtubeUrl: _url, specs, proposedSpecs, ...rest } = input;
 
     const merged = {
       unitPrice: input.unitPrice ?? Number(before.unitPrice),
@@ -233,6 +303,20 @@ export class VendorProductsService {
       },
       select: { ...VendorProductsService.LIST_FIELDS, specs: true, youtubeVideoId: true },
     });
+
+    // Undefined means "not editing them"; an empty array means "I removed them all".
+    if (proposedSpecs !== undefined) {
+      await this.prisma.client.$transaction((tx) =>
+        this.writeProposedSpecs(
+          tx,
+          actor,
+          id,
+          product.categoryId,
+          input.subcategoryId ?? before.subcategoryId ?? null,
+          proposedSpecs,
+        ),
+      );
+    }
 
     await this.audit.recordChange(
       {
@@ -465,6 +549,10 @@ export class VendorProductsService {
         reviews: {
           orderBy: { createdAt: 'desc' },
           select: { decision: true, comments: true, createdAt: true },
+        },
+        proposedSpecs: {
+          orderBy: { label: 'asc' },
+          select: { id: true, label: true, normalizedKey: true, value: true },
         },
       },
     });

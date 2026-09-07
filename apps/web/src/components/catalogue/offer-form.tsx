@@ -42,6 +42,7 @@ export type OfferDraft = {
   availableFrom: string;
   availableUntil: string;
   specs: Record<string, string>;
+  proposedSpecs: { label: string; value: string }[];
 };
 
 type Category = { id: string; name: string; subcategories: { id: string; name: string }[] };
@@ -87,6 +88,7 @@ export const EMPTY_DRAFT: OfferDraft = {
   availableFrom: isoDay(0),
   availableUntil: isoDay(30),
   specs: {},
+  proposedSpecs: [],
 };
 
 const num = (v: string) => {
@@ -126,6 +128,11 @@ export function draftToBody(draft: OfferDraft, opts: { includeVendor: boolean })
     ...(Object.keys(draft.specs).length > 0
       ? { specs: Object.fromEntries(Object.entries(draft.specs).filter(([, v]) => v.trim() !== '')) }
       : {}),
+    // Always sent, even when empty: an empty list is how the supplier says
+    // "I removed the one that was there".
+    proposedSpecs: draft.proposedSpecs
+      .filter((p) => p.label.trim() && p.value.trim())
+      .map((p) => ({ label: p.label.trim(), value: p.value.trim() })),
   };
 }
 
@@ -404,6 +411,69 @@ export function OfferForm({
           ))}
         </Card>
       ) : null}
+
+      <Card className="grid gap-3 p-5">
+        <div>
+          <h2 className="text-sm font-semibold">Anything else worth knowing?</h2>
+          <p className="text-xs text-[var(--color-content-muted)]">
+            For anything the questions above do not cover — a new kind of processor, a
+            certification, a feature that did not exist last year. These are recorded and shown to
+            buyers, but not compared. If several suppliers list the same thing, we may add it as a
+            proper question later.
+          </p>
+        </div>
+        {draft.proposedSpecs.map((row, i) => (
+          <div key={i} className="grid items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <Field label="What it is" htmlFor={`ps-label-${i}`}>
+              <input
+                id={`ps-label-${i}`}
+                value={row.label}
+                placeholder="NPU performance"
+                onChange={(e) =>
+                  set('proposedSpecs')(
+                    draft.proposedSpecs.map((r, idx) => (idx === i ? { ...r, label: e.target.value } : r)),
+                  )
+                }
+                className={controlCls}
+              />
+            </Field>
+            <Field label="Value" htmlFor={`ps-value-${i}`}>
+              <input
+                id={`ps-value-${i}`}
+                value={row.value}
+                placeholder="45 TOPS"
+                onChange={(e) =>
+                  set('proposedSpecs')(
+                    draft.proposedSpecs.map((r, idx) => (idx === i ? { ...r, value: e.target.value } : r)),
+                  )
+                }
+                className={controlCls}
+              />
+            </Field>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-label="Remove this specification"
+              onClick={() =>
+                set('proposedSpecs')(draft.proposedSpecs.filter((_, idx) => idx !== i))
+              }
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={draft.proposedSpecs.length >= 10}
+            onClick={() => set('proposedSpecs')([...draft.proposedSpecs, { label: '', value: '' }])}
+          >
+            Add a specification
+          </Button>
+        </div>
+      </Card>
 
       <Card className="grid gap-3 p-5 sm:grid-cols-2">
         <h2 className="text-sm font-semibold sm:col-span-2">Price</h2>

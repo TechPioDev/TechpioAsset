@@ -138,3 +138,29 @@ export const compareOffersSchema = z
 export type CreateSpecFieldInput = z.infer<typeof createSpecFieldSchema>;
 export type UpdateSpecFieldInput = z.infer<typeof updateSpecFieldSchema>;
 export type CompareOffersInput = z.infer<typeof compareOffersSchema>;
+
+/**
+ * Promoting something suppliers volunteered into the template (v2.44).
+ *
+ * The shape a field needs is decided here, not by the supplier who suggested
+ * it: only an administrator knows whether "battery" is a number in watt-hours
+ * or a chemistry name, and that decision is what makes it comparable.
+ */
+export const promoteProposalSchema = z
+  .object({
+    normalizedKey: specKey,
+    categoryId: z.string(),
+    subcategoryId: z.string().optional(),
+    label: trimmed(80),
+    dataType: z.enum(specFieldTypes),
+    unit: z.string().trim().max(20).optional(),
+    intent: z.enum(numericIntents).optional(),
+    tolerance: z.number().min(0).max(1).optional(),
+    options: z.array(trimmed(80)).max(50).default([]),
+    isRequired: z.boolean().default(false),
+    isComparable: z.boolean().default(true),
+  })
+  .strict()
+  .superRefine((v, ctx) => checkShape(v, ctx));
+
+export type PromoteProposalInput = z.infer<typeof promoteProposalSchema>;

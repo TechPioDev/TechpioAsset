@@ -23,6 +23,9 @@ let vendorB = '';
 let tokenA = '';
 let laptopSubId = '';
 let mouseSubId = '';
+/** Same rule the server uses to group differently-spelled labels. */
+const normalise = (label: string) =>
+  label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 /** A category of its own, so the template here cannot disturb another suite. */
@@ -285,6 +288,144 @@ describe('spec templates', () => {
       .set(auth(s.superAdmin))
       .send({ key: 'operating_system' });
     expect(res.status).toBe(409);
+  });
+});
+
+describe('specifications suppliers volunteer', () => {
+  /** An offer carrying extra fields the template never asked for. */
+  async function offerWithProposals(
+    vendorId: string,
+    proposals: { label: string; value: string }[],
+    specs: Record<string, string> = { ram_gb: '16' },
+  ) {
+    const res = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(auth(s.officeAdmin))
+      .send({
+        vendorId,
+        name: `Offer ${stamp()}`,
+        categoryId,
+        subcategoryId: laptopSubId,
+        unitPrice: 100000,
+        gstPercent: 18,
+        availableQuantity: 5,
+        specs,
+        proposedSpecs: proposals,
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return res.body.data.id as string;
+  }
+
+  it('records what a supplier offered that nobody asked for', async () => {
+    const id = await offerWithProposals(vendorA, [{ label: 'NPU TOPS', value: '45' }]);
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(auth(s.officeAdmin));
+    expect(res.body.data.proposedSpecs).toHaveLength(1);
+    expect(res.body.data.proposedSpecs[0].label).toBe('NPU TOPS');
+    expect(res.body.data.proposedSpecs[0].normalizedKey).toBe('npu_tops');
+  });
+
+  it('refuses a suggestion the template already asks for', async () => {
+    // The same fact twice - once compared, once not - is two answers free to
+    // disagree with each other.
+    const res = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(auth(s.officeAdmin))
+      .send({
+        vendorId: vendorA,
+        name: `Offer ${stamp()}`,
+        categoryId,
+        subcategoryId: laptopSubId,
+        unitPrice: 100000,
+        gstPercent: 18,
+        availableQuantity: 5,
+        proposedSpecs: [{ label: 'RAM', value: '32' }],
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(res.status).toBe(422);
+  });
+
+  it('counts suppliers, not offers', async () => {
+    const key = `battery_wh_${stamp()}`;
+    const label = key.replace(/_/g, ' ');
+    // One supplier, three offers, all listing the same thing.
+    await offerWithProposals(vendorA, [{ label, value: '57' }]);
+    await offerWithProposals(vendorA, [{ label, value: '61' }]);
+    await offerWithProposals(vendorA, [{ label, value: '70' }]);
+
+    const one = await api(app)
+      .get('/api/v1/spec-templates/proposals')
+      .query({ categoryId, subcategoryId: laptopSubId })
+      .set(auth(s.officeAdmin));
+    const beforeGroup = one.body.data.find((g: { key: string }) => g.key === normalise(label));
+    expect(beforeGroup.vendorCount, 'three offers from one supplier is one opinion').toBe(1);
+    expect(beforeGroup.worthAsking).toBe(false);
+
+    // A second supplier saying the same thing moves the count, not the rows.
+    await offerWithProposals(vendorB, [{ label, value: '54' }]);
+    const two = await api(app)
+      .get('/api/v1/spec-templates/proposals')
+      .query({ categoryId, subcategoryId: laptopSubId })
+      .set(auth(s.officeAdmin));
+    const afterGroup = two.body.data.find((g: { key: string }) => g.key === normalise(label));
+    expect(afterGroup.vendorCount).toBe(2);
+  });
+
+  it('does not let a supplier see what other suppliers suggested', async () => {
+    const res = await api(app)
+      .get('/api/v1/spec-templates/proposals')
+      .query({ categoryId })
+      .set(vendorAuth());
+    expect([403, 404]).toContain(res.status);
+  });
+
+  it('promotes a suggestion and brings the answers already given with it', async () => {
+    // The half that makes promotion worth doing: without the backfill the new
+    // field compares nothing until every supplier edits their offer again.
+    const label = `Certification ${stamp()}`;
+    const key = normalise(label);
+    const first = await offerWithProposals(vendorA, [{ label, value: 'MIL-STD-810H' }]);
+    const second = await offerWithProposals(vendorB, [{ label, value: 'IP54' }]);
+
+    const promoted = await api(app)
+      .post('/api/v1/spec-templates/promote')
+      .set(auth(s.officeAdmin))
+      .send({
+        normalizedKey: key,
+        categoryId,
+        subcategoryId: laptopSubId,
+        label: 'Certification',
+        dataType: 'TEXT',
+      });
+    expect(promoted.status, JSON.stringify(promoted.body)).toBe(201);
+    expect(promoted.body.data.offersBackfilled).toBe(2);
+
+    for (const [id, value] of [[first, 'MIL-STD-810H'], [second, 'IP54']] as const) {
+      const offer = await api(app).get(`/api/v1/vendor-products/${id}`).set(auth(s.officeAdmin));
+      expect(offer.body.data.specs[key], 'answer moved into the compared specification').toBe(value);
+      // Moved, not copied: the same fact must not appear twice.
+      expect(offer.body.data.proposedSpecs.some((p: { normalizedKey: string }) => p.normalizedKey === key)).toBe(false);
+    }
+  });
+
+  it('will not promote something already in the template', async () => {
+    const res = await api(app)
+      .post('/api/v1/spec-templates/promote')
+      .set(auth(s.officeAdmin))
+      .send({ normalizedKey: 'ram_gb', categoryId, label: 'RAM', dataType: 'NUMBER', intent: 'AT_LEAST' });
+    expect(res.status).toBe(409);
+  });
+
+  it('does not let a supplier promote its own suggestion', async () => {
+    const label = `Sneaky ${stamp()}`;
+    await offerWithProposals(vendorA, [{ label, value: 'yes' }]);
+    const res = await api(app)
+      .post('/api/v1/spec-templates/promote')
+      .set(vendorAuth())
+      .send({ normalizedKey: normalise(label), categoryId, label: 'Sneaky', dataType: 'TEXT' });
+    expect(res.status).toBe(403);
   });
 });
 

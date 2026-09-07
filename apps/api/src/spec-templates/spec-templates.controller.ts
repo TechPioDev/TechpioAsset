@@ -1,7 +1,16 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { AuthUser, CreateSpecFieldInput, UpdateSpecFieldInput } from '@techpioasset/contracts';
-import { createSpecFieldSchema, updateSpecFieldSchema } from '@techpioasset/contracts';
+import type {
+  AuthUser,
+  CreateSpecFieldInput,
+  PromoteProposalInput,
+  UpdateSpecFieldInput,
+} from '@techpioasset/contracts';
+import {
+  createSpecFieldSchema,
+  promoteProposalSchema,
+  updateSpecFieldSchema,
+} from '@techpioasset/contracts';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
@@ -42,6 +51,39 @@ export class SpecTemplatesController {
     @Query('subcategoryId') subcategoryId?: string,
   ) {
     return this.templates.list(actor, categoryId, subcategoryId);
+  }
+
+  @Get('proposals')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)
+  @ApiOperation({
+    summary: 'Specifications suppliers offered that the template never asked for',
+    description:
+      'Grouped by meaning and counted by distinct supplier - one supplier listing a field on eight ' +
+      'laptops is one opinion. Several suppliers volunteering the same field is the market saying ' +
+      'the template is out of date. Internal only.',
+  })
+  proposals(
+    @CurrentUser() actor: AuthUser,
+    @Query('categoryId') categoryId: string,
+    @Query('subcategoryId') subcategoryId?: string,
+  ) {
+    return this.templates.proposals(actor, categoryId, subcategoryId);
+  }
+
+  @Post('promote')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)
+  @ApiOperation({
+    summary: 'Promote a suggested specification into the template',
+    description:
+      'Creates the field and moves every answer suppliers already gave into the compared ' +
+      'specification, so it compares from the moment it exists rather than once everybody ' +
+      'happens to edit their offer again.',
+  })
+  promote(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(promoteProposalSchema)) body: PromoteProposalInput,
+  ) {
+    return this.templates.promote(actor, body);
   }
 
   @Post()

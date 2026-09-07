@@ -16,6 +16,7 @@ import {
   NativeSelect,
   Skeleton,
 } from '@/components/ui';
+import { ProposalPanel } from '@/components/catalogue/proposal-panel';
 
 /**
  * Specification templates (v2.42).
@@ -395,6 +396,8 @@ export default function SpecTemplatesPage() {
               />
             </Card>
           ) : null}
+
+          <ProposalPanel categoryId={categoryId} subcategoryId={subcategoryId} />
 
           {fields.isSuccess && fields.data.length > 0 ? (
             <Card className="overflow-x-auto">

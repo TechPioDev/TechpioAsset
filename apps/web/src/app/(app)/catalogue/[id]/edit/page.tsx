@@ -47,6 +47,7 @@ type Loaded = {
   availableFrom: string;
   availableUntil: string;
   specs: Record<string, string> | null;
+  proposedSpecs: { label: string; value: string }[] | null;
 };
 
 const day = (iso: string) => iso.slice(0, 10);
@@ -82,6 +83,7 @@ function toDraft(o: Loaded): OfferDraft {
     availableFrom: day(o.availableFrom),
     availableUntil: day(o.availableUntil),
     specs: o.specs ?? {},
+    proposedSpecs: (o.proposedSpecs ?? []).map((p) => ({ label: p.label, value: p.value })),
   };
 }
 
