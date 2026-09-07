@@ -23,6 +23,7 @@ type Loaded = {
   vendorId: string;
   name: string;
   categoryId: string;
+  subcategoryId: string | null;
   brand: string | null;
   model: string | null;
   manufacturer: string | null;
@@ -56,6 +57,7 @@ function toDraft(o: Loaded): OfferDraft {
     vendorId: o.vendorId,
     name: o.name,
     categoryId: o.categoryId,
+    subcategoryId: o.subcategoryId ?? '',
     brand: o.brand ?? '',
     model: o.model ?? '',
     manufacturer: o.manufacturer ?? '',

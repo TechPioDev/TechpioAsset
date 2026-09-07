@@ -31,6 +31,7 @@ import { Money, OfferImage, OfferStatus, daysUntil, type Offer } from '@/compone
  */
 
 type OfferDetail = Offer & {
+  subcategoryId: string | null;
   description: string | null;
   manufacturer: string | null;
   vendorSku: string | null;
@@ -114,8 +115,12 @@ export default function OfferPage() {
   const offer = query.data;
 
   const { data: specFields } = useQuery({
-    queryKey: ['spec-templates', offer?.categoryId],
-    queryFn: () => apiFetch<SpecField[]>(`/spec-templates?categoryId=${offer!.categoryId}`),
+    queryKey: ['spec-templates', offer?.categoryId, offer?.subcategoryId],
+    queryFn: () =>
+      apiFetch<SpecField[]>(
+        `/spec-templates?categoryId=${offer!.categoryId}` +
+          (offer!.subcategoryId ? `&subcategoryId=${offer!.subcategoryId}` : ''),
+      ),
     enabled: Boolean(offer?.categoryId),
   });
 

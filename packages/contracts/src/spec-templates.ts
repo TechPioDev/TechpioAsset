@@ -81,7 +81,15 @@ function checkShape(v: {
 }
 
 export const createSpecFieldSchema = z
-  .object({ categoryId: z.string(), ...specFieldFields })
+  .object({
+    categoryId: z.string(),
+    /**
+     * Narrows the field to one subcategory. Omit for a field the whole
+     * category shares - RAM belongs to laptops, warranty belongs to everything.
+     */
+    subcategoryId: z.string().optional(),
+    ...specFieldFields,
+  })
   .strict()
   .superRefine(checkShape);
 
@@ -115,6 +123,12 @@ export const requirementSchema = z
 export const compareOffersSchema = z
   .object({
     categoryId: z.string(),
+    /**
+     * Optional. When every offer being compared shares a subcategory, the
+     * server uses that one anyway - a caller should not have to work out
+     * which questions apply before it can ask them.
+     */
+    subcategoryId: z.string().optional(),
     /** The offers to compare. Two is the point; one is just a product page. */
     vendorProductIds: z.array(z.string()).min(2).max(10),
     requirements: z.array(requirementSchema).max(50).default([]),

@@ -89,7 +89,7 @@ function CompareInner() {
    */
   const [applied, setApplied] = useState<Requirement[]>([]);
 
-  const { data: fields } = useQuery({
+  const { data: categoryFields } = useQuery({
     queryKey: ['spec-templates', categoryId],
     queryFn: () => apiFetch<SpecField[]>(`/spec-templates?categoryId=${categoryId}`),
     enabled: Boolean(categoryId),
@@ -114,6 +114,12 @@ function CompareInner() {
     enabled: ids.length >= 2 && Boolean(categoryId),
   });
   const result = comparison.data;
+  /**
+   * The server already worked out which questions apply - including the
+   * subcategory's, when every offer shares one. Preferring its answer means
+   * the requirement picker offers exactly what the comparison will score.
+   */
+  const fields = result?.fields ?? categoryFields;
 
   const runCompare = () =>
     setApplied(

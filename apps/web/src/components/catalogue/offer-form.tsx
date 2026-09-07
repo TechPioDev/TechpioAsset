@@ -19,6 +19,7 @@ export type OfferDraft = {
   vendorId: string;
   name: string;
   categoryId: string;
+  subcategoryId: string;
   brand: string;
   model: string;
   manufacturer: string;
@@ -43,7 +44,7 @@ export type OfferDraft = {
   specs: Record<string, string>;
 };
 
-type Category = { id: string; name: string };
+type Category = { id: string; name: string; subcategories: { id: string; name: string }[] };
 type Vendor = { id: string; name: string };
 type SpecField = {
   id: string;
@@ -63,6 +64,7 @@ export const EMPTY_DRAFT: OfferDraft = {
   vendorId: '',
   name: '',
   categoryId: '',
+  subcategoryId: '',
   brand: '',
   model: '',
   manufacturer: '',
@@ -99,6 +101,7 @@ export function draftToBody(draft: OfferDraft, opts: { includeVendor: boolean })
     ...(opts.includeVendor && draft.vendorId ? { vendorId: draft.vendorId } : {}),
     name: draft.name.trim(),
     categoryId: draft.categoryId,
+    ...(draft.subcategoryId ? { subcategoryId: draft.subcategoryId } : {}),
     brand: optionalText(draft.brand),
     model: optionalText(draft.model),
     manufacturer: optionalText(draft.manufacturer),
@@ -158,9 +161,15 @@ export function OfferForm({
     // A supplier never picks a vendor: the offer is always its own.
     enabled: !isVendorUser,
   });
+  // Keyed on both, so choosing "Laptop" brings in the laptop questions and
+  // choosing "Mouse" leaves them behind.
   const { data: specFields } = useQuery({
-    queryKey: ['spec-templates', draft.categoryId],
-    queryFn: () => apiFetch<SpecField[]>(`/spec-templates?categoryId=${draft.categoryId}`),
+    queryKey: ['spec-templates', draft.categoryId, draft.subcategoryId],
+    queryFn: () =>
+      apiFetch<SpecField[]>(
+        `/spec-templates?categoryId=${draft.categoryId}` +
+          (draft.subcategoryId ? `&subcategoryId=${draft.subcategoryId}` : ''),
+      ),
     enabled: Boolean(draft.categoryId),
   });
 
@@ -247,7 +256,11 @@ export function OfferForm({
             id="of-categoryId"
             required
             value={draft.categoryId}
-            onChange={(e) => set('categoryId')(e.target.value)}
+            onChange={(e) =>
+              // The old subcategory belongs to the old category; keeping it
+              // would silently attach the offer to the wrong thing.
+              setDraft((d) => ({ ...d, categoryId: e.target.value, subcategoryId: '' }))
+            }
           >
             <option value="">Choose a category</option>
             {(categories ?? []).map((c) => (
@@ -255,6 +268,27 @@ export function OfferForm({
                 {c.name}
               </option>
             ))}
+          </NativeSelect>
+        </Field>
+        <Field
+          label="Type"
+          htmlFor="of-subcategoryId"
+          hint="Decides which specifications you are asked for."
+        >
+          <NativeSelect
+            id="of-subcategoryId"
+            value={draft.subcategoryId}
+            onChange={(e) => set('subcategoryId')(e.target.value)}
+            disabled={!draft.categoryId}
+          >
+            <option value="">Not specified</option>
+            {(categories ?? [])
+              .find((c) => c.id === draft.categoryId)
+              ?.subcategories?.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))}
           </NativeSelect>
         </Field>
         <div className="sm:col-span-2">

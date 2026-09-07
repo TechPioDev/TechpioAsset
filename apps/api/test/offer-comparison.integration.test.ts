@@ -21,6 +21,8 @@ let categoryId = '';
 let vendorA = '';
 let vendorB = '';
 let tokenA = '';
+let laptopSubId = '';
+let mouseSubId = '';
 const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 /** A category of its own, so the template here cannot disturb another suite. */
@@ -62,6 +64,17 @@ beforeAll(async () => {
   });
   const login = await api(app).post('/api/v1/auth/login').send({ email, password: 'TechpioDemo!2026' });
   tokenA = login.body?.data?.accessToken ?? '';
+
+  // Two subcategories, so the tests can prove a field on one does not reach
+  // the other - the whole reason subcategory-level fields exist.
+  const laptopSub = await prisma.subcategory.create({
+    data: { categoryId, key: `laptop-${stamp()}`, name: 'Laptop' },
+  });
+  const mouseSub = await prisma.subcategory.create({
+    data: { categoryId, key: `mouse-${stamp()}`, name: 'Mouse' },
+  });
+  laptopSubId = laptopSub.id;
+  mouseSubId = mouseSub.id;
 
   // The template every test below compares against.
   for (const field of [
@@ -174,6 +187,92 @@ describe('spec templates', () => {
     const res = await api(app).get('/api/v1/spec-templates').query({ categoryId }).set(vendorAuth());
     expect(res.status).toBe(200);
     expect(res.body.data.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps a subcategory field away from a different subcategory', async () => {
+    // RAM belongs to laptops. A mouse offer must never be asked about it.
+    const res = await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({
+        categoryId,
+        subcategoryId: laptopSubId,
+        key: `dpi_${stamp()}`,
+        label: 'Polling rate',
+        dataType: 'NUMBER',
+        unit: 'Hz',
+        intent: 'AT_LEAST',
+      });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const key = res.body.data.key;
+
+    const forLaptop = await api(app)
+      .get('/api/v1/spec-templates')
+      .query({ categoryId, subcategoryId: laptopSubId })
+      .set(auth(s.officeAdmin));
+    expect(forLaptop.body.data.some((f: { key: string }) => f.key === key)).toBe(true);
+
+    const forMouse = await api(app)
+      .get('/api/v1/spec-templates')
+      .query({ categoryId, subcategoryId: mouseSubId })
+      .set(auth(s.officeAdmin));
+    expect(forMouse.body.data.some((f: { key: string }) => f.key === key)).toBe(false);
+  });
+
+  it('shares a category-level field with every subcategory', async () => {
+    // Warranty is a question everything in the category has an answer to.
+    const key = `warranty_note_${stamp()}`;
+    await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({ categoryId, key, label: 'Warranty note', dataType: 'TEXT' });
+
+    for (const sub of [laptopSubId, mouseSubId]) {
+      const res = await api(app)
+        .get('/api/v1/spec-templates')
+        .query({ categoryId, subcategoryId: sub })
+        .set(auth(s.officeAdmin));
+      expect(res.body.data.some((f: { key: string }) => f.key === key)).toBe(true);
+    }
+  });
+
+  it('refuses a subcategory that belongs to another category', async () => {
+    const other = await prisma.category.create({
+      data: { companyId: s.superAdmin.user.companyId, key: `oth-${stamp()}`, name: `Oth ${stamp()}` },
+    });
+    const res = await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({
+        categoryId: other.id,
+        subcategoryId: laptopSubId,
+        key: `stray_${stamp()}`,
+        label: 'Stray',
+        dataType: 'TEXT',
+      });
+    expect(res.status).toBe(422);
+  });
+
+  it('lets the same key exist once per subcategory without clashing', async () => {
+    const key = `screen_size_${stamp()}`;
+    const body = { categoryId, key, label: 'Screen size', dataType: 'NUMBER', unit: 'in', intent: 'AT_LEAST' };
+    const laptop = await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({ ...body, subcategoryId: laptopSubId });
+    const mouse = await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({ ...body, subcategoryId: mouseSubId });
+    expect(laptop.status, JSON.stringify(laptop.body)).toBe(201);
+    expect(mouse.status, JSON.stringify(mouse.body)).toBe(201);
+
+    // But twice in the same place is still a clash.
+    const again = await api(app)
+      .post('/api/v1/spec-templates')
+      .set(auth(s.officeAdmin))
+      .send({ ...body, subcategoryId: laptopSubId });
+    expect(again.status).toBe(409);
   });
 
   it('refuses to rename a key once offers exist in the category', async () => {

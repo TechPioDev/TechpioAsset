@@ -45,6 +45,7 @@ interface OfferDetail {
   paymentTerms: string | null;
   specs: Record<string, string> | null;
   categoryId: string;
+  subcategoryId: string | null;
   vendor: { id: string; name: string } | null;
 }
 
@@ -76,9 +77,13 @@ export default function OfferScreen() {
       setOffer(detail);
       setQuantity(String(detail?.minOrderQuantity ?? 1));
       if (detail?.categoryId) {
-        // Labels and units come from the category's template, so a spec reads
-        // "RAM 16 GB" rather than "ram_gb 16".
-        setFields((await api.request<SpecField[]>(`/spec-templates?categoryId=${detail.categoryId}`)) ?? []);
+        // Labels and units come from the template, so a spec reads "RAM 16 GB"
+        // rather than "ram_gb 16". The subcategory is passed because that is
+        // where the questions that actually describe a laptop live.
+        const query =
+          `/spec-templates?categoryId=${detail.categoryId}` +
+          (detail.subcategoryId ? `&subcategoryId=${detail.subcategoryId}` : '');
+        setFields((await api.request<SpecField[]>(query)) ?? []);
       }
     } finally {
       setLoading(false);

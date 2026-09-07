@@ -30,9 +30,10 @@ import {
  * one, or they would be setting the questions they are marked on.
  */
 
-type Category = { id: string; name: string };
+type Category = { id: string; name: string; subcategories: { id: string; name: string }[] };
 type SpecField = {
   id: string;
+  subcategoryId: string | null;
   key: string;
   label: string;
   dataType: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'ENUM';
@@ -231,6 +232,8 @@ export default function SpecTemplatesPage() {
   const toast = useToast();
   const qc = useQueryClient();
   const [categoryId, setCategoryId] = useState('');
+  /** Blank means the questions the whole category shares. */
+  const [subcategoryId, setSubcategoryId] = useState('');
   const [adding, setAdding] = useState(false);
 
   const allowed = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW));
@@ -241,12 +244,16 @@ export default function SpecTemplatesPage() {
   });
 
   const fields = useQuery({
-    queryKey: ['spec-templates', categoryId],
-    queryFn: () => apiFetch<SpecField[]>(`/spec-templates?categoryId=${categoryId}`),
+    queryKey: ['spec-templates', categoryId, subcategoryId],
+    queryFn: () =>
+      apiFetch<SpecField[]>(
+        `/spec-templates?categoryId=${categoryId}` +
+          (subcategoryId ? `&subcategoryId=${subcategoryId}` : ''),
+      ),
     enabled: Boolean(categoryId),
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['spec-templates', categoryId] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['spec-templates'] });
 
   const create = useMutation({
     mutationFn: (draft: Draft) =>
@@ -254,6 +261,7 @@ export default function SpecTemplatesPage() {
         method: 'POST',
         body: {
           categoryId,
+          ...(subcategoryId ? { subcategoryId } : {}),
           key: draft.key,
           label: draft.label,
           dataType: draft.dataType,
@@ -311,13 +319,14 @@ export default function SpecTemplatesPage() {
         </p>
       </header>
 
-      <Card className="p-4">
+      <Card className="grid gap-3 p-4 sm:grid-cols-2">
         <Field label="Category" htmlFor="st-category">
           <NativeSelect
             id="st-category"
             value={categoryId}
             onChange={(e) => {
               setCategoryId(e.target.value);
+              setSubcategoryId('');
               setAdding(false);
             }}
           >
@@ -327,6 +336,30 @@ export default function SpecTemplatesPage() {
                 {c.name}
               </option>
             ))}
+          </NativeSelect>
+        </Field>
+        <Field
+          label="Type"
+          htmlFor="st-subcategory"
+          hint="Leave blank for questions the whole category shares, like warranty. Choose a type for questions only it has, like RAM."
+        >
+          <NativeSelect
+            id="st-subcategory"
+            value={subcategoryId}
+            onChange={(e) => {
+              setSubcategoryId(e.target.value);
+              setAdding(false);
+            }}
+            disabled={!categoryId}
+          >
+            <option value="">Shared by the whole category</option>
+            {(categories ?? [])
+              .find((c) => c.id === categoryId)
+              ?.subcategories?.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))}
           </NativeSelect>
         </Field>
       </Card>
@@ -385,6 +418,7 @@ export default function SpecTemplatesPage() {
                         <span className="font-medium">{field.label}</span>
                         <span className="block text-xs text-[var(--color-content-subtle)]">
                           {field.key}
+                          {subcategoryId && !field.subcategoryId ? ' · shared by the category' : ''}
                         </span>
                       </td>
                       <td className="p-3">

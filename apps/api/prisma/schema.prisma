@@ -1056,6 +1056,13 @@ model CategorySpecField {
   id         String @id @default(cuid())
   companyId  String
   categoryId String
+  /// Narrows the field to one subcategory (v2.43).
+  ///
+  /// Null means it applies to the whole category. "IT Assets" covers laptops,
+  /// mice and headsets, and RAM is a sensible question for exactly one of
+  /// those, so the meaningful questions live a level below the category.
+  /// Warranty, which every one of them has, stays at category level.
+  subcategoryId String?
 
   /// Machine key, matching the key used in VendorProduct.specs.
   key      String
@@ -1086,10 +1093,14 @@ model CategorySpecField {
   createdById String?
   updatedById String?
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category    Category     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subcategory Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, categoryId, key])
+  /// Postgres treats NULLs as distinct, so this stops two subcategory-level
+  /// duplicates but not two category-level ones; the migration adds a partial
+  /// unique index for that case, and the service checks either way.
+  @@unique([companyId, categoryId, subcategoryId, key])
   @@index([companyId, categoryId, sortOrder])
   @@index([deletedAt])
   @@map("category_spec_fields")
@@ -1109,6 +1120,7 @@ model Subcategory {
 
   category       Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   assets         Asset[]
+  specFields     CategorySpecField[]
   inventoryItems InventoryItem[]
   requestItems   RequestItem[]
   vendorProducts VendorProduct[]

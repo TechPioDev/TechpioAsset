@@ -32,6 +32,7 @@ export class SpecTemplatesService {
   private static readonly FIELDS = {
     id: true,
     categoryId: true,
+    subcategoryId: true,
     key: true,
     label: true,
     dataType: true,
@@ -53,11 +54,30 @@ export class SpecTemplatesService {
     return category;
   }
 
+  /**
+   * Which fields apply, given a category and optionally a subcategory.
+   *
+   * A category-level field always applies; a subcategory's fields apply only
+   * when that subcategory is the one being asked about. Asking for the
+   * category alone therefore returns the shared questions, not every question
+   * every subcategory has ever asked - a mouse should not be asked its RAM.
+   */
+  private scopeWhere(actor: AuthUser, categoryId: string, subcategoryId?: string) {
+    return {
+      categoryId,
+      ...tenantFilter(actor),
+      deletedAt: null,
+      ...(subcategoryId
+        ? { OR: [{ subcategoryId: null }, { subcategoryId }] }
+        : { subcategoryId: null }),
+    };
+  }
+
   /** The template for one category, in the order an administrator arranged it. */
-  async list(actor: AuthUser, categoryId: string) {
+  async list(actor: AuthUser, categoryId: string, subcategoryId?: string) {
     await this.categoryOrThrow(actor, categoryId);
     return this.prisma.client.categorySpecField.findMany({
-      where: { categoryId, ...tenantFilter(actor), deletedAt: null },
+      where: this.scopeWhere(actor, categoryId, subcategoryId),
       select: SpecTemplatesService.FIELDS,
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
       // Bounded: a template nobody would want to fill in is already too long.
@@ -72,9 +92,13 @@ export class SpecTemplatesService {
    * note, a colour - so the template says which is which and only those reach
    * the comparison.
    */
-  async definitionsFor(actor: AuthUser, categoryId: string): Promise<SpecFieldDefinition[]> {
+  async definitionsFor(
+    actor: AuthUser,
+    categoryId: string,
+    subcategoryId?: string,
+  ): Promise<SpecFieldDefinition[]> {
     const rows = await this.prisma.client.categorySpecField.findMany({
-      where: { categoryId, ...tenantFilter(actor), deletedAt: null, isComparable: true },
+      where: { ...this.scopeWhere(actor, categoryId, subcategoryId), isComparable: true },
       select: SpecTemplatesService.FIELDS,
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
       take: 200,
@@ -93,8 +117,26 @@ export class SpecTemplatesService {
     denyVendorUsers(actor, 'change what offers are described by');
     await this.categoryOrThrow(actor, input.categoryId);
 
+    if (input.subcategoryId) {
+      // A subcategory from another category would produce a field nothing can
+      // ever reach: the lookup always filters on the category first.
+      const sub = await this.prisma.client.subcategory.findFirst({
+        where: { id: input.subcategoryId, categoryId: input.categoryId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!sub) {
+        throw new AppError('VALIDATION_FAILED', 'That subcategory is not in this category');
+      }
+    }
+
     const clash = await this.prisma.client.categorySpecField.findFirst({
-      where: { categoryId: input.categoryId, key: input.key, ...tenantFilter(actor), deletedAt: null },
+      where: {
+        categoryId: input.categoryId,
+        key: input.key,
+        subcategoryId: input.subcategoryId ?? null,
+        ...tenantFilter(actor),
+        deletedAt: null,
+      },
       select: { id: true },
     });
     if (clash) {

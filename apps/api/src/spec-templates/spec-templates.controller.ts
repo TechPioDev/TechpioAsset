@@ -31,10 +31,17 @@ export class SpecTemplatesController {
   @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
   @ApiOperation({
     summary: 'The fields a category describes its offers by',
-    description: 'Vendors read this to know what to fill in; buyers read it to know what to ask for.',
+    description:
+      'Vendors read this to know what to fill in; buyers read it to know what to ask for. ' +
+      'Pass a subcategory to get its fields as well as the ones the category shares - without ' +
+      'one you get only the shared fields, because a mouse should not be asked its RAM.',
   })
-  list(@CurrentUser() actor: AuthUser, @Query('categoryId') categoryId: string) {
-    return this.templates.list(actor, categoryId);
+  list(
+    @CurrentUser() actor: AuthUser,
+    @Query('categoryId') categoryId: string,
+    @Query('subcategoryId') subcategoryId?: string,
+  ) {
+    return this.templates.list(actor, categoryId, subcategoryId);
   }
 
   @Post()

@@ -179,6 +179,7 @@ export class VendorProductsService {
         status: true,
         name: true,
         categoryId: true,
+        subcategoryId: true,
         specs: true,
         unitPrice: true,
         gstPercent: true,
@@ -289,6 +290,11 @@ export class VendorProductsService {
         ...tenantFilter(actor),
         deletedAt: null,
         isRequired: true,
+        // The category's shared questions, plus this offer's subcategory - a
+        // mouse must not be held back for a laptop's missing RAM.
+        ...(product.subcategoryId
+          ? { OR: [{ subcategoryId: null }, { subcategoryId: product.subcategoryId }] }
+          : { subcategoryId: null }),
       },
       select: { key: true, label: true },
       take: 200,

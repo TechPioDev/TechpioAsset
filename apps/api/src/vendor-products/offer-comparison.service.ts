@@ -47,8 +47,6 @@ export class OfferComparisonService {
   async compare(actor: AuthUser, input: CompareOffersInput) {
     denyVendorUsers(actor, 'compare offers');
 
-    const fields = await this.templates.definitionsFor(actor, input.categoryId);
-
     const offers = await this.prisma.client.vendorProduct.findMany({
       where: {
         id: { in: input.vendorProductIds },
@@ -63,6 +61,7 @@ export class OfferComparisonService {
         brand: true,
         model: true,
         status: true,
+        subcategoryId: true,
         currency: true,
         unitPrice: true,
         landedCost: true,
@@ -81,6 +80,18 @@ export class OfferComparisonService {
         },
       },
     });
+
+    // Which questions apply. When every offer sits in the same subcategory, use
+    // its fields: a caller comparing three laptops should not have to work out
+    // that laptops are asked about RAM before it can ask about RAM.
+    const shared = offers.length > 0 && offers.every((o) => o.subcategoryId === offers[0]!.subcategoryId)
+      ? (offers[0]!.subcategoryId ?? undefined)
+      : undefined;
+    const fields = await this.templates.definitionsFor(
+      actor,
+      input.categoryId,
+      input.subcategoryId ?? shared,
+    );
 
     const missing = input.vendorProductIds.filter((id) => !offers.some((o) => o.id === id));
     if (missing.length > 0) {
