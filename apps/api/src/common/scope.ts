@@ -43,8 +43,13 @@ export function vendorScopeFilter(user: AuthUser): { companyId: string; vendorId
   const base = tenantFilter(user);
   if (!user.roles.includes('VENDOR')) return base;
   if (!user.vendorId) {
-    throw new Error(
-      'Vendor user has no vendor linked; refusing to run an unscoped vendor query',
+    // Fail closed: returning the tenant filter here would hand one supplier the
+    // entire catalogue of its competitors. But say so plainly rather than
+    // throwing a bare error - this is a setup step somebody forgot, and a
+    // supplier staring at "something went wrong" cannot know that.
+    throw AppError.forbidden(
+      'This account is not linked to a supplier yet, so there is no catalogue to show. ' +
+        'Ask your contact at the buying company to link it.',
     );
   }
   return { ...base, vendorId: user.vendorId };

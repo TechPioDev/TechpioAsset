@@ -471,6 +471,53 @@ describe('what a supplier is offered on its dashboard', () => {
   });
 });
 
+describe('a supplier account nobody linked to a supplier', () => {
+  let unlinkedToken = '';
+
+  beforeAll(async () => {
+    // The VENDOR role without a vendorId: the setup step people forget.
+    const companyId = s.superAdmin.user.companyId;
+    const role = await prisma.role.findFirst({ where: { companyId, key: 'VENDOR', deletedAt: null } });
+    const template = await prisma.user.findFirstOrThrow({
+      where: { companyId, email: 'employee@techpioasset.dev' },
+      select: { passwordHash: true },
+    });
+    const email = `unlinked-${stamp()}@example.com`;
+    await prisma.user.create({
+      data: {
+        companyId,
+        email,
+        passwordHash: template.passwordHash,
+        status: 'ACTIVE',
+        emailVerifiedAt: new Date(),
+        roles: { create: { roleId: role!.id } },
+      },
+    });
+    const login = await api(app).post('/api/v1/auth/login').send({ email, password: 'TechpioDemo!2026' });
+    unlinkedToken = login.body?.data?.accessToken ?? '';
+    expect(unlinkedToken, 'the unlinked vendor can still sign in').toBeTruthy();
+  });
+
+  it('is refused, and told why, rather than shown a server error', async () => {
+    // Fail closed is right - the alternative hands one supplier every
+    // competitor's prices. But a bare 500 leaves them with nothing to act on.
+    const res = await api(app)
+      .get('/api/v1/vendor-products')
+      .set({ Authorization: `Bearer ${unlinkedToken}` });
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.detail ?? res.body.title).toContain('not linked to a supplier');
+  });
+
+  it('never falls back to showing it everybody else’s offers', async () => {
+    await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .get('/api/v1/vendor-products')
+      .set({ Authorization: `Bearer ${unlinkedToken}` });
+    expect(res.status).toBe(403);
+    expect(res.body.data).toBeUndefined();
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });
