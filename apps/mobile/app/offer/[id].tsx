@@ -128,6 +128,8 @@ export default function OfferScreen() {
   // sends a reviewed-field change back for review.
   const editable = offer.status !== 'DISCONTINUED';
   const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
+  const daysLeft = Math.ceil((new Date(offer.availableUntil).getTime() - Date.now()) / 86_400_000);
+  const endingSoon = canManage && editable && daysLeft <= 30;
 
   const goods = Number(offer.unitPrice) - Number(offer.discount);
   const taxable = goods + Number(offer.shippingCost) + Number(offer.installationCost);
@@ -178,6 +180,50 @@ export default function OfferScreen() {
       setActing(false);
     }
   }
+
+  /**
+   * Put the offer back on sale for another 90 days.
+   *
+   * A PATCH rather than one of the POST actions above, so it does not go
+   * through act(). The end date is not a reviewed field: the price and the
+   * product are unchanged, so the offer keeps its approval.
+   */
+  const extend = async () => {
+    setActing(true);
+    try {
+      await api.request(`/vendor-products/${offer.id}`, {
+        method: 'PATCH',
+        body: { availableUntil: new Date(Date.now() + 90 * 86_400_000).toISOString() },
+      });
+      await load();
+      Alert.alert('On sale for another 90 days');
+    } catch (error) {
+      Alert.alert(
+        'Could not extend the offer',
+        error instanceof ApiError ? error.message : 'Please try again.',
+      );
+    } finally {
+      setActing(false);
+    }
+  };
+
+  /** Copy this offer into a new draft, for a variant of the same thing. */
+  const duplicate = async () => {
+    setActing(true);
+    try {
+      const copy = await api.request<{ id: string }>(`/vendor-products/${offer.id}/duplicate`, {
+        method: 'POST',
+      });
+      router.push(`/offer/edit?id=${copy.id}`);
+    } catch (error) {
+      Alert.alert(
+        'Could not copy the offer',
+        error instanceof ApiError ? error.message : 'Please try again.',
+      );
+    } finally {
+      setActing(false);
+    }
+  };
 
   const choose = async () => {
     setChoosing(true);
@@ -275,6 +321,26 @@ export default function OfferScreen() {
       ) : null}
 
 
+      {endingSoon ? (
+        <Card style={{ borderColor: palette.warning.border, backgroundColor: palette.warning.bg }}>
+          <Text style={{ color: c.text, fontWeight: '600', marginBottom: 4 }}>
+            {daysLeft > 0
+              ? `Comes off sale in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`
+              : 'This offer has come off sale'}
+          </Text>
+          <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
+            Buyers stop seeing it after that. If the price and the product are unchanged, put it
+            back on sale - it keeps its approval.
+          </Text>
+          <Button
+            label="Keep it on sale for 90 days"
+            icon="calendar-outline"
+            loading={acting}
+            onPress={() => void extend()}
+          />
+        </Card>
+      ) : null}
+
       {canManage ? (
         <>
           <SectionTitle>Manage this offer</SectionTitle>
@@ -299,6 +365,18 @@ export default function OfferScreen() {
                   onPress={() => router.push(`/offer/edit?id=${offer.id}`)}
                   style={{ marginTop: 6 }}
                 />
+                <Button
+                  label="Make a copy"
+                  icon="copy-outline"
+                  variant="secondary"
+                  loading={acting}
+                  onPress={() => void duplicate()}
+                  style={{ marginTop: 6 }}
+                />
+                <Text style={{ color: c.subtle, fontSize: 11, marginTop: 6 }}>
+                  A copy starts as a new draft with no pictures - for a variant, like the same
+                  laptop with more memory.
+                </Text>
                 {returnsToReview ? (
                   <Text style={{ color: c.subtle, fontSize: 11, marginTop: 6 }}>
                     Changing the price or specification sends this back for review. Stock and lead

@@ -615,6 +615,51 @@ describe('a supplier changing a live offer', () => {
   });
 });
 
+describe('keeping an offer on sale, and copying it', () => {
+  it('extends the end date without sending the offer back for review', async () => {
+    // Every offer carries an end date, and a supplier who is still selling the
+    // thing has to move it or the catalogue quietly empties. Nothing about the
+    // product changed, so the approval stands - if this ever regressed, every
+    // renewal would queue for a buyer.
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const later = new Date(Date.now() + 120 * 86_400_000).toISOString();
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${id}`)
+      .set(vendorAuth())
+      .send({ availableUntil: later });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.status).toBe('APPROVED');
+    expect(new Date(res.body.data.availableUntil).toISOString()).toBe(later);
+  });
+
+  it('copies an offer into a fresh draft, with no pictures carried over', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app).post(`/api/v1/vendor-products/${id}/duplicate`).set(vendorAuth());
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data.id).not.toBe(id);
+    // A draft, because a variant is a new thing to review - and named so the
+    // supplier can tell the two apart in the list before editing it.
+    expect(res.body.data.status).toBe('DRAFT');
+    expect(res.body.data.name).toContain('(copy)');
+    expect(res.body.data.specs).toEqual({ ram_gb: '16' });
+
+    const copy = await prisma.vendorProduct.findUniqueOrThrow({
+      where: { id: res.body.data.id },
+      include: { images: true },
+    });
+    expect(copy.images).toHaveLength(0);
+    expect(copy.vendorId).toBe(vendorA);
+  });
+
+  it('refuses to copy a competitor’s offer', async () => {
+    const theirs = await liveOffer(vendorB, { ram_gb: '16' });
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${theirs}/duplicate`)
+      .set(vendorAuth());
+    expect([403, 404]).toContain(res.status);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

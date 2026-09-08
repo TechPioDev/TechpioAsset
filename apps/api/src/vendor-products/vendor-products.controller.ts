@@ -118,6 +118,18 @@ export class VendorProductsController {
     return this.products.update(actor, id, body);
   }
 
+  @Post(':id/duplicate')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_MANAGE)
+  @ApiOperation({
+    summary: 'Copy an offer into a new draft',
+    description:
+      'For variants - the same laptop at two memory sizes. The copy carries no pictures, because ' +
+      'a variant is a different thing and should be photographed rather than inherit its sibling.',
+  })
+  duplicate(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.products.duplicate(actor, id);
+  }
+
   @Post(':id/submit')
   @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_MANAGE)
   @ApiOperation({ summary: 'Send a draft for internal review; needs at least one image' })

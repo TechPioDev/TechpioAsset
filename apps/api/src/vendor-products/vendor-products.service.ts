@@ -228,6 +228,95 @@ export class VendorProductsService {
     return product;
   }
 
+  /**
+   * Copy an offer into a new draft (v2.46).
+   *
+   * Suppliers list variants - the same laptop at 16 GB and 32 GB, the same
+   * monitor in two sizes - and retyping fifteen fields to change one of them is
+   * how a catalogue stays small. The copy starts as a DRAFT and carries no
+   * pictures: a variant is a different thing, and the supplier should
+   * photograph the one they are actually selling rather than inherit a picture
+   * of its sibling.
+   */
+  async duplicate(actor: AuthUser, id: string) {
+    const source = await this.prisma.client.vendorProduct.findFirst({
+      where: { id, ...vendorScopeFilter(actor), deletedAt: null },
+      select: {
+        vendorId: true,
+        name: true,
+        brand: true,
+        model: true,
+        manufacturer: true,
+        vendorSku: true,
+        mpn: true,
+        description: true,
+        condition: true,
+        categoryId: true,
+        subcategoryId: true,
+        specs: true,
+        youtubeVideoId: true,
+        currency: true,
+        unitPrice: true,
+        gstPercent: true,
+        discount: true,
+        shippingCost: true,
+        installationCost: true,
+        otherCharges: true,
+        landedCost: true,
+        minOrderQuantity: true,
+        availableQuantity: true,
+        paymentTerms: true,
+        leadTimeDays: true,
+        warrantyMonths: true,
+        proposedSpecs: { select: { label: true, normalizedKey: true, value: true } },
+      },
+    });
+    if (!source) throw AppError.notFound('Vendor product', id);
+
+    const { proposedSpecs, specs, ...rest } = source;
+    // Fresh dates rather than the original's: copying an offer that expires
+    // next week to sell something for the next month is the usual case.
+    const from = new Date();
+    const until = new Date(Date.now() + 30 * 86_400_000);
+
+    const copy = await this.prisma.client.vendorProduct.create({
+      data: {
+        ...rest,
+        companyId: actor.companyId,
+        name: `${source.name} (copy)`.slice(0, 180),
+        specs: specs === null ? Prisma.DbNull : (specs as Prisma.InputJsonValue),
+        status: 'DRAFT',
+        availableFrom: from,
+        availableUntil: until,
+        createdById: actor.id,
+        ...(proposedSpecs.length
+          ? {
+              proposedSpecs: {
+                create: proposedSpecs.map((ps) => ({
+                  companyId: actor.companyId,
+                  label: ps.label,
+                  normalizedKey: ps.normalizedKey,
+                  value: ps.value,
+                })),
+              },
+            }
+          : {}),
+      },
+      select: { ...VendorProductsService.LIST_FIELDS, specs: true },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'VendorProduct',
+      entityId: copy.id,
+      newValues: { copiedFrom: id, name: copy.name, status: 'DRAFT' },
+      reason: 'Vendor product duplicated',
+    });
+    return copy;
+  }
+
   private videoIdOrThrow(url?: string): string | null {
     if (!url) return null;
     const id = youtubeVideoId(url);

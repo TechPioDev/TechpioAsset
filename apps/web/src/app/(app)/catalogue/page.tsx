@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Scale, ShoppingBag } from 'lucide-react';
+import { Building2, CalendarClock, Plus, Scale, ShoppingBag } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -39,6 +39,7 @@ export default function CataloguePage() {
   const [liveOnly, setLiveOnly] = useState(false);
   const [search, setSearch] = useState('');
   const [compare, setCompare] = useState<string[]>([]);
+  const [endingSoonOnly, setEndingSoonOnly] = useState(false);
 
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const canManage = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE));
@@ -62,16 +63,34 @@ export default function CataloguePage() {
       ),
   });
 
+  /**
+   * Offers about to come off sale.
+   *
+   * Every offer carries an end date, and nothing used to say so until the day a
+   * buyer noticed the catalogue had gone quiet. Counted over everything the
+   * caller can see, so a supplier is counting its own and a buyer is counting
+   * the whole catalogue.
+   */
+  const endingSoon = useMemo(
+    () =>
+      (query.data ?? []).filter((o) => {
+        if (o.status === 'DISCONTINUED') return false;
+        const days = (new Date(o.availableUntil).getTime() - Date.now()) / 86_400_000;
+        return days <= 30;
+      }),
+    [query.data],
+  );
+
   // Filtered here rather than server-side: the list is already bounded, and a
   // round trip per keystroke buys nothing at this size.
   const offers = useMemo(() => {
-    const rows = query.data ?? [];
+    const rows = endingSoonOnly ? endingSoon : (query.data ?? []);
     const needle = search.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((o) =>
       [o.name, o.brand, o.model, o.vendor?.name].some((v) => v?.toLowerCase().includes(needle)),
     );
-  }, [query.data, search]);
+  }, [query.data, search, endingSoonOnly, endingSoon]);
 
   const toggleCompare = (id: string) =>
     setCompare((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id].slice(0, 10)));
@@ -156,6 +175,26 @@ export default function CataloguePage() {
           </label>
         </Field>
       </Card>
+
+      {endingSoon.length > 0 ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 bg-[var(--color-tint-amber)] p-4">
+          <div>
+            <p className="text-sm font-medium">
+              <CalendarClock aria-hidden="true" className="mr-1 inline size-4 align-[-2px]" />
+              {endingSoon.length} {endingSoon.length === 1 ? 'offer comes' : 'offers come'} off sale
+              within 30 days
+            </p>
+            <p className="text-xs text-[var(--color-content-muted)]">
+              {isVendor
+                ? 'Buyers stop seeing an offer after its end date. Open one and put it back on sale - it keeps its approval.'
+                : 'After the end date these leave the buyable list. Ask the supplier to extend, or confirm the price still stands.'}
+            </p>
+          </div>
+          <Button variant="secondary" onClick={() => setEndingSoonOnly((v) => !v)}>
+            {endingSoonOnly ? 'Show everything' : 'Show only these'}
+          </Button>
+        </Card>
+      ) : null}
 
       {canCompare && compare.length > 0 ? (
         <Card className="flex flex-wrap items-center justify-between gap-3 p-3">

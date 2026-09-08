@@ -4,7 +4,19 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, Pencil, Send, ShoppingCart, Star, Trash2, Upload, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarPlus,
+  Check,
+  Copy,
+  Pencil,
+  Send,
+  ShoppingCart,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { PERMISSIONS, PRODUCT_IMAGE_RULES, formatInr } from '@techpioasset/domain';
 import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -198,6 +210,39 @@ export default function OfferPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not change the main picture'),
   });
 
+  /**
+   * Keep an offer on sale for another 90 days.
+   *
+   * Every offer carries an end date, and a supplier who is still selling the
+   * thing has to remember to move it or the catalogue quietly empties. The
+   * date is not a reviewed field, so this does not send the offer back for
+   * review - it is the same price and the same product, for longer.
+   */
+  const extend = useMutation({
+    mutationFn: () =>
+      apiFetch(`/vendor-products/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          availableUntil: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+        }),
+      }),
+    onSuccess: async () => {
+      toast.success('On sale for another 90 days');
+      await invalidate();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not extend the offer'),
+  });
+
+  /** Copy this offer into a new draft, for a variant of the same thing. */
+  const duplicate = useMutation({
+    mutationFn: () => apiFetch<{ id: string }>(`/vendor-products/${id}/duplicate`, { method: 'POST' }),
+    onSuccess: (copy) => {
+      toast.success('Copied. Change what differs, add a picture, then send it for review.');
+      router.push(`/catalogue/${copy.id}/edit`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not copy the offer'),
+  });
+
   const withdraw = useMutation({
     mutationFn: () => apiFetch(`/vendor-products/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -231,6 +276,12 @@ export default function OfferPage() {
   const editable = offer.status !== 'DISCONTINUED';
   const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
   const buyable = ['ACTIVE', 'EXPIRING_SOON'].includes(offer.effectiveStatus);
+  const daysLeft = Math.ceil(
+    (new Date(offer.availableUntil).getTime() - Date.now()) / 86_400_000,
+  );
+  // Worth nudging about from a month out: long enough that the supplier has
+  // time to decide, short enough that it is not noise on a fresh offer.
+  const endingSoon = canManage && editable && daysLeft <= 30;
   const labelFor = (key: string) => specFields?.find((f) => f.key === key)?.label ?? key;
   const unitFor = (key: string) => specFields?.find((f) => f.key === key)?.unit ?? '';
 
@@ -267,6 +318,16 @@ export default function OfferPage() {
               <Pencil aria-hidden="true" className="size-4" /> Edit
             </Link>
           ) : null}
+          {canManage && editable ? (
+            <Button
+              variant="secondary"
+              loading={duplicate.isPending}
+              onClick={() => duplicate.mutate()}
+              title="Start a new draft from this one - for a variant, like the same laptop with more memory"
+            >
+              <Copy aria-hidden="true" className="mr-1 size-4" /> Make a copy
+            </Button>
+          ) : null}
           {canManage && offer.status === 'DRAFT' ? (
             <Button loading={submit.isPending} onClick={() => submit.mutate()}>
               <Send aria-hidden="true" className="mr-1 size-4" /> Send for review
@@ -274,6 +335,25 @@ export default function OfferPage() {
           ) : null}
         </div>
       </header>
+
+      {endingSoon ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 bg-[var(--color-tint-amber)] p-4">
+          <div>
+            <p className="text-sm font-medium">
+              {daysLeft > 0
+                ? `This offer comes off sale in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`
+                : 'This offer has come off sale'}
+            </p>
+            <p className="text-xs text-[var(--color-content-muted)]">
+              Buyers stop seeing it after that. If the price and the product are unchanged, put it
+              back on sale - it stays approved, so nobody has to review it again.
+            </p>
+          </div>
+          <Button loading={extend.isPending} onClick={() => extend.mutate()}>
+            <CalendarPlus aria-hidden="true" className="mr-1 size-4" /> Keep it on sale for 90 days
+          </Button>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
         <div className="grid gap-4">
