@@ -44,6 +44,7 @@ import {
   type Offer,
 } from '@/components/catalogue/shared';
 import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
+import { ProductDocuments } from '@/components/catalogue/product-documents';
 
 /**
  * One offer (v2.42).
@@ -539,6 +540,8 @@ export default function OfferPage() {
               </dl>
             </Card>
           ) : null}
+
+          <ProductDocuments productId={offer.id} canManage={canManage && editable} />
 
           {offer.youtubeVideoId ? (
             <Card className="overflow-hidden">

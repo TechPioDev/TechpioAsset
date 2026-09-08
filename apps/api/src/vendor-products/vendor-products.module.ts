@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
 import { SpecTemplatesModule } from '../spec-templates/spec-templates.module.js';
 import { OfferComparisonService } from './offer-comparison.service.js';
+import { VendorProductDocumentsService } from './vendor-product-documents.service.js';
 import { VendorProductImagesService } from './vendor-product-images.service.js';
 import { VendorProductsController } from './vendor-products.controller.js';
 import { VendorProductsService } from './vendor-products.service.js';
@@ -13,7 +14,8 @@ import { VendorProductsService } from './vendor-products.service.js';
 @Module({
   imports: [AuditModule, SpecTemplatesModule],
   controllers: [VendorProductsController],
-  providers: [VendorProductsService, VendorProductImagesService, OfferComparisonService],
+  providers: [VendorProductsService, VendorProductImagesService,
+    VendorProductDocumentsService, OfferComparisonService],
   exports: [VendorProductsService],
 })
 export class VendorProductsModule {}

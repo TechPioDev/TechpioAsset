@@ -29,10 +29,17 @@ import {
   selectOfferSchema,
   updateVendorProductSchema,
 } from '@techpioasset/contracts';
-import { PERMISSIONS, PRODUCT_IMAGE_RULES } from '@techpioasset/domain';
+import {
+  PERMISSIONS,
+  PRODUCT_DOCUMENT_KINDS,
+  PRODUCT_DOCUMENT_RULES,
+  PRODUCT_IMAGE_RULES,
+} from '@techpioasset/domain';
+import { AppError } from '../common/errors/app-error.js';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
 import { OfferComparisonService } from './offer-comparison.service.js';
+import { VendorProductDocumentsService } from './vendor-product-documents.service.js';
 import { VendorProductImagesService } from './vendor-product-images.service.js';
 import { VendorProductsService } from './vendor-products.service.js';
 
@@ -53,6 +60,7 @@ export class VendorProductsController {
   constructor(
     private readonly products: VendorProductsService,
     private readonly images: VendorProductImagesService,
+    private readonly documents: VendorProductDocumentsService,
     private readonly comparison: OfferComparisonService,
   ) {}
 
@@ -295,6 +303,89 @@ export class VendorProductsController {
   })
   policy(@CurrentUser() actor: AuthUser) {
     return this.products.policyFor(actor);
+  }
+
+  // ── Documents ─────────────────────────────────────────────────────────────
+  //
+  // Datasheets, manuals, compliance certificates. Reached through the product
+  // rather than by document id, so a supplier cannot read another's paperwork
+  // by guessing one.
+
+  @Get(':id/documents')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
+  @ApiOperation({ summary: 'The paperwork on this product' })
+  listDocuments(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.documents.list(actor, id);
+  }
+
+  @Post(':id/documents')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_MANAGE)
+  // Above the rule so an oversized file is refused with a message naming the
+  // real limit rather than by the framework with a generic one.
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Add a document',
+    description:
+      'PDF and images only, up to 10 MB and ten per product. The type is decided by the file ' +
+      'signature, not by its name or declared MIME. Office files are refused: they are archives ' +
+      'that can carry macros, and these arrive from outside the company by definition.',
+  })
+  addDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { kind?: string; title?: string },
+    @UploadedFile() file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    const kind = PRODUCT_DOCUMENT_KINDS.find((k) => k === body?.kind);
+    if (!kind) {
+      throw new AppError('VALIDATION_FAILED', 'Say what kind of document this is', {
+        detail: `One of: ${PRODUCT_DOCUMENT_KINDS.join(', ')}.`,
+      });
+    }
+    return this.documents.add(actor, id, { kind, title: body?.title ?? null }, file);
+  }
+
+  @Get(':id/documents/:documentId')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
+  @ApiOperation({ summary: 'The document itself' })
+  async readDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+    @Res() res: Response,
+  ) {
+    const document = await this.documents.read(actor, id, documentId);
+    res.setHeader('Content-Type', document.mimeType);
+    // Attachment, not inline: a PDF rendered in the page is a PDF running in
+    // our origin, and these come from outside the company.
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${document.originalName.replace(/[^\w.\- ]/g, '_')}"`,
+    );
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(document.data);
+  }
+
+  @Delete(':id/documents/:documentId')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_MANAGE)
+  @ApiOperation({
+    summary: 'Remove a document',
+    description: 'Kept rather than destroyed: paperwork that justified a purchase must survive it.',
+  })
+  removeDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.documents.remove(actor, id, documentId);
+  }
+
+  @Get('meta/document-rules')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
+  @ApiOperation({ summary: 'The document limits, so clients state what the server enforces' })
+  documentRules() {
+    return { ...PRODUCT_DOCUMENT_RULES, kinds: PRODUCT_DOCUMENT_KINDS };
   }
 
   @Get('meta/image-rules')

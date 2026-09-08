@@ -25,6 +25,7 @@ export const SOFT_DELETABLE_MODELS = new Set<string>([
   // must still be explainable months later.
   'CategorySpecField',
   'VendorProduct',
+  'VendorProductDocument',
   'PurchaseOrder',
   'Invoice',
   'InvoiceDocument',

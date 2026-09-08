@@ -978,6 +978,101 @@ describe('the identifiers a listing carries (v2.48)', () => {
   });
 });
 
+describe('the paperwork a product comes with (v2.49)', () => {
+  /** A real PDF: the %PDF signature is what the validator actually reads. */
+  const pdf = () => Buffer.from('%PDF-1.7 paperwork');
+
+  it('accepts a datasheet and lists it back without leaking where it is stored', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents`)
+      .set(vendorAuth())
+      .field('kind', 'DATASHEET')
+      .field('title', 'Latitude 5420 datasheet')
+      .attach('file', pdf(), { filename: 'sheet.pdf', contentType: 'application/pdf' });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data.kind).toBe('DATASHEET');
+
+    const list = await api(app).get(`/api/v1/vendor-products/${id}/documents`).set(vendorAuth());
+    expect(list.status).toBe(200);
+    expect(list.body.data).toHaveLength(1);
+    // The internal bucket layout is not the caller's business.
+    expect(JSON.stringify(list.body.data)).not.toContain('storageKey');
+  });
+
+  it('refuses a Word file even when it is called a PDF', async () => {
+    // An Office file is a zip that can carry macros and these come from outside
+    // the company. The bytes decide, never the name or the declared type.
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const docx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents`)
+      .set(vendorAuth())
+      .field('kind', 'USER_MANUAL')
+      .attach('file', docx, { filename: 'manual.pdf', contentType: 'application/pdf' });
+    expect([415, 422]).toContain(res.status);
+  });
+
+  it('sends the file back as an attachment rather than something the browser runs', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const added = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents`)
+      .set(vendorAuth())
+      .field('kind', 'COMPLIANCE_CERTIFICATE')
+      .attach('file', pdf(), { filename: 'cert.pdf', contentType: 'application/pdf' });
+    expect(added.status).toBe(201);
+
+    const bytes = await api(app)
+      .get(`/api/v1/vendor-products/${id}/documents/${added.body.data.id}`)
+      .set(vendorAuth());
+    expect(bytes.status).toBe(200);
+    // A PDF rendered inline is a PDF running in our origin.
+    expect(bytes.headers['content-disposition']).toContain('attachment');
+  });
+
+  it('will not let a supplier read a competitor’s paperwork', async () => {
+    const theirs = await offer(vendorB, { ram_gb: '16' });
+    const added = await api(app)
+      .post(`/api/v1/vendor-products/${theirs}/documents`)
+      .set(auth(s.officeAdmin))
+      .field('kind', 'BROCHURE')
+      .attach('file', pdf(), { filename: 'b.pdf', contentType: 'application/pdf' });
+    expect(added.status, JSON.stringify(added.body)).toBe(201);
+
+    const peek = await api(app)
+      .get(`/api/v1/vendor-products/${theirs}/documents`)
+      .set(vendorAuth());
+    expect([403, 404]).toContain(peek.status);
+
+    const grab = await api(app)
+      .get(`/api/v1/vendor-products/${theirs}/documents/${added.body.data.id}`)
+      .set(vendorAuth());
+    expect([403, 404]).toContain(grab.status);
+  });
+
+  it('keeps a removed document rather than destroying it', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const added = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents`)
+      .set(vendorAuth())
+      .field('kind', 'WARRANTY')
+      .attach('file', pdf(), { filename: 'w.pdf', contentType: 'application/pdf' });
+    const documentId = added.body.data.id as string;
+
+    const removed = await api(app)
+      .delete(`/api/v1/vendor-products/${id}/documents/${documentId}`)
+      .set(vendorAuth());
+    expect(removed.status, JSON.stringify(removed.body)).toBe(200);
+
+    const list = await api(app).get(`/api/v1/vendor-products/${id}/documents`).set(vendorAuth());
+    expect(list.body.data).toHaveLength(0);
+    // Paperwork that justified a purchase has to survive it.
+    const row = await prisma.vendorProductDocument.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.deletedAt).not.toBeNull();
+    expect(row.storageKey).toBeTruthy();
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });
