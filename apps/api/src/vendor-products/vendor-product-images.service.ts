@@ -95,7 +95,10 @@ export class VendorProductImagesService {
         sortOrder: nextSort,
         uploadedById: actor.id,
       },
-      select: { id: true, storageKey: true, isPrimary: true, sortOrder: true, sizeBytes: true, mimeType: true },
+      // No storageKey: it spells out the internal bucket layout, tenant id and
+      // all, and the caller reaches the bytes through the id anyway. The list
+      // endpoint was fixed for this and the upload reply was missed.
+      select: { id: true, isPrimary: true, sortOrder: true, sizeBytes: true, mimeType: true },
     });
 
     await this.audit.record({

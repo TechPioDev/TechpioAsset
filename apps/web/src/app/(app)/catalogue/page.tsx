@@ -1,14 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, CalendarClock, Plus, Scale, ShoppingBag } from 'lucide-react';
-import {
-  DEFAULT_VENDOR_OFFER_POLICY,
-  PERMISSIONS,
-  type VendorOfferPolicy,
-} from '@techpioasset/domain';
+import { PERMISSIONS } from '@techpioasset/domain';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -29,6 +26,7 @@ import {
   daysUntil,
   type Offer,
 } from '@/components/catalogue/shared';
+import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
 
 /**
  * The catalogue (v2.42).
@@ -44,25 +42,29 @@ type Category = { id: string; name: string };
 
 export default function CataloguePage() {
   const { user } = useAuth();
-  const [categoryId, setCategoryId] = useState('');
-  const [status, setStatus] = useState('');
-  const [liveOnly, setLiveOnly] = useState(false);
+  /**
+   * Filters open where the link that brought you here said they would.
+   *
+   * The dashboard tiles have always linked to filtered views - "On sale now"
+   * points at ?liveOnly=true - and this page read none of it, so every tile
+   * landed on the same unfiltered list. Seeded once, as the initial state,
+   * because after that the controls on this page own them.
+   */
+  const params = useSearchParams();
+  const [categoryId, setCategoryId] = useState(params.get('categoryId') ?? '');
+  const [status, setStatus] = useState(params.get('status') ?? '');
+  const [liveOnly, setLiveOnly] = useState(params.get('liveOnly') === 'true');
   const [search, setSearch] = useState('');
   const [compare, setCompare] = useState<string[]>([]);
-  const [endingSoonOnly, setEndingSoonOnly] = useState(false);
+  const [endingSoonOnly, setEndingSoonOnly] = useState(params.get('endingSoon') === 'true');
+  const [outOfStockOnly, setOutOfStockOnly] = useState(params.get('outOfStock') === 'true');
 
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const canManage = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE));
   const canCompare =
     Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
 
-  const { data: offerPolicy } = useQuery({
-    queryKey: ['vendor-offer-policy'],
-    queryFn: () => apiFetch<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy'),
-    staleTime: 5 * 60_000,
-  });
-  const publishesAtOnce =
-    (offerPolicy?.policy ?? DEFAULT_VENDOR_OFFER_POLICY) === 'PUBLISH_IMMEDIATELY';
+  const { publishesAtOnce } = useOfferPolicy();
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -103,13 +105,18 @@ export default function CataloguePage() {
   // Filtered here rather than server-side: the list is already bounded, and a
   // round trip per keystroke buys nothing at this size.
   const offers = useMemo(() => {
-    const rows = endingSoonOnly ? endingSoon : (query.data ?? []);
+    const all = query.data ?? [];
+    const rows = endingSoonOnly
+      ? endingSoon
+      : outOfStockOnly
+        ? all.filter((o) => o.availableQuantity <= 0 && o.status !== 'DISCONTINUED')
+        : all;
     const needle = search.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((o) =>
       [o.name, o.brand, o.model, o.vendor?.name].some((v) => v?.toLowerCase().includes(needle)),
     );
-  }, [query.data, search, endingSoonOnly, endingSoon]);
+  }, [query.data, search, endingSoonOnly, outOfStockOnly, endingSoon]);
 
   const toggleCompare = (id: string) =>
     setCompare((ids) =>
@@ -152,7 +159,7 @@ export default function CataloguePage() {
             id="cat-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Name, brand, model or supplier"
+            placeholder={isVendor ? 'Name, brand or model' : 'Name, brand, model or supplier'}
             className={controlCls}
           />
         </Field>
@@ -174,7 +181,7 @@ export default function CataloguePage() {
           <NativeSelect id="cat-status" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">Any status</option>
             <option value="DRAFT">Draft</option>
-            <option value="PENDING_REVIEW">Awaiting review</option>
+            {publishesAtOnce ? null : <option value="PENDING_REVIEW">Awaiting review</option>}
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
             <option value="PAUSED">Paused</option>
@@ -195,6 +202,18 @@ export default function CataloguePage() {
         </Field>
       </Card>
 
+      {outOfStockOnly ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-3">
+          <p className="text-sm">
+            Showing only offers with nothing left in stock. Buyers cannot see these until you set a
+            quantity.
+          </p>
+          <Button variant="secondary" onClick={() => setOutOfStockOnly(false)}>
+            Show everything
+          </Button>
+        </Card>
+      ) : null}
+
       {endingSoon.length > 0 ? (
         <Card className="flex flex-wrap items-center justify-between gap-3 bg-[var(--color-tint-amber)] p-4">
           <div>
@@ -205,7 +224,9 @@ export default function CataloguePage() {
             </p>
             <p className="text-xs text-[var(--color-content-muted)]">
               {isVendor
-                ? 'Buyers stop seeing an offer after its end date. Open one and put it back on sale - it keeps its approval.'
+                ? publishesAtOnce
+                  ? 'Buyers stop seeing an offer after its end date. Open one and put it back on sale — the price and the product are unchanged, so it stays live.'
+                  : 'Buyers stop seeing an offer after its end date. Open one and put it back on sale — it keeps its approval.'
                 : 'After the end date these leave the buyable list. Ask the supplier to extend, or confirm the price still stands.'}
             </p>
           </div>

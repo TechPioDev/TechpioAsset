@@ -9,13 +9,20 @@ import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Card, Skeleton } from '@/components/ui';
-import { EMPTY_DRAFT, OfferForm, draftToBody, type OfferDraft } from '@/components/catalogue/offer-form';
+import {
+  EMPTY_DRAFT,
+  OfferForm,
+  draftToBody,
+  type OfferDraft,
+} from '@/components/catalogue/offer-form';
+import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
 
-/** A new offer. Always created as a draft; publication is a separate, reviewed act. */
+/** A new offer. Always created as a draft; publishing it is a separate act. */
 export default function NewOfferPage() {
   const router = useRouter();
   const toast = useToast();
   const { user } = useAuth();
+  const { publishesAtOnce } = useOfferPolicy();
 
   const create = useMutation({
     mutationFn: (draft: OfferDraft) =>
@@ -24,7 +31,11 @@ export default function NewOfferPage() {
         body: draftToBody(draft, { includeVendor: !user?.roles?.includes('VENDOR') }),
       }),
     onSuccess: (created) => {
-      toast.success('Draft saved. Add a picture, then send it for review.');
+      toast.success(
+        publishesAtOnce
+          ? 'Draft saved. Add a picture, then publish it.'
+          : 'Draft saved. Add a picture, then send it for review.',
+      );
       router.push(`/catalogue/${created.id}`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not save the offer'),
@@ -52,8 +63,9 @@ export default function NewOfferPage() {
       <header>
         <h1 className="text-xl font-semibold tracking-tight">New offer</h1>
         <p className="text-sm text-[var(--color-content-muted)]">
-          Saved as a draft. It needs at least one picture before it can go for review, and buyers see
-          it only once it has been approved.
+          {publishesAtOnce
+            ? 'Saved as a draft. Add at least one picture and fill in the required specifications, then publish it — buyers see it straight away.'
+            : 'Saved as a draft. It needs at least one picture before it can go for review, and buyers see it only once it has been approved.'}
         </p>
       </header>
       <OfferForm

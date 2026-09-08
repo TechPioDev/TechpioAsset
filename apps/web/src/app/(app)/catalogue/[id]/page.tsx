@@ -18,13 +18,10 @@ import {
   X,
 } from 'lucide-react';
 import {
-  DEFAULT_VENDOR_OFFER_POLICY,
   PERMISSIONS,
   PRODUCT_IMAGE_RULES,
   editReturnsToReview,
   formatInr,
-  submitActionLabel,
-  type VendorOfferPolicy,
 } from '@techpioasset/domain';
 import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -46,6 +43,7 @@ import {
   daysUntil,
   type Offer,
 } from '@/components/catalogue/shared';
+import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
 
 /**
  * One offer (v2.42).
@@ -145,14 +143,7 @@ export default function OfferPage() {
   const canReview =
     Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
 
-  // Read from its own endpoint rather than company settings, which a supplier
-  // cannot see. The button has to say what pressing it will actually do.
-  const { data: offerPolicy } = useQuery({
-    queryKey: ['vendor-offer-policy'],
-    queryFn: () => apiFetch<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy'),
-    staleTime: 5 * 60_000,
-  });
-  const policy = offerPolicy?.policy ?? DEFAULT_VENDOR_OFFER_POLICY;
+  const { policy, publishesAtOnce, submitLabel } = useOfferPolicy();
   const canSelect = canManage && !isVendor;
 
   const query = useQuery({
@@ -176,12 +167,17 @@ export default function OfferPage() {
   const submit = useMutation({
     mutationFn: () => apiFetch(`/vendor-products/${id}/submit`, { method: 'POST' }),
     onSuccess: async () => {
-      toast.success(
-        policy === 'PUBLISH_IMMEDIATELY' ? 'Published - buyers can see it now' : 'Sent for review',
-      );
+      toast.success(publishesAtOnce ? 'Published — buyers can see it now' : 'Sent for review');
       await invalidate();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not send it for review'),
+    onError: (e) =>
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : publishesAtOnce
+            ? 'Could not publish it'
+            : 'Could not send it for review',
+      ),
   });
 
   const review = useMutation({
@@ -278,7 +274,11 @@ export default function OfferPage() {
     mutationFn: () =>
       apiFetch<{ id: string }>(`/vendor-products/${id}/duplicate`, { method: 'POST' }),
     onSuccess: (copy) => {
-      toast.success('Copied. Change what differs, add a picture, then send it for review.');
+      toast.success(
+        publishesAtOnce
+          ? 'Copied. Change what differs, add a picture, then publish it.'
+          : 'Copied. Change what differs, add a picture, then send it for review.',
+      );
       router.push(`/catalogue/${copy.id}/edit`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not copy the offer'),
@@ -371,8 +371,20 @@ export default function OfferPage() {
             </Button>
           ) : null}
           {canManage && ['DRAFT', 'REJECTED'].includes(offer.status) ? (
-            <Button loading={submit.isPending} onClick={() => submit.mutate()}>
-              <Send aria-hidden="true" className="mr-1 size-4" /> {submitActionLabel(policy)}
+            <Button
+              loading={submit.isPending}
+              // Offered but doomed otherwise: the server refuses a picture-less
+              // offer, so the only way to learn the rule was to press it and
+              // fail. The title says what is missing.
+              disabled={offer.images.length === 0}
+              title={
+                offer.images.length === 0
+                  ? 'Add at least one picture first — an offer without one cannot go to buyers'
+                  : undefined
+              }
+              onClick={() => submit.mutate()}
+            >
+              <Send aria-hidden="true" className="mr-1 size-4" /> {submitLabel}
             </Button>
           ) : null}
         </div>
@@ -388,7 +400,7 @@ export default function OfferPage() {
             </p>
             <p className="text-xs text-[var(--color-content-muted)]">
               Buyers stop seeing it after that. If the price and the product are unchanged, put it
-              back on sale — it stays live, so nothing has to be approved again.
+              back on sale — the price and the product are unchanged, so it stays as it is.
             </p>
           </div>
           <Button loading={extend.isPending} onClick={() => extend.mutate()}>

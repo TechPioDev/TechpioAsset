@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Eye,
   FileBarChart,
+  Building2,
   Package,
   Plus,
   ShoppingBag,
@@ -20,11 +21,19 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
-import { ASSET_STATUS_TOKENS } from '@techpioasset/ui-tokens';
-import { PERMISSIONS, isReadOnlyPermission, type AssetStatus, type Permission } from '@techpioasset/domain';
+import { ASSET_STATUS_TOKENS, OFFER_LIFECYCLE_TOKENS } from '@techpioasset/ui-tokens';
+import {
+  PERMISSIONS,
+  formatInr,
+  isReadOnlyPermission,
+  type AssetStatus,
+  type OfferLifecycle,
+  type Permission,
+} from '@techpioasset/domain';
 import { apiFetch, apiFetchPage } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
-import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
+import { Card, EmptyState, ErrorState, Skeleton, linkButtonCls } from '@/components/ui';
+import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusBarChart } from '@/components/charts/status-bar-chart';
 import { RoleTiles } from '@/components/dashboard/role-tiles';
@@ -78,7 +87,11 @@ const ROLE_LABELS: Record<string, string> = {
   AUDITOR: 'Auditor',
 };
 const formatRole = (key: string): string =>
-  ROLE_LABELS[key] ?? key.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  ROLE_LABELS[key] ??
+  key
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 const SCOPE_LABELS: Record<string, string> = {
   ALL: 'All company data',
@@ -108,9 +121,7 @@ function Kpi({
   href?: string;
 }) {
   const body = (
-    <div
-      className="group relative h-full overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 pl-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-    >
+    <div className="group relative h-full overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 pl-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <span
         aria-hidden="true"
         className="absolute inset-y-0 left-0 w-1"
@@ -203,7 +214,15 @@ function FleetBar({
 }
 
 /** Section heading with a kicker - the bento grid's typographic voice. */
-function SectionHead({ kicker, title, action }: { kicker: string; title: string; action?: ReactNode }) {
+function SectionHead({
+  kicker,
+  title,
+  action,
+}: {
+  kicker: string;
+  title: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="mb-3 flex items-end justify-between gap-3">
       <div>
@@ -228,6 +247,16 @@ function SectionHead({ kicker, title, action }: { kicker: string; title: string;
  * not have. Nothing here is about kit; it is about the catalogue, which is the
  * only reason a supplier has an account.
  */
+/** The few fields the dashboard shows for a supplier's own offer. */
+interface VendorOfferRow {
+  id: string;
+  name: string;
+  landedCost: string;
+  availableQuantity: number;
+  availableUntil: string;
+  effectiveStatus: OfferLifecycle;
+}
+
 const VENDOR_QUICK_ACTIONS: {
   href: string;
   label: string;
@@ -248,6 +277,15 @@ const VENDOR_QUICK_ACTIONS: {
     icon: <Plus className="size-[18px]" />,
     tone: 'progress',
     perm: PERMISSIONS.VENDOR_PRODUCTS_MANAGE,
+  },
+  {
+    // Reachable from a button on the catalogue and from no menu anywhere, so a
+    // supplier looking for "where do I change my phone number" found nothing.
+    href: '/catalogue/company',
+    label: 'Your company details',
+    icon: <Building2 className="size-[18px]" />,
+    tone: 'neutral',
+    perm: PERMISSIONS.VENDOR_PORTAL_ACCESS,
   },
 ];
 
@@ -364,15 +402,26 @@ export default function DashboardPage() {
   const scope = user?.scope;
   const isFleetViewer = scope !== undefined && scope !== 'OWN';
   const isReadOnly =
-    !!user && user.permissions.length > 0 && user.permissions.every((p) => isReadOnlyPermission(p as Permission));
+    !!user &&
+    user.permissions.length > 0 &&
+    user.permissions.every((p) => isReadOnlyPermission(p as Permission));
   const roleLabel = user?.roles?.[0] ? formatRole(user.roles[0]) : null;
   const scopeLabel = scope ? SCOPE_LABELS[scope] : null;
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const quickActions = (
     isVendor ? VENDOR_QUICK_ACTIONS : user?.scope === 'OWN' ? EMPLOYEE_QUICK_ACTIONS : QUICK_ACTIONS
-  ).filter(
-    (a) => !a.perm || can(a.perm),
-  );
+  ).filter((a) => !a.perm || can(a.perm));
+
+  // A supplier's own offers and the tenant's publishing policy. Both are cheap
+  // and neither is fetched for anyone else.
+  const { publishesAtOnce } = useOfferPolicy();
+
+  const { data: vendorOfferData } = useQuery({
+    queryKey: ['dashboard-vendor-offers'],
+    enabled: isVendor,
+    queryFn: () => apiFetch<VendorOfferRow[]>('/vendor-products?take=6'),
+  });
+  const vendorOffers = vendorOfferData ?? [];
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ['dashboard-assets'],
@@ -593,7 +642,11 @@ export default function DashboardPage() {
               {today}
             </span>
             <h1 className="mt-1 text-[26px] font-bold tracking-tight sm:text-[30px]">
-              {user?.firstName ? `Welcome back, ${user.firstName}` : 'Asset command center'}
+              {user?.firstName
+                ? `Welcome back, ${user.firstName}`
+                : isVendor
+                  ? 'Your catalogue'
+                  : 'Asset command center'}
             </h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               {roleLabel ? (
@@ -644,7 +697,9 @@ export default function DashboardPage() {
         ) : (
           <p className="relative mt-3 max-w-xl text-sm text-[var(--color-content-muted)]">
             {isVendor
-              ? 'Your catalogue with this buyer. Add what you are offering, keep prices and stock current, and send new offers for approval.'
+              ? publishesAtOnce
+                ? 'What you are offering this buyer. Add products, keep prices and stock current, and publish - buyers see an offer as soon as you do.'
+                : 'What you are offering this buyer. Add products, keep prices and stock current, and send new offers for approval.'
               : "Here's what's assigned to you and where you can help. Confirm equipment you have received, and raise a ticket the moment something misbehaves."}
           </p>
         )}
@@ -659,12 +714,54 @@ export default function DashboardPage() {
         <>
           {/* ── KPI band ─────────────────────────────────────────────────── */}
           <section aria-label="Key metrics" className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            <Kpi icon={<Boxes className="size-[18px]" />} tone="info" value={total} label="Total assets" sub={`${byOffice.length} office${byOffice.length === 1 ? '' : 's'}`} href="/assets" />
-            <Kpi icon={<CheckCircle2 className="size-[18px]" />} tone="success" value={available} label="Available" sub={`${pct(available)}% of fleet`} href="/assets?status=AVAILABLE" />
-            <Kpi icon={<Users className="size-[18px]" />} tone="progress" value={assigned} label="Assigned" sub={`${pct(assigned)}% of fleet`} href="/assets?status=ASSIGNED" />
-            <Kpi icon={<Wrench className="size-[18px]" />} tone="warning" value={underRepair} label="Under repair" sub="in service" href="/maintenance" />
-            <Kpi icon={<ShieldAlert className="size-[18px]" />} tone="danger" value={w30} label="Warranty expiring" sub="within 30 days" href="/reports" />
-            <Kpi icon={<AlertTriangle className="size-[18px]" />} tone="critical" value={critical} label="Critical" sub="damaged / lost / stolen" href="/assets" />
+            <Kpi
+              icon={<Boxes className="size-[18px]" />}
+              tone="info"
+              value={total}
+              label="Total assets"
+              sub={`${byOffice.length} office${byOffice.length === 1 ? '' : 's'}`}
+              href="/assets"
+            />
+            <Kpi
+              icon={<CheckCircle2 className="size-[18px]" />}
+              tone="success"
+              value={available}
+              label="Available"
+              sub={`${pct(available)}% of fleet`}
+              href="/assets?status=AVAILABLE"
+            />
+            <Kpi
+              icon={<Users className="size-[18px]" />}
+              tone="progress"
+              value={assigned}
+              label="Assigned"
+              sub={`${pct(assigned)}% of fleet`}
+              href="/assets?status=ASSIGNED"
+            />
+            <Kpi
+              icon={<Wrench className="size-[18px]" />}
+              tone="warning"
+              value={underRepair}
+              label="Under repair"
+              sub="in service"
+              href="/maintenance"
+            />
+            <Kpi
+              icon={<ShieldAlert className="size-[18px]" />}
+              tone="danger"
+              value={w30}
+              label="Warranty expiring"
+              sub="within 30 days"
+              href="/reports"
+            />
+            <Kpi
+              icon={<AlertTriangle className="size-[18px]" />}
+              tone="critical"
+              value={critical}
+              label="Critical"
+              sub="damaged / lost / stolen"
+              href="/assets"
+            />
           </section>
 
           {/* ── Spend (Finance only) ─────────────────────────────────────── */}
@@ -686,14 +783,19 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between text-[13px]">
                           <span className="text-[var(--color-content-muted)]">
                             {r.name}{' '}
-                            <span className="text-xs text-[var(--color-content-subtle)]">· {r.count}</span>
+                            <span className="text-xs text-[var(--color-content-subtle)]">
+                              · {r.count}
+                            </span>
                           </span>
                           <span className="font-semibold tabular-nums">
                             {r.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
                         </div>
                         <div className="col-span-2 h-1.5 rounded-full bg-[var(--color-surface-sunken)]">
-                          <div className="h-full rounded-full bg-[var(--color-brand)]" style={{ width: `${pctOf}%` }} />
+                          <div
+                            className="h-full rounded-full bg-[var(--color-brand)]"
+                            style={{ width: `${pctOf}%` }}
+                          />
                         </div>
                       </div>
                     );
@@ -719,9 +821,17 @@ export default function DashboardPage() {
                 <EmptyState title="No assets" description="Nothing to chart yet." />
               ) : (
                 <div className="flex items-center gap-5">
-                  <DonutChart data={byCategory} centerValue={total.toLocaleString()} centerLabel="assets" />
+                  <DonutChart
+                    data={byCategory}
+                    centerValue={total.toLocaleString()}
+                    centerLabel="assets"
+                  />
                   <Legend
-                    items={byCategory.map((c) => ({ name: c.name, value: c.value.toLocaleString(), fill: c.fill }))}
+                    items={byCategory.map((c) => ({
+                      name: c.name,
+                      value: c.value.toLocaleString(),
+                      fill: c.fill,
+                    }))}
                   />
                 </div>
               )}
@@ -745,7 +855,11 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-5">
                   <AllocationPie data={byOffice} />
                   <Legend
-                    items={byOffice.map((o) => ({ name: o.name, pct: `${pct(o.value)}%`, fill: o.fill }))}
+                    items={byOffice.map((o) => ({
+                      name: o.name,
+                      pct: `${pct(o.value)}%`,
+                      fill: o.fill,
+                    }))}
                   />
                 </div>
               )}
@@ -767,7 +881,10 @@ export default function DashboardPage() {
                 kicker="Action center"
                 title="What needs a decision"
                 action={
-                  <Link href="/assets" className="text-[13px] font-semibold text-[var(--color-brand)]">
+                  <Link
+                    href="/assets"
+                    className="text-[13px] font-semibold text-[var(--color-brand)]"
+                  >
                     All assets <ArrowRight className="inline size-3.5" />
                   </Link>
                 }
@@ -807,8 +924,12 @@ export default function DashboardPage() {
                           className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 transition hover:bg-[var(--color-surface-sunken)]"
                         >
                           <span className="min-w-0">
-                            <span className="block truncate text-[13.5px] font-medium">{a.name}</span>
-                            <span className="text-xs text-[var(--color-content-subtle)]">{a.assetTag}</span>
+                            <span className="block truncate text-[13.5px] font-medium">
+                              {a.name}
+                            </span>
+                            <span className="text-xs text-[var(--color-content-subtle)]">
+                              {a.assetTag}
+                            </span>
                           </span>
                           <StatusBadge token={ASSET_STATUS_TOKENS[a.status]} size="sm" />
                         </Link>
@@ -831,7 +952,10 @@ export default function DashboardPage() {
                     >
                       <span
                         className="grid size-9 place-items-center rounded-[10px] transition group-hover:scale-110"
-                        style={{ color: `var(--tone-${a.tone}-fg)`, background: `var(--tone-${a.tone}-bg)` }}
+                        style={{
+                          color: `var(--tone-${a.tone}-fg)`,
+                          background: `var(--tone-${a.tone}-bg)`,
+                        }}
                       >
                         {a.icon}
                       </span>
@@ -851,17 +975,40 @@ export default function DashboardPage() {
                 kicker="Coverage"
                 title="Warranty expiry timeline"
                 action={
-                  <Link href="/reports" className="text-[13px] font-semibold text-[var(--color-brand)]">
+                  <Link
+                    href="/reports"
+                    className="text-[13px] font-semibold text-[var(--color-brand)]"
+                  >
                     Renewal report
                   </Link>
                 }
               />
               <WarrantyTimeline
                 buckets={[
-                  { count: w30, label: 'Expiring ≤ 30 days', when: `by ${inMonths(1)}`, color: 'var(--tone-critical-solid)' },
-                  { count: w60, label: '31 – 60 days', when: `by ${inMonths(2)}`, color: 'var(--tone-warning-solid)' },
-                  { count: w90, label: '61 – 90 days', when: `by ${inMonths(3)}`, color: 'var(--color-brand)' },
-                  { count: covered, label: 'Covered / no expiry', when: 'healthy', color: 'var(--tone-success-solid)' },
+                  {
+                    count: w30,
+                    label: 'Expiring ≤ 30 days',
+                    when: `by ${inMonths(1)}`,
+                    color: 'var(--tone-critical-solid)',
+                  },
+                  {
+                    count: w60,
+                    label: '31 – 60 days',
+                    when: `by ${inMonths(2)}`,
+                    color: 'var(--tone-warning-solid)',
+                  },
+                  {
+                    count: w90,
+                    label: '61 – 90 days',
+                    when: `by ${inMonths(3)}`,
+                    color: 'var(--color-brand)',
+                  },
+                  {
+                    count: covered,
+                    label: 'Covered / no expiry',
+                    when: 'healthy',
+                    color: 'var(--tone-success-solid)',
+                  },
                 ]}
               />
             </Card>
@@ -873,13 +1020,19 @@ export default function DashboardPage() {
                 <h2 className="mt-0.5 text-[16px] font-bold tracking-tight">Expiring warranties</h2>
               </div>
               {expiringSoon.length === 0 ? (
-                <EmptyState title="Nothing imminent" description="No warranties end in the next 30 days." />
+                <EmptyState
+                  title="Nothing imminent"
+                  description="No warranties end in the next 30 days."
+                />
               ) : (
                 <ul className="divide-y divide-[var(--color-border)]">
                   {expiringSoon.map((a) => (
                     <li key={a.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
                       <div className="min-w-0">
-                        <Link href={`/assets/${a.id}`} className="truncate text-[13.5px] font-medium hover:underline">
+                        <Link
+                          href={`/assets/${a.id}`}
+                          className="truncate text-[13.5px] font-medium hover:underline"
+                        >
                           {a.name}
                         </Link>
                         <p className="text-xs text-[var(--color-content-subtle)]">{a.assetTag}</p>
@@ -901,20 +1054,84 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
               <div>
                 <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-[var(--color-brand)]">
-                  Your kit
+                  {isVendor ? 'Your catalogue' : 'Your kit'}
                 </span>
-                <h2 className="mt-0.5 text-[16px] font-bold tracking-tight">My equipment</h2>
+                <h2 className="mt-0.5 text-[16px] font-bold tracking-tight">
+                  {isVendor ? 'Latest offers' : 'My equipment'}
+                </h2>
               </div>
-              <Package className="size-4 text-[var(--color-content-subtle)]" />
+              {isVendor ? (
+                <Link
+                  href="/catalogue"
+                  className="text-xs font-semibold text-[var(--color-brand)] hover:underline"
+                >
+                  See all
+                </Link>
+              ) : (
+                <Package className="size-4 text-[var(--color-content-subtle)]" />
+              )}
             </div>
-            {myEquipment.length === 0 ? (
-              <EmptyState title="No assets yet" description="Equipment issued to you will appear here." />
+            {/* A supplier is never issued equipment, so this half of the page was
+                a permanent "No assets yet" - the largest thing on the screen
+                saying nothing. It gets what it came here for instead. */}
+            {isVendor ? (
+              vendorOffers.length === 0 ? (
+                <EmptyState
+                  title="Nothing listed yet"
+                  description="Add what you sell, put a picture on it, and publish it."
+                  action={
+                    <Link href="/catalogue/new" className={linkButtonCls.primary}>
+                      <Plus aria-hidden="true" className="size-4" /> Add your first offer
+                    </Link>
+                  }
+                />
+              ) : (
+                <ul className="divide-y divide-[var(--color-border)]">
+                  {vendorOffers.map((o) => {
+                    const days = Math.ceil(
+                      (new Date(o.availableUntil).getTime() - Date.now()) / 86_400_000,
+                    );
+                    return (
+                      <li key={o.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                        <div className="min-w-0">
+                          <Link
+                            href={`/catalogue/${o.id}`}
+                            className="truncate text-[13.5px] font-medium hover:underline"
+                          >
+                            {o.name}
+                          </Link>
+                          <p className="text-xs text-[var(--color-content-subtle)]">
+                            {formatInr(Number(o.landedCost))} ·{' '}
+                            {o.availableQuantity > 0
+                              ? `${o.availableQuantity} available`
+                              : 'nothing left in stock'}
+                            {days <= 30
+                              ? days > 0
+                                ? ` · ends in ${days} ${days === 1 ? 'day' : 'days'}`
+                                : ' · ended'
+                              : ''}
+                          </p>
+                        </div>
+                        <StatusBadge token={OFFER_LIFECYCLE_TOKENS[o.effectiveStatus]} size="sm" />
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : myEquipment.length === 0 ? (
+              <EmptyState
+                title="No assets yet"
+                description="Equipment issued to you will appear here."
+              />
             ) : (
               <ul className="divide-y divide-[var(--color-border)]">
                 {myEquipment.map((a) => (
                   <li key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
                     <div className="min-w-0">
-                      <Link href={`/assets/${a.id}`} className="truncate text-[13.5px] font-medium hover:underline">
+                      <Link
+                        href={`/assets/${a.id}`}
+                        className="truncate text-[13.5px] font-medium hover:underline"
+                      >
                         {a.name}
                       </Link>
                       <p className="text-xs text-[var(--color-content-subtle)]">{a.assetTag}</p>
@@ -938,7 +1155,10 @@ export default function DashboardPage() {
                   >
                     <span
                       className="grid size-9 place-items-center rounded-[10px] transition group-hover:scale-110"
-                      style={{ color: `var(--tone-${a.tone}-fg)`, background: `var(--tone-${a.tone}-bg)` }}
+                      style={{
+                        color: `var(--tone-${a.tone}-fg)`,
+                        background: `var(--tone-${a.tone}-bg)`,
+                      }}
                     >
                       {a.icon}
                     </span>

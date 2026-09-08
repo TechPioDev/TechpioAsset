@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { calculateLandedCost, formatInr, PROPOSED_SPECS_PER_OFFER } from '@techpioasset/domain';
 import { ApiError } from '../../src/lib/api-client';
 import { useSession } from '../../src/providers/session';
+import { useOfferPolicy } from '../../src/lib/use-offer-policy';
 import { useTheme } from '../../src/theme';
 import { ChipPicker } from '../../src/components/chip-picker';
 import { Button, Card, Field, Screen, SectionTitle } from '../../src/components/ui';
@@ -104,6 +105,7 @@ export default function OfferEditScreen() {
   const [fields, setFields] = useState<SpecField[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const { publishesAtOnce } = useOfferPolicy();
 
   const isVendorUser = !!user?.roles?.includes('VENDOR');
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -143,9 +145,9 @@ export default function OfferEditScreen() {
             availableFrom: String(existing.availableFrom ?? '').slice(0, 10) || isoDay(0),
             availableUntil: String(existing.availableUntil ?? '').slice(0, 10) || isoDay(30),
             specs: (existing.specs as Record<string, string>) ?? {},
-            proposedSpecs: ((existing.proposedSpecs as { label: string; value: string }[]) ?? []).map(
-              (p) => ({ label: p.label, value: p.value }),
-            ),
+            proposedSpecs: (
+              (existing.proposedSpecs as { label: string; value: string }[]) ?? []
+            ).map((p) => ({ label: p.label, value: p.value })),
           });
         }
       } finally {
@@ -189,7 +191,10 @@ export default function OfferEditScreen() {
   const datesWrong = new Date(draft.availableUntil) <= new Date(draft.availableFrom);
   const discountTooBig = num(draft.discount) > num(draft.unitPrice);
   const missing =
-    !draft.name.trim() || !draft.categoryId || (!isVendorUser && !draft.vendorId) || !draft.unitPrice;
+    !draft.name.trim() ||
+    !draft.categoryId ||
+    (!isVendorUser && !draft.vendorId) ||
+    !draft.unitPrice;
 
   async function save() {
     setBusy(true);
@@ -260,8 +265,12 @@ export default function OfferEditScreen() {
       </Text>
       <Text style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
         {editing
-          ? 'Changing the price or specification of an approved offer sends it back for review.'
-          : 'Saved as a draft. It needs a picture before it can go for review.'}
+          ? publishesAtOnce
+            ? 'Changes go live as soon as you save.'
+            : 'Changing the price or specification of an approved offer sends it back for review.'
+          : publishesAtOnce
+            ? 'Saved as a draft. Add a picture and the required specifications, then publish it.'
+            : 'Saved as a draft. It needs a picture before it can go for review.'}
       </Text>
 
       {!isVendorUser ? (
@@ -387,7 +396,10 @@ export default function OfferEditScreen() {
               label="Remove"
               variant="ghost"
               onPress={() =>
-                set('proposedSpecs', draft.proposedSpecs.filter((_, idx) => idx !== i))
+                set(
+                  'proposedSpecs',
+                  draft.proposedSpecs.filter((_, idx) => idx !== i),
+                )
               }
             />
           </View>

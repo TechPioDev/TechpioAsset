@@ -2,7 +2,17 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Boxes, ClipboardList, Layers, ShieldAlert, UserCheck, Wrench, KeyRound } from 'lucide-react';
+import {
+  Boxes,
+  CalendarClock,
+  ClipboardList,
+  Layers,
+  PackageX,
+  ShieldAlert,
+  UserCheck,
+  Wrench,
+  KeyRound,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
 import { Card, ErrorState, Skeleton } from '@/components/ui';
@@ -17,8 +27,15 @@ interface Tile {
   tone: Tone;
 }
 
-// Icons the dashboard summary emits (kept explicit for tree-shaking).
-const ICONS: Record<string, LucideIcon> = {
+/**
+ * Icons the dashboard summary emits, kept explicit for tree-shaking.
+ *
+ * Every name dashboard.service.ts can send must appear here. A missing one is
+ * not an error, it silently falls back to Layers - which is how two different
+ * tiles ended up wearing the same glyph and looking like a rendering bug. The
+ * test beside this file reads the service and fails if a name is missing.
+ */
+export const TILE_ICONS: Record<string, LucideIcon> = {
   Boxes,
   KeyRound,
   ClipboardList,
@@ -26,6 +43,8 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   ShieldAlert,
   Wrench,
+  CalendarClock,
+  PackageX,
 };
 
 /**
@@ -54,7 +73,7 @@ export function RoleTiles() {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {data.tiles.map((tile) => {
-        const Icon = ICONS[tile.icon] ?? Layers;
+        const Icon = TILE_ICONS[tile.icon] ?? Layers;
         return (
           <Link key={tile.key} href={tile.href} className="group">
             <Card className="flex h-full items-center gap-3 transition-colors group-hover:bg-[var(--color-surface-sunken)]">

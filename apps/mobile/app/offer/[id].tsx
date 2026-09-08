@@ -2,14 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import {
-  DEFAULT_VENDOR_OFFER_POLICY,
   PERMISSIONS,
   PRODUCT_IMAGE_RULES,
   editReturnsToReview,
   formatInr,
   submitActionLabel,
   type OfferLifecycle,
-  type VendorOfferPolicy,
 } from '@techpioasset/domain';
 import {
   OFFER_LIFECYCLE_TOKENS,
@@ -20,6 +18,7 @@ import { ApiError } from '../../src/lib/api-client';
 import { OfferPhotoSheet } from '../../src/components/offer-photo-sheet';
 import { AuthImage } from '../../src/components/auth-image';
 import { useSession } from '../../src/providers/session';
+import { useOfferPolicy } from '../../src/lib/use-offer-policy';
 import { useTheme } from '../../src/theme';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { offerExpiry } from '../(tabs)/catalogue';
@@ -85,7 +84,7 @@ export default function OfferScreen() {
   const [quantity, setQuantity] = useState('1');
   const [choosing, setChoosing] = useState(false);
   const [acting, setActing] = useState(false);
-  const [policy, setPolicy] = useState<VendorOfferPolicy>(DEFAULT_VENDOR_OFFER_POLICY);
+  const { policy } = useOfferPolicy();
   const [photoOpen, setPhotoOpen] = useState(false);
 
   const isVendor = !!user?.roles?.includes('VENDOR');
@@ -107,12 +106,6 @@ export default function OfferScreen() {
           `/spec-templates?categoryId=${detail.categoryId}` +
           (detail.subcategoryId ? `&subcategoryId=${detail.subcategoryId}` : '');
         setFields((await api.request<SpecField[]>(query)) ?? []);
-        // Its own endpoint, because a supplier cannot read company settings.
-        // The button has to say what pressing it will actually do.
-        const meta = await api
-          .request<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy')
-          .catch(() => null);
-        if (meta) setPolicy(meta.policy);
       }
     } finally {
       setLoading(false);
@@ -376,7 +369,9 @@ export default function OfferScreen() {
           <Card>
             <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
               {offer.images.length === 0
-                ? 'This offer has no picture yet, so it cannot go for review.'
+                ? policy === 'PUBLISH_IMMEDIATELY'
+                  ? 'This offer has no picture yet, so it cannot be published.'
+                  : 'This offer has no picture yet, so it cannot go for review.'
                 : `${offer.images.length} of ${PRODUCT_IMAGE_RULES.max} pictures, ${PRODUCT_IMAGE_RULES.maxBytes / 1024} KB each.`}
             </Text>
             <Button

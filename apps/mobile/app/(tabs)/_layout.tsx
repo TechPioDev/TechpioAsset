@@ -60,11 +60,23 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
       <Tabs.Screen
         name="assets"
-        options={{ title: 'Assets', tabBarIcon: icon('cube-outline'), href: gate(PERMISSIONS.ASSETS_READ) }}
+        options={{
+          title: 'Assets',
+          tabBarIcon: icon('cube-outline'),
+          href: gate(PERMISSIONS.ASSETS_READ),
+        }}
       />
       <Tabs.Screen
         name="requests"
-        options={{ title: 'Requests', tabBarIcon: icon('document-text-outline') }}
+        options={{
+          title: 'Requests',
+          tabBarIcon: icon('document-text-outline'),
+          // The one tab that was never gated. A supplier holds no request
+          // permission at all, so it opened a screen the server answers with
+          // 403 - a dead tab on the bar of every account that cannot raise or
+          // read one.
+          href: gate(PERMISSIONS.REQUESTS_READ),
+        }}
       />
       {/*
         Named and gated for the queue, not for approving (v2.27).

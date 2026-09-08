@@ -22,31 +22,100 @@ const GROUPS: { title: string; items: Item[] }[] = [
     items: [
       // Permissioned: "yours" assumes the reader is a colleague with kit. A
       // supplier holds neither, and offering the pages anyway was a dead end.
-      { icon: 'cube-outline', label: 'My equipment', href: '/my-equipment', perm: PERMISSIONS.ASSETS_READ },
-      { icon: 'ribbon-outline', label: 'My licenses', href: '/my-licenses', perm: PERMISSIONS.LICENSES_READ },
+      {
+        icon: 'cube-outline',
+        label: 'My equipment',
+        href: '/my-equipment',
+        perm: PERMISSIONS.ASSETS_READ,
+      },
+      {
+        icon: 'ribbon-outline',
+        label: 'My licenses',
+        href: '/my-licenses',
+        perm: PERMISSIONS.LICENSES_READ,
+      },
+      // A supplier's own contact details. The web has had this since v2.45 and
+      // the phone had nowhere to reach it, which is the wrong way round: a
+      // supplier is usually out, and a phone number is what goes stale.
+      {
+        icon: 'business-outline',
+        label: 'Your company details',
+        href: '/vendor-company',
+        perm: PERMISSIONS.VENDOR_PORTAL_ACCESS,
+      },
       { icon: 'help-circle-outline', label: 'Help', href: '/help' },
     ],
   },
   {
     title: 'Capture',
     items: [
-      { icon: 'scan-outline', label: 'Scan a code', href: '/(tabs)/scan', perm: PERMISSIONS.ASSETS_READ },
-      { icon: 'receipt-outline', label: 'Capture bill', href: '/(tabs)/capture', perm: PERMISSIONS.INVOICES_UPLOAD },
-      { icon: 'clipboard-outline', label: 'Inventory count', href: '/(tabs)/inventory', perm: PERMISSIONS.INVENTORY_ADJUST },
+      {
+        icon: 'scan-outline',
+        label: 'Scan a code',
+        href: '/(tabs)/scan',
+        perm: PERMISSIONS.ASSETS_READ,
+      },
+      {
+        icon: 'receipt-outline',
+        label: 'Capture bill',
+        href: '/(tabs)/capture',
+        perm: PERMISSIONS.INVOICES_UPLOAD,
+      },
+      {
+        icon: 'clipboard-outline',
+        label: 'Inventory count',
+        href: '/(tabs)/inventory',
+        perm: PERMISSIONS.INVENTORY_ADJUST,
+      },
     ],
   },
   {
     title: 'Records',
     items: [
-      { icon: 'cube-outline', label: 'Receive orders', href: '/purchase-orders', perm: PERMISSIONS.PROCUREMENT_RECEIVE },
+      {
+        icon: 'cube-outline',
+        label: 'Receive orders',
+        href: '/purchase-orders',
+        perm: PERMISSIONS.PROCUREMENT_RECEIVE,
+      },
       { icon: 'layers-outline', label: 'Stock', href: '/stock', perm: PERMISSIONS.INVENTORY_READ },
-      { icon: 'key-outline', label: 'Licenses', href: '/licenses', perm: PERMISSIONS.LICENSES_READ },
-      { icon: 'document-attach-outline', label: 'Invoices', href: '/invoices', perm: PERMISSIONS.INVOICES_READ },
-      { icon: 'build-outline', label: 'My work orders', href: '/work-orders', perm: PERMISSIONS.MAINTENANCE_MANAGE },
-      { icon: 'construct-outline', label: 'Maintenance', href: '/maintenance', perm: PERMISSIONS.MAINTENANCE_READ },
+      {
+        icon: 'key-outline',
+        label: 'Licenses',
+        href: '/licenses',
+        perm: PERMISSIONS.LICENSES_READ,
+      },
+      {
+        icon: 'document-attach-outline',
+        label: 'Invoices',
+        href: '/invoices',
+        perm: PERMISSIONS.INVOICES_READ,
+      },
+      {
+        icon: 'build-outline',
+        label: 'My work orders',
+        href: '/work-orders',
+        perm: PERMISSIONS.MAINTENANCE_MANAGE,
+      },
+      {
+        icon: 'construct-outline',
+        label: 'Maintenance',
+        href: '/maintenance',
+        perm: PERMISSIONS.MAINTENANCE_READ,
+      },
       { icon: 'people-outline', label: 'People', href: '/people', perm: PERMISSIONS.USERS_READ },
-      { icon: 'stats-chart-outline', label: 'Analytics', href: '/analytics', perm: PERMISSIONS.ANALYTICS_READ },
-      { icon: 'bar-chart-outline', label: 'Reports', href: '/reports', perm: PERMISSIONS.REPORTS_READ },
+      {
+        icon: 'stats-chart-outline',
+        label: 'Analytics',
+        href: '/analytics',
+        perm: PERMISSIONS.ANALYTICS_READ,
+      },
+      {
+        icon: 'bar-chart-outline',
+        label: 'Reports',
+        href: '/reports',
+        perm: PERMISSIONS.REPORTS_READ,
+      },
       { icon: 'time-outline', label: 'Audit log', href: '/audit', perm: PERMISSIONS.AUDIT_READ },
     ],
   },

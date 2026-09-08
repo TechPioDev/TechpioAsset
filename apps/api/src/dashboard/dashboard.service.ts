@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthUser } from '@techpioasset/contracts';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { DEFAULT_VENDOR_OFFER_POLICY, PERMISSIONS } from '@techpioasset/domain';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { assetScopeFilter, tenantFilter } from '../common/scope.js';
 import { awaitingMeFilter } from '../requests/awaiting-me.js';
@@ -97,41 +97,82 @@ export class DashboardService {
 
     // What a supplier actually came here for. Scoped by its own vendor link, so
     // these counts can only ever be its own offers.
+    //
+    // The tiles answer "what stops a buyer seeing my offer today?", because that
+    // is the supplier's whole job here. Three things do: it has not been sent,
+    // its date has run out, or it has no stock - and the last two used to be
+    // silent. An offer with nothing left in it simply vanished from the buyable
+    // list with nothing anywhere to say so.
     if (isVendorUser && has('vendor-products:read') && actor.vendorId) {
       const vendorScope = { ...tenant, vendorId: actor.vendorId, deletedAt: null };
-      const [live, awaitingReview, needsAttention] = await Promise.all([
-        db.vendorProduct.count({
-          where: { ...vendorScope, status: 'APPROVED', availableUntil: { gt: new Date() } },
-        }),
-        db.vendorProduct.count({ where: { ...vendorScope, status: 'PENDING_REVIEW' } }),
-        // Drafts and anything turned down: the offers only this supplier can move.
-        db.vendorProduct.count({
-          where: { ...vendorScope, status: { in: ['DRAFT', 'REJECTED'] } },
-        }),
-      ]);
+      const now = new Date();
+      const soon = new Date(Date.now() + 30 * 86_400_000);
+      const onSale = { ...vendorScope, status: 'APPROVED' as const, availableUntil: { gt: now } };
+
+      const [company, live, awaitingReview, needsAttention, endingSoon, outOfStock] =
+        await Promise.all([
+          db.company.findUnique({
+            where: { id: actor.companyId },
+            select: { vendorOfferPolicy: true },
+          }),
+          db.vendorProduct.count({ where: { ...onSale, availableQuantity: { gt: 0 } } }),
+          db.vendorProduct.count({ where: { ...vendorScope, status: 'PENDING_REVIEW' } }),
+          // Drafts and anything turned down: the offers only this supplier can move.
+          db.vendorProduct.count({
+            where: { ...vendorScope, status: { in: ['DRAFT', 'REJECTED'] } },
+          }),
+          db.vendorProduct.count({ where: { ...onSale, availableUntil: { gt: now, lte: soon } } }),
+          db.vendorProduct.count({ where: { ...onSale, availableQuantity: { lte: 0 } } }),
+        ]);
+
       tiles.push({
         key: 'vendor-live-offers',
-        label: 'Offers on sale',
+        label: 'On sale now',
         value: live,
         href: '/catalogue?liveOnly=true',
         icon: 'Boxes',
         tone: 'success',
       });
-      tiles.push({
-        key: 'vendor-awaiting-review',
-        label: 'Awaiting the buyer',
-        value: awaitingReview,
-        href: '/catalogue?status=PENDING_REVIEW',
-        icon: 'ClipboardList',
-        tone: 'progress',
-      });
+
+      // Only where there is a queue to wait in. With approval switched off this
+      // tile could only ever read zero, which reads as "the buyer is ignoring
+      // me" rather than "there is nothing to wait for".
+      if ((company?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY) === 'REVIEW_REQUIRED') {
+        tiles.push({
+          key: 'vendor-awaiting-review',
+          label: 'Awaiting the buyer',
+          value: awaitingReview,
+          href: '/catalogue?status=PENDING_REVIEW',
+          icon: 'ClipboardList',
+          tone: 'progress',
+        });
+      }
+
       tiles.push({
         key: 'vendor-needs-you',
-        label: 'Needs your attention',
+        label: 'Not published yet',
         value: needsAttention,
         href: '/catalogue?status=DRAFT',
         icon: 'Wrench',
         tone: needsAttention > 0 ? 'warning' : 'info',
+      });
+      tiles.push({
+        key: 'vendor-ending-soon',
+        label: 'Ending within 30 days',
+        value: endingSoon,
+        href: '/catalogue?endingSoon=true',
+        icon: 'CalendarClock',
+        tone: endingSoon > 0 ? 'warning' : 'info',
+      });
+      tiles.push({
+        // Approved and in date, but nothing left to sell - so a buyer cannot
+        // see it and nothing else would say why.
+        key: 'vendor-out-of-stock',
+        label: 'Out of stock',
+        value: outOfStock,
+        href: '/catalogue?outOfStock=true',
+        icon: 'PackageX',
+        tone: outOfStock > 0 ? 'danger' : 'info',
       });
     }
 
