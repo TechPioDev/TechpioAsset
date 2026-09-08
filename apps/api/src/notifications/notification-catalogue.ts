@@ -285,6 +285,50 @@ export const NOTIFICATION_CATALOGUE: Readonly<Record<NotificationType, Notificat
     mandatory: true,
     channels: ['IN_APP', 'EMAIL'],
   },
+  // ── v2.50 the supplier catalogue ──────────────────────────────────────────
+  //
+  // Email on all of them. A supplier is not a colleague with the app open in a
+  // tab; they are somebody else's employee who logs in when there is a reason
+  // to, and an in-app bell nobody sees is not a notification.
+  VENDOR_PRODUCT_SUBMITTED: {
+    type: 'VENDOR_PRODUCT_SUBMITTED',
+    title: 'Product submitted for review',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
+  VENDOR_PRODUCT_APPROVED: {
+    type: 'VENDOR_PRODUCT_APPROVED',
+    title: 'Product approved',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
+  VENDOR_PRODUCT_REJECTED: {
+    // Mandatory: a rejection is the one message the supplier must act on, and
+    // an offer sitting rejected and unread helps nobody on either side.
+    type: 'VENDOR_PRODUCT_REJECTED',
+    title: 'Product needs changes',
+    mandatory: true,
+    channels: ['IN_APP', 'EMAIL'],
+  },
+  VENDOR_PRODUCT_EXPIRING: {
+    type: 'VENDOR_PRODUCT_EXPIRING',
+    title: 'Offer about to come off sale',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
+  VENDOR_PRODUCT_OUT_OF_STOCK: {
+    type: 'VENDOR_PRODUCT_OUT_OF_STOCK',
+    title: 'Offer out of stock',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
+  VENDOR_OFFER_SELECTED: {
+    // The good news, and the one they will want fastest.
+    type: 'VENDOR_OFFER_SELECTED',
+    title: 'Your offer was chosen',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
 };
 
 export function isMandatory(type: NotificationType): boolean {

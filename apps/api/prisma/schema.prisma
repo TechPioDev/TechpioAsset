@@ -378,6 +378,14 @@ enum NotificationType {
   // v2.6 scheduled reports
   REPORT_DELIVERED
   REPORT_FAILED
+  /// v2.50 - the supplier catalogue. A supplier does not sit in the app all
+  /// day, so these mostly exist to reach somebody who is not looking.
+  VENDOR_PRODUCT_SUBMITTED
+  VENDOR_PRODUCT_APPROVED
+  VENDOR_PRODUCT_REJECTED
+  VENDOR_PRODUCT_EXPIRING
+  VENDOR_PRODUCT_OUT_OF_STOCK
+  VENDOR_OFFER_SELECTED
 }
 
 /// Spec section 10 - individually switchable AI features.

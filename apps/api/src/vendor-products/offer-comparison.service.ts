@@ -12,6 +12,7 @@ import { AppError } from '../common/errors/app-error.js';
 import { denyVendorUsers, tenantFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { VendorNotificationsService } from './vendor-notifications.service.js';
 import { SpecTemplatesService } from '../spec-templates/spec-templates.service.js';
 
 /**
@@ -35,6 +36,7 @@ export class OfferComparisonService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly templates: SpecTemplatesService,
+    private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
   /**
@@ -254,6 +256,18 @@ export class OfferComparisonService {
         createdAt: true,
       },
     });
+
+    // The supplier's side of the same event. Being chosen is what they are
+    // waiting to hear, and it used to reach them only when somebody remembered
+    // to send an email. Outside the write and unable to fail it.
+    await this.vendorNotifications.selected(
+      { companyId: actor.companyId, vendorId: offer.vendorId, id: offer.id },
+      {
+        productName: selection.productName,
+        quantity: selection.quantity,
+        totalCost: selection.totalCost,
+      },
+    );
 
     await this.audit.record({
       companyId: actor.companyId,

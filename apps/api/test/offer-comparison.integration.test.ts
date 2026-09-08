@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
+import { AlertSweepService } from '../src/scheduled/alert-sweep.service.js';
 
 /**
  * Spec templates, comparison and selection, end to end (v2.42).
@@ -1070,6 +1071,148 @@ describe('the paperwork a product comes with (v2.49)', () => {
     const row = await prisma.vendorProductDocument.findUniqueOrThrow({ where: { id: documentId } });
     expect(row.deletedAt).not.toBeNull();
     expect(row.storageKey).toBeTruthy();
+  });
+});
+
+describe('telling the supplier what happened (v2.50)', () => {
+  const notificationsFor = (userId: string, type: string) =>
+    prisma.notification.findMany({
+      where: { userId, type: type as never },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { title: true, body: true, entityId: true },
+    });
+
+  /** The supplier account the vendorAuth() token belongs to. */
+  async function supplierUserId(): Promise<string> {
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    return user.id;
+  }
+
+  it('tells the supplier when its offer is approved', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({ where: { id }, data: { status: 'PENDING_REVIEW' } });
+    await prisma.vendorProductImage.create({
+      data: {
+        companyId: s.officeAdmin.user.companyId,
+        vendorProductId: id,
+        storageKey: `t/${id}`,
+        originalName: 'a.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 10,
+        sha256: `sha-${id}`,
+        isPrimary: true,
+        sortOrder: 0,
+      },
+    });
+
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${id}/review`)
+      .set(auth(s.itAdmin))
+      .send({ decision: 'APPROVED' });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const notes = await notificationsFor(await supplierUserId(), 'VENDOR_PRODUCT_APPROVED');
+    expect(notes.some((n) => n.entityId === id)).toBe(true);
+  });
+
+  it('carries the reason when an offer is turned down', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({ where: { id }, data: { status: 'PENDING_REVIEW' } });
+
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${id}/review`)
+      .set(auth(s.itAdmin))
+      .send({ decision: 'REJECTED', comments: 'The RAM figure does not match the datasheet' });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const notes = await notificationsFor(await supplierUserId(), 'VENDOR_PRODUCT_REJECTED');
+    const mine = notes.find((n) => n.entityId === id);
+    // Without the reason this is just bad news and the supplier has to ask.
+    expect(mine?.body).toContain('does not match the datasheet');
+  });
+
+  it('tells the supplier when a buyer chooses its offer', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${id}/select`)
+      .set(auth(s.officeAdmin))
+      .send({ quantity: 3 });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const notes = await notificationsFor(await supplierUserId(), 'VENDOR_OFFER_SELECTED');
+    const mine = notes.find((n) => n.entityId === id);
+    expect(mine).toBeTruthy();
+    expect(mine?.body).toContain('3 units');
+  });
+
+  it('never tells one supplier about another’s offer', async () => {
+    const theirs = await liveOffer(vendorB, { ram_gb: '16' });
+    await api(app)
+      .post(`/api/v1/vendor-products/${theirs}/select`)
+      .set(auth(s.officeAdmin))
+      .send({ quantity: 1 });
+
+    const mine = await notificationsFor(await supplierUserId(), 'VENDOR_OFFER_SELECTED');
+    expect(mine.some((n) => n.entityId === theirs)).toBe(false);
+  });
+});
+
+describe('the nightly sweep that chases a supplier (v2.50)', () => {
+  it('warns about an offer coming off sale, once a week and not once a night', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    // Three days left: inside the week the sweep looks at.
+    await prisma.vendorProduct.update({
+      where: { id },
+      data: { availableUntil: new Date(Date.now() + 3 * 86_400_000) },
+    });
+
+    const sweep = app.get(AlertSweepService);
+    await sweep.runVendorOfferSweep();
+
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    const first = await prisma.notification.count({
+      where: { userId: user.id, type: 'VENDOR_PRODUCT_EXPIRING', entityId: id },
+    });
+    expect(first).toBe(1);
+
+    // A daily reminder about a date three weeks out is how people learn to
+    // filter you, so the second pass must stay quiet.
+    await sweep.runVendorOfferSweep();
+    const second = await prisma.notification.count({
+      where: { userId: user.id, type: 'VENDOR_PRODUCT_EXPIRING', entityId: id },
+    });
+    expect(second).toBe(1);
+  });
+
+  it('warns about an approved offer with nothing left to sell', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({
+      where: { id },
+      data: {
+        availableQuantity: 0,
+        // Well inside its dates, so this is only about the stock.
+        availableUntil: new Date(Date.now() + 90 * 86_400_000),
+      },
+    });
+
+    await app.get(AlertSweepService).runVendorOfferSweep();
+
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    const raised = await prisma.notification.findFirst({
+      where: { userId: user.id, type: 'VENDOR_PRODUCT_OUT_OF_STOCK', entityId: id },
+      select: { body: true },
+    });
+    expect(raised?.body).toContain('no units available');
   });
 });
 

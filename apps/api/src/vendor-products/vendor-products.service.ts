@@ -22,6 +22,7 @@ import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter, vendorScopeFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { VendorNotificationsService } from './vendor-notifications.service.js';
 
 /** Same shape the other services use for a transaction handle. */
 type Tx = Omit<
@@ -50,6 +51,7 @@ export class VendorProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
   private static readonly LIST_FIELDS = {
@@ -645,7 +647,9 @@ export class VendorProductsService {
 
     const product = await this.prisma.client.vendorProduct.findFirst({
       where: { id, ...tenantFilter(actor), deletedAt: null },
-      select: { id: true, status: true, _count: { select: { images: true } } },
+      // vendorId, because the people to tell about the decision are the ones
+      // linked to that supplier.
+      select: { id: true, status: true, vendorId: true, _count: { select: { images: true } } },
     });
     if (!product) throw AppError.notFound('Vendor product', id);
     if (product.status !== 'PENDING_REVIEW') {
@@ -679,6 +683,16 @@ export class VendorProductsService {
         select: VendorProductsService.LIST_FIELDS,
       }),
     ]);
+
+    // Outside the transaction and never awaited into its failure path: the
+    // decision has been made and recorded, and a mail server having a bad day
+    // is not a reason to unmake it. The service swallows its own errors.
+    const decided = { companyId: actor.companyId, vendorId: product.vendorId, id, name: updated.name };
+    if (input.decision === 'APPROVED') {
+      await this.vendorNotifications.approved(decided);
+    } else {
+      await this.vendorNotifications.rejected(decided, input.comments ?? null);
+    }
 
     await this.audit.record({
       companyId: actor.companyId,

@@ -19,6 +19,7 @@ import { WebhooksService } from '../integrations/webhooks.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TokenService } from '../auth/token.service.js';
 import { withSpan } from '../observability/tracing.js';
+import { VendorNotificationsService } from '../vendor-products/vendor-notifications.service.js';
 
 /**
  * Warranty and maintenance alert sweep (spec section 14).
@@ -62,6 +63,7 @@ export class AlertSweepService implements OnModuleInit {
     private readonly auth: AuthService,
     private readonly lenovoWarranty: LenovoWarrantyService,
     private readonly webhooks: WebhooksService,
+    private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
   onModuleInit(): void {
@@ -83,6 +85,7 @@ export class AlertSweepService implements OnModuleInit {
       void this.runDiscoveryStalenessSweep();
       void this.runReceiptSweep();
       void this.runReturnOverdueSweep();
+      void this.runVendorOfferSweep();
       // Zero-touch warranty refresh: Lenovo answers serial lookups directly,
       // so those dates never need a human. Summary is logged by the service.
       void this.lenovoWarranty.sweep();
@@ -886,10 +889,72 @@ export class AlertSweepService implements OnModuleInit {
     return raised;
   }
 
+
+  /**
+   * Supplier offers that are about to stop being buyable (v2.50).
+   *
+   * Two ways an approved offer quietly leaves the buyable list: its end date
+   * passes, or its stock reaches zero. Neither told anybody. The catalogue
+   * simply got smaller, and the first sign was a buyer asking where something
+   * had gone.
+   *
+   * The supplier is the only party who can fix either, and they are not sitting
+   * in the app, so this goes out by email. Once a week per offer: a daily
+   * reminder about a date three weeks out is how people learn to filter you.
+   */
+  async runVendorOfferSweep(now: Date = new Date()): Promise<number> {
+    const soon = new Date(now.getTime() + 7 * 86_400_000);
+    let raised = 0;
+
+    const offers = await this.prisma.client.vendorProduct.findMany({
+      where: {
+        deletedAt: null,
+        status: 'APPROVED',
+        OR: [
+          // Coming off sale within the week, or already past it.
+          { availableUntil: { lte: soon } },
+          // In date, but nothing left to sell.
+          { availableUntil: { gt: now }, availableQuantity: { lte: 0 } },
+        ],
+      },
+      select: {
+        id: true,
+        companyId: true,
+        vendorId: true,
+        name: true,
+        availableUntil: true,
+        availableQuantity: true,
+      },
+      take: 500,
+    });
+
+    for (const offer of offers) {
+      const daysLeft = Math.ceil((offer.availableUntil.getTime() - now.getTime()) / 86_400_000);
+      const expiring = offer.availableUntil <= soon;
+      const empty = offer.availableQuantity <= 0 && offer.availableUntil > now;
+
+      // The date first when both are true: an offer that has ended is not
+      // buyable whatever its stock says, and two emails about one listing in
+      // one morning is how a supplier learns to ignore both.
+      if (expiring) {
+        if (await this.remindedWithin(offer.id, 'VENDOR_PRODUCT_EXPIRING', 7, now)) continue;
+        await this.vendorNotifications.expiring(offer, daysLeft);
+        raised += 1;
+      } else if (empty) {
+        if (await this.remindedWithin(offer.id, 'VENDOR_PRODUCT_OUT_OF_STOCK', 7, now)) continue;
+        await this.vendorNotifications.outOfStock(offer);
+        raised += 1;
+      }
+    }
+
+    if (raised > 0) this.logger.log(`Vendor offer sweep raised ${raised} alert(s)`);
+    return raised;
+  }
+
   /** Was this exact thing already chased inside the window? */
   private async remindedWithin(
     entityId: string,
-    type: 'RECEIPT_CONFIRMATION',
+    type: 'RECEIPT_CONFIRMATION' | 'VENDOR_PRODUCT_EXPIRING' | 'VENDOR_PRODUCT_OUT_OF_STOCK',
     days: number,
     now: Date,
   ): Promise<boolean> {
