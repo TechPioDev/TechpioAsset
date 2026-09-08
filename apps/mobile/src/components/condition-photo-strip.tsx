@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
+import { AuthImage } from './auth-image';
 import { Card, SectionTitle } from './ui';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -38,16 +39,7 @@ interface CustodyGroup {
   returned: Photo[];
 }
 
-/**
- * One thumbnail, fetched with the session's bearer token.
- *
- * Native <Image> honours `source.headers`; react-native-web ignores them and
- * silently renders nothing at all - no element, not even a failed request - so
- * on the browser build the strip appeared as labels with no pictures. The
- * browser build is how this app gets reviewed on a laptop, so it fetches the
- * bytes and hands over an object URL there instead, exactly as the web app
- * does. Native keeps the cheaper path.
- */
+/** One thumbnail, tappable to open full size. */
 function Thumb({
   uri,
   headers,
@@ -61,42 +53,18 @@ function Thumb({
   caption: string | null;
   onOpen: (source: { uri: string; headers?: Record<string, string> }) => void;
 }) {
-  const { c, radius } = useTheme();
-  const [webUri, setWebUri] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    let alive = true;
-    let objectUrl: string | null = null;
-    void (async () => {
-      try {
-        const res = await fetch(uri, { headers });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        if (!alive) return;
-        objectUrl = URL.createObjectURL(blob);
-        setWebUri(objectUrl);
-      } catch {
-        // A thumbnail that will not load is left blank; the label still says
-        // which end of the handover it belonged to.
-      }
-    })();
-    return () => {
-      alive = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [uri, headers]);
-
-  const source = Platform.OS === 'web' ? (webUri ? { uri: webUri } : null) : { uri, headers };
-
+  const { radius } = useTheme();
   return (
-    <Pressable onPress={() => source && onOpen(source)} accessibilityRole="imagebutton">
-    <Image
-      source={source ?? undefined}
-      style={{ width: 96, height: 96, borderRadius: radius.md, backgroundColor: c.border }}
-      resizeMode="cover"
-      accessibilityLabel={caption ?? `${label} photo`}
-    />
+    <Pressable
+      onPress={() => onOpen({ uri, headers })}
+      accessibilityRole="imagebutton"
+    >
+      <AuthImage
+        uri={uri}
+        headers={headers}
+        style={{ width: 96, height: 96, borderRadius: radius.md }}
+        accessibilityLabel={caption ?? `${label} photo`}
+      />
     </Pressable>
   );
 }

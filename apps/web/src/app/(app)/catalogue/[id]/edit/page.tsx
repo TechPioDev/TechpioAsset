@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { apiFetch } from '@/lib/api-client';
-import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Card, ErrorState, Skeleton } from '@/components/ui';
 import { EMPTY_DRAFT, OfferForm, draftToBody, type OfferDraft } from '@/components/catalogue/offer-form';
@@ -92,8 +91,6 @@ export default function EditOfferPage() {
   const router = useRouter();
   const toast = useToast();
   const qc = useQueryClient();
-  const { user } = useAuth();
-  const isVendor = Boolean(user?.roles?.includes('VENDOR'));
 
   const query = useQuery({
     queryKey: ['vendor-product', id],
@@ -141,10 +138,11 @@ export default function EditOfferPage() {
       </div>
       <header>
         <h1 className="text-xl font-semibold tracking-tight">Edit offer</h1>
-        {isVendor && approved ? (
+        {approved ? (
           <p className="text-sm text-[var(--color-content-muted)]">
-            Changing the price or specification sends this back for review — what was approved was
-            those values, not the entry itself.
+            This offer is live. Changing the price or specification sends it back for review — what
+            was approved was those values, not the entry itself. Stock and lead time can be changed
+            without that.
           </p>
         ) : null}
       </header>

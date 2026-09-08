@@ -518,6 +518,103 @@ describe('a supplier account nobody linked to a supplier', () => {
   });
 });
 
+describe('a supplier maintaining its own company details', () => {
+  it('can read its own record', async () => {
+    const res = await api(app).get('/api/v1/vendors/me').set(vendorAuth());
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.id).toBe(vendorA);
+  });
+
+  it('never sees the buyer’s internal notes about it', async () => {
+    // The one field a supplier must not read: it is where remarks about this
+    // supplier are kept.
+    await prisma.vendor.update({
+      where: { id: vendorA },
+      data: { notes: 'Slow to deliver, chase weekly' },
+    });
+    const res = await api(app).get('/api/v1/vendors/me').set(vendorAuth());
+    expect(res.status).toBe(200);
+    expect(res.body.data.notes).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain('chase weekly');
+  });
+
+  it('can update its contact details', async () => {
+    const res = await api(app)
+      .patch('/api/v1/vendors/me')
+      .set(vendorAuth())
+      .send({ contactPhone: '+91 98765 43210', city: 'Bengaluru' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.contactPhone).toBe('+91 98765 43210');
+  });
+
+  it('cannot rename itself or reactivate itself', async () => {
+    // Identity and standing are the buyer's record of the supplier. Rejected
+    // by the schema rather than ignored, so a caller is told rather than
+    // quietly having half its request dropped.
+    for (const body of [{ name: 'Something Else Ltd' }, { isActive: true }, { code: 'NEWCODE' }]) {
+      const res = await api(app).patch('/api/v1/vendors/me').set(vendorAuth()).send(body);
+      expect(res.status, `should refuse ${JSON.stringify(body)}`).toBe(422);
+    }
+  });
+
+  it('reaches only its own record, with no id to tamper with', async () => {
+    // There is no /vendors/:id a supplier can call, and /vendors/me resolves
+    // from the account's link - so Vendor B is unreachable by construction.
+    const res = await api(app).get('/api/v1/vendors/me').set(vendorAuth());
+    expect(res.body.data.id).not.toBe(vendorB);
+  });
+
+  it('is refused for internal staff, who have the full vendors screen', async () => {
+    const res = await api(app).get('/api/v1/vendors/me').set(auth(s.officeAdmin));
+    expect([403, 404]).toContain(res.status);
+  });
+});
+
+describe('a supplier changing a live offer', () => {
+  it('may edit an approved offer, which is the routine job', async () => {
+    // The UI once hid Edit on anything but a draft, which hid it on exactly the
+    // offers a supplier most needs to change. This pins the server's answer so
+    // the screens cannot quietly become stricter than it again.
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${id}`)
+      .set(vendorAuth())
+      .send({ availableQuantity: 42 });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.availableQuantity).toBe(42);
+  });
+
+  it('sends it back for review when the price changes', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${id}`)
+      .set(vendorAuth())
+      .send({ unitPrice: 123456 });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // What was approved was a price, not a row.
+    expect(res.body.data.status).toBe('PENDING_REVIEW');
+  });
+
+  it('leaves it live when only the stock figure changes', async () => {
+    // Otherwise every restock would queue for a buyer's attention.
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${id}`)
+      .set(vendorAuth())
+      .send({ availableQuantity: 7 });
+    expect(res.body.data.status).toBe('APPROVED');
+  });
+
+  it('still refuses to let a supplier edit a competitor’s offer', async () => {
+    const theirs = await liveOffer(vendorB, { ram_gb: '16' });
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${theirs}`)
+      .set(vendorAuth())
+      .send({ availableQuantity: 1 });
+    expect([403, 404]).toContain(res.status);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

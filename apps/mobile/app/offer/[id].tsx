@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
-import { PERMISSIONS, formatInr, type OfferLifecycle } from '@techpioasset/domain';
+import {
+  PERMISSIONS,
+  PRODUCT_IMAGE_RULES,
+  formatInr,
+  type OfferLifecycle,
+} from '@techpioasset/domain';
 import { OFFER_LIFECYCLE_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { OfferPhotoSheet } from '../../src/components/offer-photo-sheet';
+import { AuthImage } from '../../src/components/auth-image';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
@@ -117,7 +123,11 @@ export default function OfferScreen() {
   const token = OFFER_LIFECYCLE_TOKENS[offer.effectiveStatus];
   const tone = palette[token.tone];
   const buyable = ['ACTIVE', 'EXPIRING_SOON'].includes(offer.effectiveStatus);
-  const editable = ['DRAFT', 'REJECTED', 'PAUSED'].includes(offer.status);
+  // Editable unless withdrawn. Limiting this to drafts hid the button on the
+  // live offers a supplier most needs to change; the server allows the edit and
+  // sends a reviewed-field change back for review.
+  const editable = offer.status !== 'DISCONTINUED';
+  const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
 
   const goods = Number(offer.unitPrice) - Number(offer.discount);
   const taxable = goods + Number(offer.shippingCost) + Number(offer.installationCost);
@@ -203,6 +213,25 @@ export default function OfferScreen() {
         <StatusPill label={token.label} bg={tone.bg} fg={tone.fg} />
       </View>
 
+      {offer.images?.length ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.md }}>
+          {offer.images.map((image) => {
+            const source = api.imageSource(`/vendor-products/${offer.id}/images/${image.id}`);
+            return (
+              <AuthImage
+                key={image.id}
+                uri={source.uri}
+                headers={source.headers}
+                style={{ width: 104, height: 104, borderRadius: 10 }}
+                accessibilityLabel={
+                  image.isPrimary ? `${offer.name}, main picture` : `${offer.name}, picture`
+                }
+              />
+            );
+          })}
+        </View>
+      ) : null}
+
       {offer.description ? (
         <Text style={{ color: c.muted, fontSize: 13, marginTop: spacing.md, lineHeight: 19 }}>
           {offer.description}
@@ -253,7 +282,7 @@ export default function OfferScreen() {
             <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
               {offer.images.length === 0
                 ? 'This offer has no picture yet, so it cannot go for review.'
-                : `${offer.images.length} picture${offer.images.length === 1 ? '' : 's'}.`}
+                : `${offer.images.length} of ${PRODUCT_IMAGE_RULES.max} pictures, ${PRODUCT_IMAGE_RULES.maxBytes / 1024} KB each.`}
             </Text>
             <Button
               label="Add a picture"
@@ -262,13 +291,21 @@ export default function OfferScreen() {
               onPress={() => setPhotoOpen(true)}
             />
             {editable ? (
-              <Button
-                label="Edit details"
-                icon="create-outline"
-                variant="secondary"
-                onPress={() => router.push(`/offer/edit?id=${offer.id}`)}
-                style={{ marginTop: 6 }}
-              />
+              <>
+                <Button
+                  label="Edit details"
+                  icon="create-outline"
+                  variant="secondary"
+                  onPress={() => router.push(`/offer/edit?id=${offer.id}`)}
+                  style={{ marginTop: 6 }}
+                />
+                {returnsToReview ? (
+                  <Text style={{ color: c.subtle, fontSize: 11, marginTop: 6 }}>
+                    Changing the price or specification sends this back for review. Stock and lead
+                    time can be changed without that.
+                  </Text>
+                ) : null}
+              </>
             ) : null}
             {offer.status === 'DRAFT' || offer.status === 'REJECTED' ? (
               <Button

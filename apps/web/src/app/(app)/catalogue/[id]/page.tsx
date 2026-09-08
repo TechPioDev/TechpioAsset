@@ -219,7 +219,17 @@ export default function OfferPage() {
     );
   }
 
-  const editable = ['DRAFT', 'REJECTED', 'CORRECTION_REQUESTED', 'PAUSED'].includes(offer.status);
+  /**
+   * Editable unless it has been withdrawn.
+   *
+   * This was once limited to drafts, which hid the button on exactly the offers
+   * a supplier most needs to change: the live ones. Updating a price or a stock
+   * figure on an approved offer is the routine job, and the server has always
+   * allowed it - a change to a reviewed field simply sends the offer back for
+   * review, which the notice below says.
+   */
+  const editable = offer.status !== 'DISCONTINUED';
+  const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
   const buyable = ['ACTIVE', 'EXPIRING_SOON'].includes(offer.effectiveStatus);
   const labelFor = (key: string) => specFields?.find((f) => f.key === key)?.label ?? key;
   const unitFor = (key: string) => specFields?.find((f) => f.key === key)?.unit ?? '';
@@ -245,7 +255,15 @@ export default function OfferPage() {
         <div className="flex flex-wrap items-center gap-2">
           <OfferStatus status={offer.effectiveStatus} />
           {canManage && editable ? (
-            <Link href={`/catalogue/${offer.id}/edit`} className={linkButtonCls.secondary}>
+            <Link
+              href={`/catalogue/${offer.id}/edit`}
+              className={linkButtonCls.secondary}
+              title={
+                returnsToReview
+                  ? 'Changing the price or specification sends this back for review'
+                  : undefined
+              }
+            >
               <Pencil aria-hidden="true" className="size-4" /> Edit
             </Link>
           ) : null}

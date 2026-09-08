@@ -8,6 +8,7 @@ import type {
   UpdateOfficeInput,
   CreateVendorInput,
   UpdateVendorInput,
+  UpdateOwnVendorInput,
 } from '@techpioasset/contracts';
 import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter } from '../common/scope.js';
@@ -28,6 +29,22 @@ import { CacheProvider } from '../providers/cache/cache.provider.js';
  */
 @Injectable()
 export class OrgService {
+  /** What a supplier may see of its own record. Notably not `notes`. */
+  private static readonly OWN_VENDOR_FIELDS = {
+    id: true,
+    code: true,
+    name: true,
+    contactName: true,
+    contactEmail: true,
+    contactPhone: true,
+    website: true,
+    taxId: true,
+    addressLine1: true,
+    city: true,
+    country: true,
+    isActive: true,
+  } as const;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheProvider,
@@ -335,6 +352,56 @@ export class OrgService {
         },
       },
     });
+  }
+
+  /**
+   * The supplier's own company record (v2.45).
+   *
+   * Scoped by the vendor link on the account rather than an id in the URL, so
+   * there is no id to tamper with. Internal notes are not selected: they are
+   * the buyer's remarks about this supplier, and the supplier is the one
+   * person who must not read them.
+   */
+  async ownVendor(actor: AuthUser) {
+    if (!actor.vendorId) {
+      throw AppError.forbidden(
+        'This account is not linked to a supplier, so there is no company profile to show.',
+      );
+    }
+    const vendor = await this.prisma.client.vendor.findFirst({
+      where: { id: actor.vendorId, ...tenantFilter(actor), deletedAt: null },
+      select: OrgService.OWN_VENDOR_FIELDS,
+    });
+    if (!vendor) throw AppError.notFound('Vendor', actor.vendorId);
+    return vendor;
+  }
+
+  async updateOwnVendor(actor: AuthUser, input: UpdateOwnVendorInput) {
+    const before = await this.ownVendor(actor);
+
+    const vendor = await this.prisma.client.vendor.update({
+      where: { id: before.id },
+      data: { ...input, updatedById: actor.id },
+      select: OrgService.OWN_VENDOR_FIELDS,
+    });
+
+    // The picker list is cached; a changed contact name would otherwise take
+    // the cache TTL to appear for internal staff.
+    await this.cache.del(`vendors:${actor.companyId}`);
+
+    // Audited like any other change to a vendor: the buyer should be able to
+    // see that the supplier edited its own details, and what they were before.
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'Vendor',
+      entityId: vendor.id,
+      previousValues: before,
+      newValues: vendor,
+      reason: 'Supplier updated its own company profile',
+    });
+    return vendor;
   }
 
   vendors(actor: AuthUser) {

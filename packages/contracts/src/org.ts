@@ -113,3 +113,28 @@ export const updateVendorSchema = createVendorSchema
 
 export type CreateVendorInput = z.infer<typeof createVendorSchema>;
 export type UpdateVendorInput = z.infer<typeof updateVendorSchema>;
+
+/**
+ * The details a supplier may maintain about itself (v2.45).
+ *
+ * Contact and address only. Deliberately not `name`, `code`, `isActive` or
+ * `notes`: identity and standing are the buyer's record of the supplier, not
+ * the supplier's to edit, and `notes` is where internal remarks about them are
+ * kept. A supplier renaming itself, reactivating itself, or reading the buyer's
+ * notes are three different problems, and omitting the fields prevents all
+ * three without a second check anywhere.
+ */
+export const updateOwnVendorSchema = z
+  .object({
+    contactName: optionalText(120),
+    contactEmail: z.string().trim().email().max(200).optional().nullable(),
+    contactPhone: optionalText(40),
+    website: optionalText(200),
+    taxId: optionalText(60),
+    addressLine1: optionalText(200),
+    city: optionalText(120),
+    country: optionalText(120),
+  })
+  .strict();
+
+export type UpdateOwnVendorInput = z.infer<typeof updateOwnVendorSchema>;

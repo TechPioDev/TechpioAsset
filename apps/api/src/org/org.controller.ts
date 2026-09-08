@@ -15,6 +15,8 @@ import {
   type UpdateVendorInput,
   type UpdateDepartmentInput,
   type UpdateOfficeInput,
+  updateOwnVendorSchema,
+  type UpdateOwnVendorInput,
 } from '@techpioasset/contracts';
 import { PERMISSIONS, REQUEST_CREATION_POLICIES } from '@techpioasset/domain';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
@@ -143,6 +145,33 @@ export class OrgController {
   // v2.40: vendors:manage was granted to Finance and Procurement Manager and
   // enforced by nothing - there was no way to add a vendor, so a purchase order
   // could only name the "Unknown vendor" placeholder a bill upload creates.
+
+  @Get('vendors/me')
+  @RequirePermissions(PERMISSIONS.VENDOR_PORTAL_ACCESS)
+  @ApiOperation({
+    summary: "A supplier's own company record",
+    description:
+      'Scoped by the vendor link on the account, so there is no id to tamper with. The buying ' +
+      "company's internal notes about the supplier are not included.",
+  })
+  ownVendor(@CurrentUser() actor: AuthUser) {
+    return this.org.ownVendor(actor);
+  }
+
+  @Patch('vendors/me')
+  @RequirePermissions(PERMISSIONS.VENDOR_PORTAL_ACCESS)
+  @ApiOperation({
+    summary: 'A supplier updates its own contact and address details',
+    description:
+      'Name, code and active status are the buying company’s record of the supplier, not the ' +
+      'supplier’s to change, so they are not accepted here.',
+  })
+  updateOwnVendor(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(updateOwnVendorSchema)) body: UpdateOwnVendorInput,
+  ) {
+    return this.org.updateOwnVendor(actor, body);
+  }
 
   @Get('vendors/manage')
   @RequirePermissions(PERMISSIONS.VENDORS_MANAGE)

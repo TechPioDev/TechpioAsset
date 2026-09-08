@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Scale, ShoppingBag } from 'lucide-react';
+import { Building2, Plus, Scale, ShoppingBag } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -90,11 +90,18 @@ export default function CataloguePage() {
               : 'What suppliers are offering, with the landed cost worked out. Prices here are what the vendor published, until the date they published them to.'}
           </p>
         </div>
-        {canManage ? (
-          <Link href="/catalogue/new" className={linkButtonCls.primary}>
-            <Plus aria-hidden="true" className="size-4" /> New offer
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {isVendor ? (
+            <Link href="/catalogue/company" className={linkButtonCls.secondary}>
+              <Building2 aria-hidden="true" className="size-4" /> Company details
+            </Link>
+          ) : null}
+          {canManage ? (
+            <Link href="/catalogue/new" className={linkButtonCls.primary}>
+              <Plus aria-hidden="true" className="size-4" /> New offer
+            </Link>
+          ) : null}
+        </div>
       </header>
 
       <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -194,8 +201,15 @@ export default function CataloguePage() {
               search
                 ? 'Try a shorter search, or clear the filters.'
                 : isVendor
-                  ? 'Add your first offer and send it for review.'
+                  ? 'Add your first offer, put a picture on it, and send it for review.'
                   : 'Once suppliers publish offers, they appear here.'
+            }
+            action={
+              canManage && !search ? (
+                <Link href="/catalogue/new" className={linkButtonCls.primary}>
+                  <Plus aria-hidden="true" className="size-4" /> Add your first offer
+                </Link>
+              ) : undefined
             }
           />
         </Card>
