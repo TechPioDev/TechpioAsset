@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
@@ -88,7 +89,20 @@ describe('identifier changes are recorded', () => {
 
   it('records a MAC address change', async () => {
     const asset = await anAsset();
-    const mac = 'AC:D6:18:76:CD:B2'.replace(/B2$/, String(Date.now() % 90 + 10));
+    // Three random octets, not a slice of the clock.
+    //
+    // This drew its last octet from `Date.now() % 90 + 10`, which is ninety
+    // values, and (companyId, macAddress) is unique. Every run left an asset
+    // holding one of the ninety for good, so the odds of a clash rose with
+    // every run until the PATCH started coming back a conflict - thirty of the
+    // ninety were taken when this was found, and the test was failing about a
+    // third of the time. Sixteen million values do not fill up.
+    const octet = () =>
+      randomInt(256)
+        .toString(16)
+        .padStart(2, '0')
+        .toUpperCase();
+    const mac = `AC:D6:18:${octet()}:${octet()}:${octet()}`;
 
     const patch = await api(app)
       .patch(`/api/v1/assets/${asset.id}`)
