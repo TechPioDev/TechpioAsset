@@ -18,6 +18,10 @@ import { Skeleton } from '@/components/ui';
  */
 
 export type Offer = {
+  /** v2.48 - ours, e.g. LAP-DELL-5420-001. Null only on listings older than the scheme. */
+  productCode?: string | null;
+  /** The supplier's own, unique within that supplier. */
+  vendorSku?: string | null;
   id: string;
   vendorId: string;
   name: string;

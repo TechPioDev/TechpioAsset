@@ -48,6 +48,7 @@ interface Draft {
   subcategoryId: string;
   brand: string;
   model: string;
+  vendorSku: string;
   description: string;
   unitPrice: string;
   gstPercent: string;
@@ -74,6 +75,7 @@ const EMPTY: Draft = {
   subcategoryId: '',
   brand: '',
   model: '',
+  vendorSku: '',
   description: '',
   unitPrice: '',
   gstPercent: '18',
@@ -132,6 +134,7 @@ export default function OfferEditScreen() {
             subcategoryId: String(existing.subcategoryId ?? ''),
             brand: String(existing.brand ?? ''),
             model: String(existing.model ?? ''),
+            vendorSku: String(existing.vendorSku ?? ''),
             description: String(existing.description ?? ''),
             unitPrice: String(existing.unitPrice ?? ''),
             gstPercent: String(existing.gstPercent ?? '18'),
@@ -206,6 +209,7 @@ export default function OfferEditScreen() {
         ...(draft.subcategoryId ? { subcategoryId: draft.subcategoryId } : {}),
         ...(draft.brand.trim() ? { brand: draft.brand.trim() } : {}),
         ...(draft.model.trim() ? { model: draft.model.trim() } : {}),
+        ...(draft.vendorSku.trim() ? { vendorSku: draft.vendorSku.trim() } : {}),
         ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
         unitPrice: num(draft.unitPrice),
         gstPercent: num(draft.gstPercent),
@@ -292,6 +296,9 @@ export default function OfferEditScreen() {
         {text('name', 'Product name')}
         {text('brand', 'Brand')}
         {text('model', 'Model')}
+        {/* The supplier's own number for the thing. Unique among that
+            supplier's listings; the server says which one holds it if not. */}
+        {text('vendorSku', 'Your SKU (optional)', { autoCapitalize: 'characters' })}
         <Text style={{ color: c.text, fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
           Category
         </Text>

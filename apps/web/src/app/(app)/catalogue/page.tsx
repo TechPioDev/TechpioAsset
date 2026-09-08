@@ -114,7 +114,9 @@ export default function CataloguePage() {
     const needle = search.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((o) =>
-      [o.name, o.brand, o.model, o.vendor?.name].some((v) => v?.toLowerCase().includes(needle)),
+      [o.name, o.brand, o.model, o.productCode, o.vendorSku, o.vendor?.name].some((v) =>
+        v?.toLowerCase().includes(needle),
+      ),
     );
   }, [query.data, search, endingSoonOnly, outOfStockOnly, endingSoon]);
 
@@ -159,7 +161,7 @@ export default function CataloguePage() {
             id="cat-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={isVendor ? 'Name, brand or model' : 'Name, brand, model or supplier'}
+            placeholder={isVendor ? 'Name, code, SKU, brand or model' : 'Name, code, SKU, brand, model or supplier'}
             className={controlCls}
           />
         </Field>

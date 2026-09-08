@@ -823,6 +823,161 @@ describe('the chain from a listing to a physical unit', () => {
   });
 });
 
+describe('the identifiers a listing carries (v2.48)', () => {
+  it('gives every new listing a readable code of its own', async () => {
+    const res = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(auth(s.officeAdmin))
+      .send({
+        vendorId: vendorA,
+        name: `Coded ${stamp()}`,
+        brand: 'Dell',
+        model: 'Latitude 5420',
+        categoryId,
+        unitPrice: 100000,
+        gstPercent: 18,
+        availableQuantity: 5,
+        specs: { ram_gb: '16' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // Category, make, model, and which of that make and model this is.
+    expect(res.body.data.productCode).toMatch(/^[A-Z]{3}-DELL-5420-\d{3}$/);
+  });
+
+  it('counts up rather than reusing a number when the same model is listed twice', async () => {
+    const make = async () =>
+      (
+        await api(app)
+          .post('/api/v1/vendor-products')
+          .set(auth(s.officeAdmin))
+          .send({
+            vendorId: vendorA,
+            name: `Series ${stamp()}`,
+            brand: 'Lenovo',
+            model: 'ThinkPad T14',
+            categoryId,
+            unitPrice: 90000,
+            gstPercent: 18,
+            availableQuantity: 5,
+            specs: { ram_gb: '16' },
+            availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+            availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+          })
+      ).body.data.productCode as string;
+
+    const first = await make();
+    const second = await make();
+    expect(first).not.toBe(second);
+    expect(Number(second.slice(-3))).toBe(Number(first.slice(-3)) + 1);
+  });
+
+  it('refuses a SKU the same supplier is already using, and says which listing has it', async () => {
+    const sku = `SKU-${stamp()}`;
+    const first = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(vendorAuth())
+      .send({
+        name: `First ${stamp()}`,
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        specs: { ram_gb: '8' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+
+    const clash = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(vendorAuth())
+      .send({
+        name: `Second ${stamp()}`,
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        specs: { ram_gb: '8' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(clash.status).toBe(409);
+    // Actionable: it names the listing holding the SKU, not a constraint.
+    expect(clash.body.detail).toContain('First');
+  });
+
+  it('lets a different supplier use the same SKU, because it is their own namespace', async () => {
+    const sku = `SHARED-${stamp()}`;
+    const mine = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(auth(s.officeAdmin))
+      .send({
+        vendorId: vendorA,
+        name: `A ${stamp()}`,
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        specs: { ram_gb: '8' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+
+    const theirs = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(auth(s.officeAdmin))
+      .send({
+        vendorId: vendorB,
+        name: `B ${stamp()}`,
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        specs: { ram_gb: '8' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    // Two suppliers may both call something "5420" and neither is wrong.
+    expect(theirs.status, JSON.stringify(theirs.body)).toBe(201);
+  });
+
+  it('gives a copy its own code and no SKU, so it cannot collide with the original', async () => {
+    const sku = `ORIG-${stamp()}`;
+    const original = await api(app)
+      .post('/api/v1/vendor-products')
+      .set(vendorAuth())
+      .send({
+        name: `Original ${stamp()}`,
+        brand: 'HP',
+        model: 'EliteBook 840',
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        specs: { ram_gb: '8' },
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+    expect(original.status, JSON.stringify(original.body)).toBe(201);
+
+    const copy = await api(app)
+      .post(`/api/v1/vendor-products/${original.body.data.id}/duplicate`)
+      .set(vendorAuth());
+    expect(copy.status, JSON.stringify(copy.body)).toBe(201);
+    expect(copy.body.data.productCode).not.toBe(original.body.data.productCode);
+    // Carrying the SKU over would collide on the very next save.
+    expect(copy.body.data.vendorSku).toBeNull();
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

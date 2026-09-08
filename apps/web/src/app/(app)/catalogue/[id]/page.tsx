@@ -344,6 +344,14 @@ export default function OfferPage() {
           <p className="text-sm text-[var(--color-content-muted)]">
             {[offer.brand, offer.model, offer.vendor?.name].filter(Boolean).join(' · ')}
           </p>
+          {/* v2.48 - the identifiers people quote to each other. Ours first,
+              because it always exists; the supplier's own beside it when set. */}
+          {offer.productCode || offer.vendorSku ? (
+            <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-xs text-[var(--color-content-subtle)]">
+              {offer.productCode ? <span>{offer.productCode}</span> : null}
+              {offer.vendorSku ? <span>SKU {offer.vendorSku}</span> : null}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <OfferStatus status={offer.effectiveStatus} />

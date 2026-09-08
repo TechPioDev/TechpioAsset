@@ -3885,6 +3885,12 @@ model VendorProduct {
   brand         String?
   manufacturer  String?
   model         String?
+  /// v2.48 - the readable identifier this listing is known by, e.g.
+  /// LAP-DELL-5420-001. Assigned by us and unique per company, because a
+  /// supplier's own SKU cannot serve: two suppliers may use the same one, and
+  /// most listings have none at all. Nullable only because listings existed
+  /// before it did; every new one is given a code on creation.
+  productCode   String?
   vendorSku     String?
   mpn           String?
   description   String?
@@ -3948,6 +3954,11 @@ model VendorProduct {
   reviews       VendorProductReview[]
   selections    ProcurementSelection[]
 
+  @@unique([companyId, productCode])
+  /// A supplier's SKU is unique within that supplier, not across the catalogue:
+  /// two vendors may legitimately both call something "5420". Postgres treats
+  /// nulls as distinct, so the many listings without a SKU do not collide.
+  @@unique([companyId, vendorId, vendorSku])
   @@index([companyId, status])
   @@index([companyId, vendorId])
   @@index([companyId, categoryId, status])

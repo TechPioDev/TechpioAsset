@@ -54,6 +54,8 @@ interface OfferDetail {
   availableQuantity: number;
   minOrderQuantity: number;
   availableUntil: string;
+  productCode?: string | null;
+  vendorSku?: string | null;
   leadTimeDays: number | null;
   warrantyMonths: number | null;
   paymentTerms: string | null;
@@ -267,6 +269,17 @@ export default function OfferScreen() {
   return (
     <Screen scroll>
       <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>{offer.name}</Text>
+      {/* v2.48 - the identifiers people quote on the phone, which is where a
+          supplier usually is when they need them. */}
+      {offer.productCode || offer.vendorSku ? (
+        <Text
+          style={{ color: c.subtle, fontSize: 12, marginTop: 2, fontVariant: ['tabular-nums'] }}
+        >
+          {[offer.productCode, offer.vendorSku ? `SKU ${offer.vendorSku}` : null]
+            .filter(Boolean)
+            .join('  ·  ')}
+        </Text>
+      ) : null}
       <Text style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
         {[offer.brand, offer.model, isVendor ? null : offer.vendor?.name]
           .filter(Boolean)

@@ -8,6 +8,9 @@ import {
   proposedSpecsProblem,
   DEFAULT_VENDOR_OFFER_POLICY,
   editReturnsToReview,
+  formatProductCode,
+  productCodeSequence,
+  productCodeStem,
   effectiveOfferStatus,
   imageSetProblem,
   statusAfterSubmit,
@@ -52,6 +55,8 @@ export class VendorProductsService {
   private static readonly LIST_FIELDS = {
     id: true,
     vendorId: true,
+    productCode: true,
+    vendorSku: true,
     name: true,
     brand: true,
     model: true,
@@ -101,6 +106,77 @@ export class VendorProductsService {
       select: { vendorOfferPolicy: true },
     });
     return (company?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY) as VendorOfferPolicy;
+  }
+
+  /**
+   * The next free code for this make and model, e.g. LAP-DELL-5420-003.
+   *
+   * Under an advisory lock keyed on the stem, which is how purchase order and
+   * receipt numbers are already assigned here: two people adding the same
+   * laptop at the same moment would otherwise read the same highest number and
+   * both write it, and one of them would lose to the unique index.
+   *
+   * Scanning for the highest existing rather than counting rows, because a
+   * withdrawn listing keeps its code and counting would hand it out twice.
+   */
+  private async nextProductCode(
+    tx: Tx,
+    companyId: string,
+    parts: { categoryName?: string | null; brand?: string | null; model?: string | null },
+  ): Promise<string> {
+    const stem = productCodeStem(parts);
+    await (tx as unknown as { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number> })
+      .$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`vpcode:${companyId}:${stem}`}))`;
+
+    // Matched on the exact stem followed by digits, not on a prefix. "LAP-"
+    // is also the start of "LAP-DELL-5420-001", so a prefix search on the
+    // shorter stem read a longer stem's number and handed back one that was
+    // already taken. Ordered by length first so 1000 beats 999 rather than
+    // losing to it alphabetically.
+    const rows = await (
+      tx as unknown as {
+        $queryRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<{ productCode: string }[]>;
+      }
+    ).$queryRaw`
+      SELECT "productCode" FROM vendor_products
+       WHERE "companyId" = ${companyId}
+         AND "productCode" ~ ${`^${stem}-[0-9]+$`}
+       ORDER BY length("productCode") DESC, "productCode" DESC
+       LIMIT 1`;
+    const highest = rows[0]?.productCode ? productCodeSequence(rows[0].productCode) : 0;
+    return formatProductCode(stem, highest + 1);
+  }
+
+  /**
+   * A supplier's SKU must be unique among that supplier's own listings.
+   *
+   * The unique index is the real guard; this exists so the answer is a sentence
+   * naming the listing that already has it, rather than a constraint violation
+   * the supplier cannot act on.
+   */
+  private async assertSkuFree(
+    companyId: string,
+    vendorId: string,
+    vendorSku: string | null | undefined,
+    exceptId?: string,
+  ) {
+    const sku = vendorSku?.trim();
+    if (!sku) return;
+    const clash = await this.prisma.client.vendorProduct.findFirst({
+      where: {
+        companyId,
+        vendorId,
+        vendorSku: sku,
+        deletedAt: null,
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { name: true, productCode: true },
+    });
+    if (clash) {
+      throw new AppError('CONFLICT', `You are already using the SKU ${sku}`, {
+        detail: `It belongs to "${clash.name}"${clash.productCode ? ` (${clash.productCode})` : ''}. Give this one a different SKU, or leave it blank.`,
+      });
+    }
   }
 
   /** The policy, for clients that must label a button after what it does. */
@@ -203,18 +279,30 @@ export class VendorProductsService {
 
     const category = await this.prisma.client.category.findFirst({
       where: { id: input.categoryId, ...tenantFilter(actor), deletedAt: null },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!category) throw AppError.notFound('Category', input.categoryId);
+
+    await this.assertSkuFree(actor.companyId, vendorId, input.vendorSku);
 
     const videoId = this.videoIdOrThrow(input.youtubeUrl);
     const { vendorId: _ignored, youtubeUrl: _url, specs, proposedSpecs, ...rest } = input;
 
-    const product = await this.prisma.client.vendorProduct.create({
+    // In a transaction with the code assignment, so the lock that keeps two
+    // simultaneous creations off the same number is still held when the row
+    // carrying that number is written.
+    const product = await this.prisma.client.$transaction(async (tx) => {
+      const productCode = await this.nextProductCode(tx, actor.companyId, {
+        categoryName: category.name,
+        brand: input.brand,
+        model: input.model,
+      });
+      return tx.vendorProduct.create({
       data: {
         ...rest,
         companyId: actor.companyId,
         vendorId,
+        productCode,
         // Every offer starts as a draft. Publication is a separate, reviewed act.
         status: 'DRAFT',
         specs: specs ? (specs as Prisma.InputJsonValue) : Prisma.DbNull,
@@ -225,6 +313,7 @@ export class VendorProductsService {
         createdById: actor.id,
       },
       select: { ...VendorProductsService.LIST_FIELDS, specs: true, youtubeVideoId: true },
+      });
     });
 
     if (proposedSpecs?.length) {
@@ -273,6 +362,7 @@ export class VendorProductsService {
         manufacturer: true,
         vendorSku: true,
         mpn: true,
+        category: { select: { name: true } },
         description: true,
         condition: true,
         categoryId: true,
@@ -297,16 +387,28 @@ export class VendorProductsService {
     });
     if (!source) throw AppError.notFound('Vendor product', id);
 
-    const { proposedSpecs, specs, ...rest } = source;
+    const { proposedSpecs, specs, category, vendorSku: _sku, ...rest } = source;
     // Fresh dates rather than the original's: copying an offer that expires
     // next week to sell something for the next month is the usual case.
     const from = new Date();
     const until = new Date(Date.now() + 30 * 86_400_000);
 
-    const copy = await this.prisma.client.vendorProduct.create({
+    const copy = await this.prisma.client.$transaction(async (tx) => {
+      // A copy is a different listing and gets an identity of its own: its own
+      // code, and no SKU at all. Carrying the SKU over would collide with the
+      // original on the very next save, and guessing a new one would invent a
+      // number that means something in the supplier's own system.
+      const productCode = await this.nextProductCode(tx, actor.companyId, {
+        categoryName: category?.name,
+        brand: source.brand,
+        model: source.model,
+      });
+      return tx.vendorProduct.create({
       data: {
         ...rest,
         companyId: actor.companyId,
+        productCode,
+        vendorSku: null,
         name: `${source.name} (copy)`.slice(0, 180),
         specs: specs === null ? Prisma.DbNull : (specs as Prisma.InputJsonValue),
         status: 'DRAFT',
@@ -327,6 +429,7 @@ export class VendorProductsService {
           : {}),
       },
       select: { ...VendorProductsService.LIST_FIELDS, specs: true },
+      });
     });
 
     await this.audit.record({
@@ -335,7 +438,7 @@ export class VendorProductsService {
       action: AuditAction.SETTING_CHANGED,
       entityType: 'VendorProduct',
       entityId: copy.id,
-      newValues: { copiedFrom: id, name: copy.name, status: 'DRAFT' },
+      newValues: { copiedFrom: id, name: copy.name, status: 'DRAFT', productCode: copy.productCode },
       reason: 'Vendor product duplicated',
     });
     return copy;
@@ -393,6 +496,10 @@ export class VendorProductsService {
       ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(before.status) &&
       this.touchesReviewedFields(input) &&
       editReturnsToReview(await this.offerPolicy(actor));
+
+    if (input.vendorSku !== undefined) {
+      await this.assertSkuFree(actor.companyId, before.vendorId, input.vendorSku, id);
+    }
 
     const videoId = input.youtubeUrl === undefined ? undefined : this.videoIdOrThrow(input.youtubeUrl);
     const { youtubeUrl: _url, specs, proposedSpecs, ...rest } = input;
