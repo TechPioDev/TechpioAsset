@@ -51,6 +51,15 @@ enum RequestCreationPolicy {
   ADMINS_ONLY
 }
 
+/// v2.46 - whether a supplier's offer needs an internal decision before buyers see it.
+enum VendorOfferPolicy {
+  /// A submitted offer waits for someone internal to approve it.
+  REVIEW_REQUIRED
+  /// A submitted offer goes live at once. The quality gate still applies: it
+  /// needs a picture and its required specifications before it can be sent.
+  PUBLISH_IMMEDIATELY
+}
+
 enum TrackingType {
   INDIVIDUAL
   QUANTITY
@@ -508,6 +517,9 @@ enum PhysicalInventoryScanResult {
 model Company {
   /// v2.22 - request-raising policy for the whole tenant.
   requestPolicy       RequestCreationPolicy @default(EVERYONE)
+  /// v2.46 - whether supplier offers wait for approval. Defaults to requiring
+  /// it, so an existing tenant's workflow is unchanged until somebody chooses.
+  vendorOfferPolicy   VendorOfferPolicy     @default(REVIEW_REQUIRED)
   id                  String                @id @default(cuid())
   name                String
   legalName           String?

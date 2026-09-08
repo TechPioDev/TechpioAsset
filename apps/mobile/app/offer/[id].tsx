@@ -2,12 +2,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import {
+  DEFAULT_VENDOR_OFFER_POLICY,
   PERMISSIONS,
   PRODUCT_IMAGE_RULES,
+  editReturnsToReview,
   formatInr,
+  submitActionLabel,
   type OfferLifecycle,
+  type VendorOfferPolicy,
 } from '@techpioasset/domain';
-import { OFFER_LIFECYCLE_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
+import {
+  OFFER_LIFECYCLE_TOKENS,
+  TONE_PALETTE_DARK,
+  TONE_PALETTE_LIGHT,
+} from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { OfferPhotoSheet } from '../../src/components/offer-photo-sheet';
 import { AuthImage } from '../../src/components/auth-image';
@@ -77,6 +85,7 @@ export default function OfferScreen() {
   const [quantity, setQuantity] = useState('1');
   const [choosing, setChoosing] = useState(false);
   const [acting, setActing] = useState(false);
+  const [policy, setPolicy] = useState<VendorOfferPolicy>(DEFAULT_VENDOR_OFFER_POLICY);
   const [photoOpen, setPhotoOpen] = useState(false);
 
   const isVendor = !!user?.roles?.includes('VENDOR');
@@ -98,6 +107,12 @@ export default function OfferScreen() {
           `/spec-templates?categoryId=${detail.categoryId}` +
           (detail.subcategoryId ? `&subcategoryId=${detail.subcategoryId}` : '');
         setFields((await api.request<SpecField[]>(query)) ?? []);
+        // Its own endpoint, because a supplier cannot read company settings.
+        // The button has to say what pressing it will actually do.
+        const meta = await api
+          .request<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy')
+          .catch(() => null);
+        if (meta) setPolicy(meta.policy);
       }
     } finally {
       setLoading(false);
@@ -127,7 +142,8 @@ export default function OfferScreen() {
   // live offers a supplier most needs to change; the server allows the edit and
   // sends a reviewed-field change back for review.
   const editable = offer.status !== 'DISCONTINUED';
-  const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
+  const returnsToReview =
+    editReturnsToReview(policy) && ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
   const daysLeft = Math.ceil((new Date(offer.availableUntil).getTime() - Date.now()) / 86_400_000);
   const endingSoon = canManage && editable && daysLeft <= 30;
 
@@ -144,7 +160,13 @@ export default function OfferScreen() {
       key={label}
       style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, gap: 12 }}
     >
-      <Text style={{ color: strong ? c.text : c.muted, fontSize: 13, fontWeight: strong ? '700' : '400' }}>
+      <Text
+        style={{
+          color: strong ? c.text : c.muted,
+          fontSize: 13,
+          fontWeight: strong ? '700' : '400',
+        }}
+      >
         {label}
       </Text>
       <Text
@@ -253,7 +275,9 @@ export default function OfferScreen() {
     <Screen scroll>
       <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>{offer.name}</Text>
       <Text style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
-        {[offer.brand, offer.model, isVendor ? null : offer.vendor?.name].filter(Boolean).join(' · ')}
+        {[offer.brand, offer.model, isVendor ? null : offer.vendor?.name]
+          .filter(Boolean)
+          .join(' · ')}
       </Text>
       <View style={{ flexDirection: 'row', marginTop: spacing.sm }}>
         <StatusPill label={token.label} bg={tone.bg} fg={tone.fg} />
@@ -287,14 +311,20 @@ export default function OfferScreen() {
       <SectionTitle>What makes up the price</SectionTitle>
       <Card>
         {row('Unit price', formatInr(Number(offer.unitPrice)))}
-        {Number(offer.discount) > 0 ? row('Less discount', `-${formatInr(Number(offer.discount))}`) : null}
-        {Number(offer.shippingCost) > 0 ? row('Shipping', formatInr(Number(offer.shippingCost))) : null}
+        {Number(offer.discount) > 0
+          ? row('Less discount', `-${formatInr(Number(offer.discount))}`)
+          : null}
+        {Number(offer.shippingCost) > 0
+          ? row('Shipping', formatInr(Number(offer.shippingCost)))
+          : null}
         {Number(offer.installationCost) > 0
           ? row('Installation', formatInr(Number(offer.installationCost)))
           : null}
         {row('Taxable value', formatInr(taxable))}
         {row(`GST at ${Number(offer.gstPercent)}%`, formatInr(gst))}
-        {Number(offer.otherCharges) > 0 ? row('Other charges', formatInr(Number(offer.otherCharges))) : null}
+        {Number(offer.otherCharges) > 0
+          ? row('Other charges', formatInr(Number(offer.otherCharges)))
+          : null}
         <View style={{ height: 1, backgroundColor: c.border, marginVertical: 6 }} />
         {row('Landed cost per unit', formatInr(Number(offer.landedCost)), true)}
       </Card>
@@ -320,7 +350,6 @@ export default function OfferScreen() {
         </>
       ) : null}
 
-
       {endingSoon ? (
         <Card style={{ borderColor: palette.warning.border, backgroundColor: palette.warning.bg }}>
           <Text style={{ color: c.text, fontWeight: '600', marginBottom: 4 }}>
@@ -330,7 +359,7 @@ export default function OfferScreen() {
           </Text>
           <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
             Buyers stop seeing it after that. If the price and the product are unchanged, put it
-            back on sale - it keeps its approval.
+            back on sale - it stays live, so nothing has to be approved again.
           </Text>
           <Button
             label="Keep it on sale for 90 days"
@@ -387,7 +416,7 @@ export default function OfferScreen() {
             ) : null}
             {offer.status === 'DRAFT' || offer.status === 'REJECTED' ? (
               <Button
-                label="Send for review"
+                label={submitActionLabel(policy)}
                 icon="send-outline"
                 loading={acting}
                 disabled={offer.images.length === 0}
@@ -395,8 +424,12 @@ export default function OfferScreen() {
                   void act(
                     `/vendor-products/${offer.id}/submit`,
                     undefined,
-                    'Sent for review',
-                    'Could not send it for review',
+                    policy === 'PUBLISH_IMMEDIATELY'
+                      ? 'Published - buyers can see it now'
+                      : 'Sent for review',
+                    policy === 'PUBLISH_IMMEDIATELY'
+                      ? 'Could not publish it'
+                      : 'Could not send it for review',
                   )
                 }
                 style={{ marginTop: 6 }}
@@ -520,7 +553,14 @@ export default function OfferScreen() {
                   onChangeText={setQuantity}
                   keyboardType="number-pad"
                 />
-                <Text style={{ color: c.text, fontSize: 15, fontWeight: '700', marginBottom: spacing.md }}>
+                <Text
+                  style={{
+                    color: c.text,
+                    fontSize: 15,
+                    fontWeight: '700',
+                    marginBottom: spacing.md,
+                  }}
+                >
                   Total {formatInr(Number(offer.landedCost) * qty)}
                 </Text>
                 <Button
@@ -529,7 +569,9 @@ export default function OfferScreen() {
                   loading={choosing}
                   onPress={choose}
                 />
-                <Text style={{ color: c.subtle, fontSize: 11, marginTop: spacing.sm, lineHeight: 16 }}>
+                <Text
+                  style={{ color: c.subtle, fontSize: 11, marginTop: spacing.sm, lineHeight: 16 }}
+                >
                   The price and specification are recorded as they stand today.
                 </Text>
               </>

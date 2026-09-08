@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import type {
   AuthUser,
@@ -10,6 +10,7 @@ import type {
   UpdateVendorInput,
   UpdateOwnVendorInput,
 } from '@techpioasset/contracts';
+import type { VendorOfferPolicy } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -29,6 +30,8 @@ import { CacheProvider } from '../providers/cache/cache.provider.js';
  */
 @Injectable()
 export class OrgService {
+  private readonly logger = new Logger(OrgService.name);
+
   /** What a supplier may see of its own record. Notably not `notes`. */
   private static readonly OWN_VENDOR_FIELDS = {
     id: true,
@@ -60,13 +63,27 @@ export class OrgService {
   async companySettings(actor: AuthUser) {
     return this.prisma.client.company.findUniqueOrThrow({
       where: { id: actor.companyId },
-      select: { name: true, legalName: true, baseCurrency: true, timezone: true, locale: true, requestPolicy: true },
+      select: {
+        name: true,
+        legalName: true,
+        baseCurrency: true,
+        timezone: true,
+        locale: true,
+        requestPolicy: true,
+        vendorOfferPolicy: true,
+      },
     });
   }
 
   async updateCompanySettings(
     actor: AuthUser,
-    input: { name?: string; baseCurrency?: string; timezone?: string; requestPolicy?: 'EVERYONE' | 'ADMINS_ONLY' },
+    input: {
+      name?: string;
+      baseCurrency?: string;
+      timezone?: string;
+      requestPolicy?: 'EVERYONE' | 'ADMINS_ONLY';
+      vendorOfferPolicy?: VendorOfferPolicy;
+    },
   ) {
     const before = await this.companySettings(actor);
     const after = await this.prisma.client.company.update({
@@ -76,9 +93,46 @@ export class OrgService {
         ...(input.baseCurrency ? { baseCurrency: input.baseCurrency } : {}),
         ...(input.timezone ? { timezone: input.timezone } : {}),
         ...(input.requestPolicy ? { requestPolicy: input.requestPolicy } : {}),
+        ...(input.vendorOfferPolicy ? { vendorOfferPolicy: input.vendorOfferPolicy } : {}),
       },
-      select: { name: true, legalName: true, baseCurrency: true, timezone: true, locale: true, requestPolicy: true },
+      select: {
+        name: true,
+        legalName: true,
+        baseCurrency: true,
+        timezone: true,
+        locale: true,
+        requestPolicy: true,
+        vendorOfferPolicy: true,
+      },
     });
+    // Switching review off leaves anything already submitted waiting on a queue
+    // that no longer appears anywhere. Those offers passed the quality gate when
+    // they were sent, which is the whole of what publishing now asks of them, so
+    // they go live rather than being stranded out of sight.
+    if (
+      input.vendorOfferPolicy === 'PUBLISH_IMMEDIATELY' &&
+      before.vendorOfferPolicy !== 'PUBLISH_IMMEDIATELY'
+    ) {
+      const stranded = await this.prisma.client.vendorProduct.updateMany({
+        where: { companyId: actor.companyId, status: 'PENDING_REVIEW', deletedAt: null },
+        data: { status: 'APPROVED', updatedById: actor.id },
+      });
+      if (stranded.count > 0) {
+        this.logger.log(
+          `Vendor offer review switched off: published ${stranded.count} offer(s) that were awaiting it`,
+        );
+        await this.audit.record({
+          companyId: actor.companyId,
+          actorId: actor.id,
+          action: AuditAction.SETTING_CHANGED,
+          entityType: 'VendorProduct',
+          entityId: actor.companyId,
+          newValues: { publishedOnPolicyChange: stranded.count, status: 'APPROVED' },
+          reason: 'Supplier offers no longer wait for approval',
+        });
+      }
+    }
+
     await this.audit.record({
       companyId: actor.companyId,
       actorId: actor.id,
@@ -89,8 +143,14 @@ export class OrgService {
         name: before.name,
         baseCurrency: before.baseCurrency,
         timezone: before.timezone,
+        vendorOfferPolicy: before.vendorOfferPolicy,
       },
-      newValues: { name: after.name, baseCurrency: after.baseCurrency, timezone: after.timezone },
+      newValues: {
+        name: after.name,
+        baseCurrency: after.baseCurrency,
+        timezone: after.timezone,
+        vendorOfferPolicy: after.vendorOfferPolicy,
+      },
     });
     return after;
   }

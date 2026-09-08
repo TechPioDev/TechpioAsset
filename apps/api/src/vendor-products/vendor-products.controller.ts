@@ -285,6 +285,18 @@ export class VendorProductsController {
     res.send(image.data);
   }
 
+  @Get('meta/policy')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
+  @ApiOperation({
+    summary: 'Whether offers here wait for approval',
+    description:
+      'So the button can say what it actually does. Readable by suppliers, who hold the catalogue ' +
+      'read permission but not the settings one, and therefore cannot read this from settings.',
+  })
+  policy(@CurrentUser() actor: AuthUser) {
+    return this.products.policyFor(actor);
+  }
+
   @Get('meta/image-rules')
   @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
   @ApiOperation({

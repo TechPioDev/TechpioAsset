@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AuthUser } from '@techpioasset/contracts';
 import { isVendorUser, tenantFilter, vendorScopeFilter } from './scope.js';
+import { AppError } from './errors/app-error.js';
 
 /**
  * Vendor isolation, at the level where it is actually decided (v2.42).
@@ -70,9 +71,19 @@ describe('vendor scoping', () => {
   it('refuses to run rather than return every vendor when the link is missing', () => {
     // Falling back to the tenant filter here would give one supplier the whole
     // catalogue. Failing loudly is the only acceptable behaviour.
-    expect(() => vendorScopeFilter(actor({ roles: ['VENDOR'], vendorId: null }))).toThrow(
-      /refusing to run an unscoped vendor query/,
-    );
+    //
+    // The message is checked because this refusal is one a real person hits -
+    // a supplier account somebody created but never linked - and it has to tell
+    // them who can fix it rather than read as a crash.
+    let thrown: unknown;
+    try {
+      vendorScopeFilter(actor({ roles: ['VENDOR'], vendorId: null }));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AppError);
+    expect((thrown as AppError).code).toBe('FORBIDDEN');
+    expect((thrown as AppError).message).toMatch(/not linked to a supplier/);
   });
 
   it('keeps the company boundary in every case', () => {

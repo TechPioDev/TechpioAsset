@@ -4,7 +4,11 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, CalendarClock, Plus, Scale, ShoppingBag } from 'lucide-react';
-import { PERMISSIONS } from '@techpioasset/domain';
+import {
+  DEFAULT_VENDOR_OFFER_POLICY,
+  PERMISSIONS,
+  type VendorOfferPolicy,
+} from '@techpioasset/domain';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -18,7 +22,13 @@ import {
   NativeSelect,
   Skeleton,
 } from '@/components/ui';
-import { Money, OfferImage, OfferStatus, daysUntil, type Offer } from '@/components/catalogue/shared';
+import {
+  Money,
+  OfferImage,
+  OfferStatus,
+  daysUntil,
+  type Offer,
+} from '@/components/catalogue/shared';
 
 /**
  * The catalogue (v2.42).
@@ -43,7 +53,16 @@ export default function CataloguePage() {
 
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const canManage = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE));
-  const canCompare = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
+  const canCompare =
+    Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
+
+  const { data: offerPolicy } = useQuery({
+    queryKey: ['vendor-offer-policy'],
+    queryFn: () => apiFetch<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy'),
+    staleTime: 5 * 60_000,
+  });
+  const publishesAtOnce =
+    (offerPolicy?.policy ?? DEFAULT_VENDOR_OFFER_POLICY) === 'PUBLISH_IMMEDIATELY';
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -93,7 +112,9 @@ export default function CataloguePage() {
   }, [query.data, search, endingSoonOnly, endingSoon]);
 
   const toggleCompare = (id: string) =>
-    setCompare((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id].slice(0, 10)));
+    setCompare((ids) =>
+      ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id].slice(0, 10),
+    );
 
   return (
     <div className="grid gap-4">
@@ -105,7 +126,9 @@ export default function CataloguePage() {
           </h1>
           <p className="text-sm text-[var(--color-content-muted)]">
             {isVendor
-              ? 'What you are offering, and where each one has got to. A draft needs at least one picture before it can go for review.'
+              ? publishesAtOnce
+                ? 'What you are offering, and where each one has got to. A draft needs at least one picture and its required specifications before you can publish it.'
+                : 'What you are offering, and where each one has got to. A draft needs at least one picture before it can go for review.'
               : 'What suppliers are offering, with the landed cost worked out. Prices here are what the vendor published, until the date they published them to.'}
           </p>
         </div>
@@ -158,11 +181,7 @@ export default function CataloguePage() {
             <option value="DISCONTINUED">Withdrawn</option>
           </NativeSelect>
         </Field>
-        <Field
-          label="Buyable now"
-          htmlFor="cat-live"
-          hint="Approved, in date and in stock"
-        >
+        <Field label="Buyable now" htmlFor="cat-live" hint="Approved, in date and in stock">
           <label className="flex h-9 items-center gap-2 text-sm">
             <input
               id="cat-live"
@@ -240,7 +259,9 @@ export default function CataloguePage() {
               search
                 ? 'Try a shorter search, or clear the filters.'
                 : isVendor
-                  ? 'Add your first offer, put a picture on it, and send it for review.'
+                  ? publishesAtOnce
+                    ? 'Add your first offer, put a picture on it, and publish it.'
+                    : 'Add your first offer, put a picture on it, and send it for review.'
                   : 'Once suppliers publish offers, they appear here.'
             }
             action={

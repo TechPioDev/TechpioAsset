@@ -6,10 +6,14 @@ import {
   calculateLandedCost,
   normalizeSpecLabel,
   proposedSpecsProblem,
+  DEFAULT_VENDOR_OFFER_POLICY,
+  editReturnsToReview,
   effectiveOfferStatus,
   imageSetProblem,
+  statusAfterSubmit,
   youtubeVideoId,
   type OfferLifecycle,
+  type VendorOfferPolicy,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter, vendorScopeFilter } from '../common/scope.js';
@@ -82,6 +86,26 @@ export class VendorProductsService {
     }
     if (!requested) throw new AppError('VALIDATION_FAILED', 'Choose which vendor this offer is from');
     return requested;
+  }
+
+  /**
+   * Does this tenant review supplier offers before buyers see them?
+   *
+   * Read per call rather than cached: it is one indexed lookup on a row we
+   * already hold, and a stale answer here would either publish something a
+   * reviewer expected to see or queue something nobody is watching.
+   */
+  private async offerPolicy(actor: AuthUser): Promise<VendorOfferPolicy> {
+    const company = await this.prisma.client.company.findUnique({
+      where: { id: actor.companyId },
+      select: { vendorOfferPolicy: true },
+    });
+    return (company?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY) as VendorOfferPolicy;
+  }
+
+  /** The policy, for clients that must label a button after what it does. */
+  async policyFor(actor: AuthUser): Promise<{ policy: VendorOfferPolicy }> {
+    return { policy: await this.offerPolicy(actor) };
   }
 
   private priceFrom(input: {
@@ -361,10 +385,14 @@ export class VendorProductsService {
 
     // An approved offer that is edited has to be looked at again: the reviewer
     // approved a specification and a price, not a name on a row.
+    // With review switched off there is nothing to send it back to, and doing
+    // so anyway would take a live offer off sale until a queue nobody works is
+    // emptied.
     const returnsToReview =
       actor.vendorId !== null &&
       ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(before.status) &&
-      this.touchesReviewedFields(input);
+      this.touchesReviewedFields(input) &&
+      editReturnsToReview(await this.offerPolicy(actor));
 
     const videoId = input.youtubeUrl === undefined ? undefined : this.videoIdOrThrow(input.youtubeUrl);
     const { youtubeUrl: _url, specs, proposedSpecs, ...rest } = input;
@@ -483,9 +511,13 @@ export class VendorProductsService {
       }
     }
 
+    // The quality gate above runs under either policy - an offer with no
+    // picture and blank required specs wastes a buyer's time, not just a
+    // reviewer's. What the policy decides is only what happens next.
+    const next = statusAfterSubmit(await this.offerPolicy(actor));
     const updated = await this.prisma.client.vendorProduct.update({
       where: { id },
-      data: { status: 'PENDING_REVIEW', updatedById: actor.id },
+      data: { status: next, updatedById: actor.id },
       select: VendorProductsService.LIST_FIELDS,
     });
     await this.audit.record({
@@ -495,7 +527,7 @@ export class VendorProductsService {
       entityType: 'VendorProduct',
       entityId: id,
       previousValues: { status: product.status },
-      newValues: { status: 'PENDING_REVIEW' },
+      newValues: { status: next },
     });
     return updated;
   }

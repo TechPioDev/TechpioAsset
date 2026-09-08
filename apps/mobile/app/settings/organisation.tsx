@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
+import { DEFAULT_VENDOR_OFFER_POLICY, type VendorOfferPolicy } from '@techpioasset/domain';
 import { Button, Card, Field, Screen, SectionTitle } from '../../src/components/ui';
 
 /**
@@ -26,9 +27,69 @@ interface Company {
   timezone: string;
   locale: string | null;
   requestPolicy: RequestPolicy;
+  /** v2.46 - whether a supplier's offer waits for an internal decision. */
+  vendorOfferPolicy: VendorOfferPolicy;
 }
 
-const POLICIES: { value: RequestPolicy; label: string; detail: string }[] = [
+interface Choice<T extends string> {
+  value: T;
+  label: string;
+  detail: string;
+}
+
+/**
+ * A list of mutually exclusive settings.
+ *
+ * Extracted when the second such setting arrived: two copies of the same
+ * thirty lines is how two radio lists end up looking subtly different.
+ */
+function RadioList<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: Choice<T>[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  const { c, spacing } = useTheme();
+  return (
+    <Card style={{ padding: 0, marginBottom: spacing.lg }}>
+      {options.map((option, i) => {
+        const active = value === option.value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              borderBottomWidth: i === options.length - 1 ? 0 : 1,
+              borderBottomColor: c.border,
+            }}
+          >
+            <Ionicons
+              name={active ? 'radio-button-on' : 'radio-button-off'}
+              size={20}
+              color={active ? c.brand : c.muted}
+            />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>{option.label}</Text>
+              <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>{option.detail}</Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </Card>
+  );
+}
+
+const POLICIES: Choice<RequestPolicy>[] = [
   {
     value: 'EVERYONE',
     label: 'Everyone',
@@ -41,6 +102,20 @@ const POLICIES: { value: RequestPolicy; label: string; detail: string }[] = [
   },
 ];
 
+const OFFER_POLICIES: Choice<VendorOfferPolicy>[] = [
+  {
+    value: 'REVIEW_REQUIRED',
+    label: 'Approve them first',
+    detail: 'Nothing reaches your buyers until somebody here has looked at it.',
+  },
+  {
+    value: 'PUBLISH_IMMEDIATELY',
+    label: 'Publish them straight away',
+    detail:
+      'Suppliers post what they sell and your team picks what it needs. A picture and the required specifications are still needed before a supplier can send one.',
+  },
+];
+
 export default function OrganisationSettingsScreen() {
   const { api } = useSession();
   const { c, spacing } = useTheme();
@@ -50,6 +125,7 @@ export default function OrganisationSettingsScreen() {
   const [currency, setCurrency] = useState('');
   const [timezone, setTimezone] = useState('');
   const [policy, setPolicy] = useState<RequestPolicy>('EVERYONE');
+  const [offerPolicy, setOfferPolicy] = useState<VendorOfferPolicy>(DEFAULT_VENDOR_OFFER_POLICY);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -64,6 +140,7 @@ export default function OrganisationSettingsScreen() {
       setCurrency(data.baseCurrency);
       setTimezone(data.timezone);
       setPolicy(data.requestPolicy);
+      setOfferPolicy(data.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY);
     } catch {
       setError('Could not load company settings.');
     } finally {
@@ -78,7 +155,8 @@ export default function OrganisationSettingsScreen() {
     (name !== company.name ||
       currency !== company.baseCurrency ||
       timezone !== company.timezone ||
-      policy !== company.requestPolicy);
+      policy !== company.requestPolicy ||
+      offerPolicy !== company.vendorOfferPolicy);
 
   async function save() {
     setBusy(true);
@@ -92,6 +170,7 @@ export default function OrganisationSettingsScreen() {
           baseCurrency: currency.trim().toUpperCase(),
           timezone: timezone.trim(),
           requestPolicy: policy,
+          vendorOfferPolicy: offerPolicy,
         },
       });
       setSaved(true);
@@ -118,7 +197,12 @@ export default function OrganisationSettingsScreen() {
           />
         </View>
         <View style={{ flex: 2 }}>
-          <Field label="Timezone" value={timezone} onChangeText={setTimezone} autoCapitalize="none" />
+          <Field
+            label="Timezone"
+            value={timezone}
+            onChangeText={setTimezone}
+            autoCapitalize="none"
+          />
         </View>
       </View>
       <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.xl, lineHeight: 18 }}>
@@ -126,40 +210,17 @@ export default function OrganisationSettingsScreen() {
       </Text>
 
       <SectionTitle>Who can raise a request</SectionTitle>
-      <Card style={{ padding: 0, marginBottom: spacing.lg }}>
-        {POLICIES.map((p, i) => {
-          const active = policy === p.value;
-          return (
-            <Pressable
-              key={p.value}
-              onPress={() => setPolicy(p.value)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderBottomWidth: i === POLICIES.length - 1 ? 0 : 1,
-                borderBottomColor: c.border,
-              }}
-            >
-              <Ionicons
-                name={active ? 'radio-button-on' : 'radio-button-off'}
-                size={20}
-                color={active ? c.brand : c.muted}
-              />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>{p.label}</Text>
-                <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>{p.detail}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </Card>
+      <RadioList options={POLICIES} value={policy} onChange={setPolicy} />
       <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.xl, lineHeight: 18 }}>
         Individual people can still be allowed or blocked one by one, in the web app.
+      </Text>
+
+      <SectionTitle>Supplier offers</SectionTitle>
+      <RadioList options={OFFER_POLICIES} value={offerPolicy} onChange={setOfferPolicy} />
+      <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.xl, lineHeight: 18 }}>
+        {offerPolicy === 'PUBLISH_IMMEDIATELY'
+          ? 'Anything already waiting for approval goes live when you save.'
+          : 'Choose this when the catalogue is a price list people quote from.'}
       </Text>
 
       {error ? (
@@ -173,8 +234,10 @@ export default function OrganisationSettingsScreen() {
 
       {company?.legalName || company?.locale ? (
         <Text style={{ color: c.subtle, fontSize: 12, marginTop: spacing.xl, lineHeight: 18 }}>
-          {[company.legalName ? `Legal name: ${company.legalName}` : null,
-            company.locale ? `Locale: ${company.locale}` : null]
+          {[
+            company.legalName ? `Legal name: ${company.legalName}` : null,
+            company.locale ? `Locale: ${company.locale}` : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
           {' — set in the web app.'}

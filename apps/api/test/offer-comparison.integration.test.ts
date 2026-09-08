@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
 
@@ -657,6 +657,99 @@ describe('keeping an offer on sale, and copying it', () => {
       .post(`/api/v1/vendor-products/${theirs}/duplicate`)
       .set(vendorAuth());
     expect([403, 404]).toContain(res.status);
+  });
+});
+
+describe('when a company stops reviewing supplier offers', () => {
+  async function setPolicy(policy: 'REVIEW_REQUIRED' | 'PUBLISH_IMMEDIATELY') {
+    const res = await api(app)
+      .patch('/api/v1/company')
+      .set(auth(s.superAdmin))
+      .send({ vendorOfferPolicy: policy });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return res.body.data;
+  }
+
+  /** A draft complete enough to be submitted: a picture and the required specs. */
+  async function submittable(vendorId: string) {
+    const id = await offer(vendorId, { ram_gb: '16' });
+    await prisma.vendorProductImage.create({
+      data: {
+        companyId: s.officeAdmin.user.companyId,
+        vendorProductId: id,
+        storageKey: `test/${id}`,
+        originalName: 'front.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 1024,
+        sha256: `test-${id}`,
+        isPrimary: true,
+        sortOrder: 0,
+      },
+    });
+    return id;
+  }
+
+  afterEach(async () => {
+    await setPolicy('REVIEW_REQUIRED');
+  });
+
+  it('defaults to reviewing, so no tenant’s workflow changes by itself', async () => {
+    const res = await api(app).get('/api/v1/vendor-products/meta/policy').set(vendorAuth());
+    expect(res.status).toBe(200);
+    expect(res.body.data.policy).toBe('REVIEW_REQUIRED');
+  });
+
+  it('publishes a submitted offer at once once review is switched off', async () => {
+    await setPolicy('PUBLISH_IMMEDIATELY');
+    const id = await submittable(vendorA);
+    const res = await api(app).post(`/api/v1/vendor-products/${id}/submit`).set(vendorAuth());
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data.status).toBe('APPROVED');
+  });
+
+  it('still refuses an offer with no picture, because that gate is not the review', async () => {
+    // The quality gate protects the buyer, not the reviewer: an offer with no
+    // picture and blank specs wastes the buyer's time either way.
+    await setPolicy('PUBLISH_IMMEDIATELY');
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const res = await api(app).post(`/api/v1/vendor-products/${id}/submit`).set(vendorAuth());
+    expect(res.status).toBe(422);
+  });
+
+  it('leaves an edited live offer live, rather than queueing it for nobody', async () => {
+    await setPolicy('PUBLISH_IMMEDIATELY');
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const res = await api(app)
+      .patch(`/api/v1/vendor-products/${id}`)
+      .set(vendorAuth())
+      .send({ unitPrice: 111222 });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // Under review this becomes PENDING_REVIEW. With no reviewer, that would
+    // take a live offer off sale until a queue nobody works is emptied.
+    expect(res.body.data.status).toBe('APPROVED');
+  });
+
+  it('publishes whatever was already waiting when review is switched off', async () => {
+    const id = await submittable(vendorA);
+    await api(app).post(`/api/v1/vendor-products/${id}/submit`).set(vendorAuth());
+    expect(
+      (await prisma.vendorProduct.findUniqueOrThrow({ where: { id } })).status,
+    ).toBe('PENDING_REVIEW');
+
+    await setPolicy('PUBLISH_IMMEDIATELY');
+
+    // Otherwise it waits out of sight on a queue that no longer appears anywhere.
+    expect((await prisma.vendorProduct.findUniqueOrThrow({ where: { id } })).status).toBe(
+      'APPROVED',
+    );
+  });
+
+  it('goes back to reviewing new submissions when it is switched on again', async () => {
+    await setPolicy('PUBLISH_IMMEDIATELY');
+    await setPolicy('REVIEW_REQUIRED');
+    const id = await submittable(vendorA);
+    const res = await api(app).post(`/api/v1/vendor-products/${id}/submit`).set(vendorAuth());
+    expect(res.body.data.status).toBe('PENDING_REVIEW');
   });
 });
 

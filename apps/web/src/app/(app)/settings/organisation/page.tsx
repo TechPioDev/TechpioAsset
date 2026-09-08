@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
 import {
+  DEFAULT_VENDOR_OFFER_POLICY,
   REQUEST_CREATION_POLICIES,
   REQUEST_POLICY_LABELS,
   type RequestCreationPolicy,
+  type VendorOfferPolicy,
 } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useToast } from '@/providers/toast-provider';
@@ -27,6 +29,8 @@ interface CompanySettings {
   locale: string;
   /** v2.22 - who may raise a request across the whole company. */
   requestPolicy: RequestCreationPolicy;
+  /** v2.46 - whether a supplier's offer waits for an internal decision. */
+  vendorOfferPolicy: VendorOfferPolicy;
 }
 
 const CURRENCIES: [string, string][] = [
@@ -56,12 +60,14 @@ export default function OrganisationSettingsPage() {
     name: string;
     baseCurrency: string;
     requestPolicy: RequestCreationPolicy;
+    vendorOfferPolicy: VendorOfferPolicy;
   } | null>(null);
   const current = settings.data;
   const draft = form ?? {
     name: current?.name ?? '',
     baseCurrency: current?.baseCurrency ?? 'USD',
     requestPolicy: current?.requestPolicy ?? 'EVERYONE',
+    vendorOfferPolicy: current?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY,
   };
   const set = (patch: Partial<typeof draft>) => setForm({ ...draft, ...patch });
 
@@ -73,6 +79,7 @@ export default function OrganisationSettingsPage() {
           name: draft.name.trim(),
           baseCurrency: draft.baseCurrency,
           requestPolicy: draft.requestPolicy,
+          vendorOfferPolicy: draft.vendorOfferPolicy,
         },
       }),
     onSuccess: () => {
@@ -163,6 +170,29 @@ export default function OrganisationSettingsPage() {
             {draft.requestPolicy === 'EVERYONE'
               ? 'Any employee can raise a request for themselves.'
               : 'Employees cannot raise their own requests; IT and HR raise them on their behalf. Individual people can still be allowed under People \u203a Manage.'}
+          </p>
+        </div>
+
+        {/* v2.46 - the catalogue's two shapes: a gatekept price list, or a
+            noticeboard the buying team picks from. */}
+        <div className="max-w-sm border-t border-[var(--color-border)] pt-4">
+          <Field label="Supplier offers" htmlFor="ovp">
+            <select
+              id="ovp"
+              value={draft.vendorOfferPolicy}
+              onChange={(e) => set({ vendorOfferPolicy: e.target.value as VendorOfferPolicy })}
+              className={selectCls}
+            >
+              <option value="REVIEW_REQUIRED">Wait for someone here to approve them</option>
+              <option value="PUBLISH_IMMEDIATELY">
+                Go live as soon as the supplier sends them
+              </option>
+            </select>
+          </Field>
+          <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+            {draft.vendorOfferPolicy === 'REVIEW_REQUIRED'
+              ? 'Nothing reaches your buyers until somebody here has looked at it. Choose this when the catalogue is a price list people quote from.'
+              : 'Suppliers post what they sell and your team picks what it needs. An offer still needs a picture and its required specifications before a supplier can send it — that gate protects the buyer, not the reviewer. Anything already waiting for approval goes live when you save.'}
           </p>
         </div>
 

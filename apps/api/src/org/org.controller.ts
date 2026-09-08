@@ -18,7 +18,11 @@ import {
   updateOwnVendorSchema,
   type UpdateOwnVendorInput,
 } from '@techpioasset/contracts';
-import { PERMISSIONS, REQUEST_CREATION_POLICIES } from '@techpioasset/domain';
+import {
+  PERMISSIONS,
+  REQUEST_CREATION_POLICIES,
+  VENDOR_OFFER_POLICIES,
+} from '@techpioasset/domain';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
 import { OrgService } from './org.service.js';
@@ -31,6 +35,7 @@ const updateCompanySchema = z
     timezone: z.string().trim().max(64).optional(),
     /** v2.22 - who may raise a request across the whole tenant. */
     requestPolicy: z.enum(REQUEST_CREATION_POLICIES).optional(),
+    vendorOfferPolicy: z.enum(VENDOR_OFFER_POLICIES).optional(),
   })
   .strict();
 type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;

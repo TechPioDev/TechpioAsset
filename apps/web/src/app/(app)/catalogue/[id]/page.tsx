@@ -17,7 +17,15 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { PERMISSIONS, PRODUCT_IMAGE_RULES, formatInr } from '@techpioasset/domain';
+import {
+  DEFAULT_VENDOR_OFFER_POLICY,
+  PERMISSIONS,
+  PRODUCT_IMAGE_RULES,
+  editReturnsToReview,
+  formatInr,
+  submitActionLabel,
+  type VendorOfferPolicy,
+} from '@techpioasset/domain';
 import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -31,7 +39,13 @@ import {
   NativeSelect,
   Skeleton,
 } from '@/components/ui';
-import { Money, OfferImage, OfferStatus, daysUntil, type Offer } from '@/components/catalogue/shared';
+import {
+  Money,
+  OfferImage,
+  OfferStatus,
+  daysUntil,
+  type Offer,
+} from '@/components/catalogue/shared';
 
 /**
  * One offer (v2.42).
@@ -57,7 +71,13 @@ type OfferDetail = Offer & {
   otherCharges: string;
   paymentTerms: string | null;
   vendor: { id: string; name: string; contactEmail: string | null } | null;
-  images: { id: string; isPrimary: boolean; sortOrder: number; mimeType: string; sizeBytes: number }[];
+  images: {
+    id: string;
+    isPrimary: boolean;
+    sortOrder: number;
+    mimeType: string;
+    sizeBytes: number;
+  }[];
   reviews: { decision: string; comments: string | null; createdAt: string }[];
   proposedSpecs: { id: string; label: string; normalizedKey: string; value: string }[];
 };
@@ -71,7 +91,9 @@ function PriceBreakdown({ offer }: { offer: OfferDetail }) {
   const gst = (taxable * Number(offer.gstPercent)) / 100;
 
   const row = (label: string, value: number, muted = false) => (
-    <div className={`flex justify-between gap-4 ${muted ? 'text-[var(--color-content-muted)]' : ''}`}>
+    <div
+      className={`flex justify-between gap-4 ${muted ? 'text-[var(--color-content-muted)]' : ''}`}
+    >
       <dt>{label}</dt>
       <dd className="tabular-nums">{formatInr(value)}</dd>
     </div>
@@ -92,7 +114,9 @@ function PriceBreakdown({ offer }: { offer: OfferDetail }) {
           <dd className="tabular-nums">{formatInr(taxable)}</dd>
         </div>
         {row(`GST at ${Number(offer.gstPercent)}%`, gst, true)}
-        {Number(offer.otherCharges) > 0 ? row('Other charges', Number(offer.otherCharges), true) : null}
+        {Number(offer.otherCharges) > 0
+          ? row('Other charges', Number(offer.otherCharges), true)
+          : null}
         <div className="mt-1 flex justify-between gap-4 border-t border-[var(--color-border)] pt-2 font-semibold">
           <dt>Landed cost per unit</dt>
           <dd className="tabular-nums">{formatInr(Number(offer.landedCost))}</dd>
@@ -118,7 +142,17 @@ export default function OfferPage() {
 
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const canManage = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_MANAGE));
-  const canReview = Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
+  const canReview =
+    Boolean(user?.permissions?.includes(PERMISSIONS.VENDOR_PRODUCTS_REVIEW)) && !isVendor;
+
+  // Read from its own endpoint rather than company settings, which a supplier
+  // cannot see. The button has to say what pressing it will actually do.
+  const { data: offerPolicy } = useQuery({
+    queryKey: ['vendor-offer-policy'],
+    queryFn: () => apiFetch<{ policy: VendorOfferPolicy }>('/vendor-products/meta/policy'),
+    staleTime: 5 * 60_000,
+  });
+  const policy = offerPolicy?.policy ?? DEFAULT_VENDOR_OFFER_POLICY;
   const canSelect = canManage && !isVendor;
 
   const query = useQuery({
@@ -142,7 +176,9 @@ export default function OfferPage() {
   const submit = useMutation({
     mutationFn: () => apiFetch(`/vendor-products/${id}/submit`, { method: 'POST' }),
     onSuccess: async () => {
-      toast.success('Sent for review');
+      toast.success(
+        policy === 'PUBLISH_IMMEDIATELY' ? 'Published - buyers can see it now' : 'Sent for review',
+      );
       await invalidate();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not send it for review'),
@@ -181,7 +217,10 @@ export default function OfferPage() {
         body: form,
       });
       if (!res.ok) {
-        const problem = (await res.json().catch(() => null)) as { detail?: string; title?: string } | null;
+        const problem = (await res.json().catch(() => null)) as {
+          detail?: string;
+          title?: string;
+        } | null;
         throw new Error(problem?.detail ?? problem?.title ?? 'Upload failed');
       }
     },
@@ -207,7 +246,8 @@ export default function OfferPage() {
     onSuccess: async () => {
       await invalidate();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not change the main picture'),
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : 'Could not change the main picture'),
   });
 
   /**
@@ -235,7 +275,8 @@ export default function OfferPage() {
 
   /** Copy this offer into a new draft, for a variant of the same thing. */
   const duplicate = useMutation({
-    mutationFn: () => apiFetch<{ id: string }>(`/vendor-products/${id}/duplicate`, { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<{ id: string }>(`/vendor-products/${id}/duplicate`, { method: 'POST' }),
     onSuccess: (copy) => {
       toast.success('Copied. Change what differs, add a picture, then send it for review.');
       router.push(`/catalogue/${copy.id}/edit`);
@@ -274,11 +315,10 @@ export default function OfferPage() {
    * review, which the notice below says.
    */
   const editable = offer.status !== 'DISCONTINUED';
-  const returnsToReview = ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
+  const returnsToReview =
+    editReturnsToReview(policy) && ['APPROVED', 'ACTIVE', 'EXPIRING_SOON'].includes(offer.status);
   const buyable = ['ACTIVE', 'EXPIRING_SOON'].includes(offer.effectiveStatus);
-  const daysLeft = Math.ceil(
-    (new Date(offer.availableUntil).getTime() - Date.now()) / 86_400_000,
-  );
+  const daysLeft = Math.ceil((new Date(offer.availableUntil).getTime() - Date.now()) / 86_400_000);
   // Worth nudging about from a month out: long enough that the supplier has
   // time to decide, short enough that it is not noise on a fresh offer.
   const endingSoon = canManage && editable && daysLeft <= 30;
@@ -312,7 +352,9 @@ export default function OfferPage() {
               title={
                 returnsToReview
                   ? 'Changing the price or specification sends this back for review'
-                  : undefined
+                  : policy === 'PUBLISH_IMMEDIATELY'
+                    ? 'Changes go live straight away'
+                    : undefined
               }
             >
               <Pencil aria-hidden="true" className="size-4" /> Edit
@@ -328,9 +370,9 @@ export default function OfferPage() {
               <Copy aria-hidden="true" className="mr-1 size-4" /> Make a copy
             </Button>
           ) : null}
-          {canManage && offer.status === 'DRAFT' ? (
+          {canManage && ['DRAFT', 'REJECTED'].includes(offer.status) ? (
             <Button loading={submit.isPending} onClick={() => submit.mutate()}>
-              <Send aria-hidden="true" className="mr-1 size-4" /> Send for review
+              <Send aria-hidden="true" className="mr-1 size-4" /> {submitActionLabel(policy)}
             </Button>
           ) : null}
         </div>
@@ -346,7 +388,7 @@ export default function OfferPage() {
             </p>
             <p className="text-xs text-[var(--color-content-muted)]">
               Buyers stop seeing it after that. If the price and the product are unchanged, put it
-              back on sale - it stays approved, so nobody has to review it again.
+              back on sale — it stays live, so nothing has to be approved again.
             </p>
           </div>
           <Button loading={extend.isPending} onClick={() => extend.mutate()}>
@@ -377,7 +419,9 @@ export default function OfferPage() {
                         <button
                           type="button"
                           onClick={() => makePrimary.mutate(image.id)}
-                          aria-label={image.isPrimary ? 'Main picture' : 'Make this the main picture'}
+                          aria-label={
+                            image.isPrimary ? 'Main picture' : 'Make this the main picture'
+                          }
                           disabled={image.isPrimary}
                           className="rounded p-1 text-[var(--color-content-subtle)] hover:text-[var(--color-brand)] disabled:opacity-100"
                         >
@@ -417,8 +461,8 @@ export default function OfferPage() {
                   />
                 </label>
                 <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
-                  Up to {PRODUCT_IMAGE_RULES.max} pictures, {PRODUCT_IMAGE_RULES.maxBytes / 1024} KB each.
-                  JPG, PNG or WEBP.
+                  Up to {PRODUCT_IMAGE_RULES.max} pictures, {PRODUCT_IMAGE_RULES.maxBytes / 1024} KB
+                  each. JPG, PNG or WEBP.
                 </p>
               </div>
             ) : null}
@@ -438,7 +482,10 @@ export default function OfferPage() {
               <h2 className="mb-3 text-sm font-semibold">Specification</h2>
               <dl className="grid gap-2 text-sm sm:grid-cols-2">
                 {Object.entries(offer.specs).map(([key, value]) => (
-                  <div key={key} className="flex justify-between gap-3 border-b border-[var(--color-border)] pb-1">
+                  <div
+                    key={key}
+                    className="flex justify-between gap-3 border-b border-[var(--color-border)] pb-1"
+                  >
                     <dt className="text-[var(--color-content-muted)]">{labelFor(key)}</dt>
                     <dd className="text-right font-medium">
                       {value}
@@ -507,7 +554,8 @@ export default function OfferPage() {
             <div className="flex justify-between gap-3">
               <span className="text-[var(--color-content-muted)]">Price held until</span>
               <span>
-                {new Date(offer.availableUntil).toLocaleDateString()} ({daysUntil(offer.availableUntil)})
+                {new Date(offer.availableUntil).toLocaleDateString()} (
+                {daysUntil(offer.availableUntil)})
               </span>
             </div>
             {offer.leadTimeDays !== null ? (
@@ -556,8 +604,8 @@ export default function OfferPage() {
                     <ShoppingCart aria-hidden="true" className="mr-1 size-4" /> Choose this offer
                   </Button>
                   <p className="text-xs text-[var(--color-content-subtle)]">
-                    The price and specification are recorded as they stand today, so a later change by
-                    the supplier cannot rewrite the decision.
+                    The price and specification are recorded as they stand today, so a later change
+                    by the supplier cannot rewrite the decision.
                   </p>
                 </>
               ) : (
@@ -615,7 +663,10 @@ export default function OfferPage() {
             <Card className="grid gap-2 p-5">
               <h2 className="text-sm font-semibold">Review history</h2>
               {offer.reviews.map((r, i) => (
-                <div key={i} className="border-b border-[var(--color-border)] pb-2 text-sm last:border-0">
+                <div
+                  key={i}
+                  className="border-b border-[var(--color-border)] pb-2 text-sm last:border-0"
+                >
                   <p className="font-medium">{r.decision.replace(/_/g, ' ').toLowerCase()}</p>
                   {r.comments ? (
                     <p className="text-[var(--color-content-muted)]">{r.comments}</p>
@@ -633,7 +684,11 @@ export default function OfferPage() {
               variant="secondary"
               loading={withdraw.isPending}
               onClick={() => {
-                if (confirm('Withdraw this offer? It stays readable so past purchases still make sense.')) {
+                if (
+                  confirm(
+                    'Withdraw this offer? It stays readable so past purchases still make sense.',
+                  )
+                ) {
                   withdraw.mutate();
                 }
               }}
