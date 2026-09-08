@@ -48,23 +48,40 @@ export async function createTestApp(): Promise<INestApplication> {
 
   // Listen once, here, rather than letting supertest do it per request.
   //
-  // Handed a server with no address, supertest starts one on an ephemeral port
-  // for that single request and closes it again when the response ends. It also
-  // sends Connection: close, so every request already costs its own connection.
-  // That is two ephemeral ports per request rather than one, and a full run
-  // makes thousands: measured on this machine, a run sits at roughly 1,800
-  // loopback sockets in TIME_WAIT throughout, against a 16,384-port dynamic
-  // range that Windows releases slowly.
+  // Handed a server with no address - which is what request(app.getHttpServer())
+  // passes - supertest starts one on an ephemeral port for that single request
+  // and closes it again when the response ends. It also sends Connection: close,
+  // so every request already costs its own connection. That is two ephemeral
+  // ports per request instead of one, and a full run makes thousands: measured
+  // here, a run sat at roughly 1,800 loopback sockets in TIME_WAIT throughout,
+  // against a 16,384-port dynamic range that Windows releases slowly. Listening
+  // once removes the listener half outright - a server with an address is one
+  // supertest connects to and never starts or stops - and the same measurement
+  // afterwards read 514-716.
   //
-  // The suite fails about one test per full run with ECONNRESET - a different
-  // test each time, always passing on its own - which is the shape of a port
-  // collision rather than of a bug in the test. Listening once removes the
-  // listener half of that churn outright: a server with an address is one
-  // supertest connects to and never starts or stops.
+  // This was chasing an ECONNRESET that struck about one test per full run,
+  // a different test each time. Two better-sounding explanations were tested
+  // and are both wrong, so nobody need re-run them: it is not a keep-alive
+  // close race, tempting though that is now Node defaults client agent and
+  // server alike to a 5000ms idle timeout, because supertest sends
+  // Connection: close and never reuses a socket - ten requests, ten
+  // connections; and it is not plain port exhaustion, the range being 16,384
+  // wide and a run never approaching it.
   //
-  // Whether that is the whole cause is measured, not assumed - see the note on
-  // the flake rate in the commit that added this. app.close() shuts the
-  // listener down with the app.
+  // Evidence, not proof. The mechanism was never reproduced in isolation, so
+  // what stands behind this is a rate: ECONNRESET appeared in 2 of ~4 full runs
+  // before, and in 0 of 6 after - about 5,500 test executions. Zero in six
+  // cannot tell "fixed" from "made rare". If it returns, this is where to
+  // start, and the next thing to try is giving supertest a keep-alive agent so
+  // a run stops opening a connection per request at all.
+  //
+  // Not to be confused with the identifier-audit test that was failing in the
+  // same period: that was a real bug - ninety possible MAC addresses against a
+  // unique constraint, one consumed for good per run - and its odds climbed
+  // with every run rather than striking at random. Two symptoms on a shared
+  // schedule are not one cause.
+  //
+  // app.close() shuts the listener down with the app.
   await new Promise<void>((resolve, reject) => {
     const server = app.getHttpServer() as import('node:http').Server;
     server.once('error', reject);
