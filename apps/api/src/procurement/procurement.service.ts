@@ -353,6 +353,31 @@ export class ProcurementService {
           lineTotal: new Prisma.Decimal((Number(l.estimatedUnitPrice ?? 0) * Number(l.quantity)).toFixed(2)),
         }));
     const currency = awarded?.currency ?? input.currency ?? pr.currency ?? 'USD';
+
+    // v2.47 - name the catalogue listing each line is buying, where it can be
+    // known for certain rather than guessed.
+    //
+    // A selection already records which offer was chosen for this request, so
+    // nothing new has to be asked of anybody. A line is linked when its
+    // description is exactly the product that was selected, and otherwise only
+    // when there is one selection and one line, which cannot be ambiguous. A
+    // line that matches neither is left unlinked: a wrong provenance is worse
+    // than a missing one, and the asset screen can set it by hand later.
+    const selections = await this.prisma.client.procurementSelection.findMany({
+      where: { companyId: actor.companyId, purchaseRequestId: id, deselectedAt: null },
+      select: { vendorProductId: true, productName: true },
+    });
+    const byName = new Map(
+      selections.map((sel) => [sel.productName.trim().toLowerCase(), sel.vendorProductId]),
+    );
+    const linkedLines = orderLines.map((line) => {
+      const exact = byName.get(line.description.trim().toLowerCase());
+      const unambiguous =
+        selections.length === 1 && orderLines.length === 1 ? selections[0]!.vendorProductId : null;
+      const vendorProductId = exact ?? unambiguous ?? null;
+      return vendorProductId ? { ...line, vendorProductId } : line;
+    });
+
     const subtotal = orderLines.reduce((sum, l) => sum + Number(l.lineTotal), 0);
 
     const po = await this.withNumberedTransaction(actor.companyId, 'purchaseOrder', 'PO', async (tx, poNumber) => {
@@ -366,7 +391,7 @@ export class ProcurementService {
           total: new Prisma.Decimal(subtotal.toFixed(2)),
           createdById: actor.id,
           updatedById: actor.id,
-          lines: { create: orderLines },
+          lines: { create: linkedLines },
         },
         select: { id: true, poNumber: true },
       });
@@ -669,7 +694,19 @@ export class ProcurementService {
             poNumber: true,
             vendorId: true,
             currency: true,
-            lines: { select: { id: true, lineNumber: true, description: true, unitPrice: true } },
+            lines: {
+              select: {
+                id: true,
+                lineNumber: true,
+                description: true,
+                unitPrice: true,
+                // v2.47 - carried onto every unit this line brings in, so a
+                // laptop on somebody's desk can be traced back to the listing
+                // it was bought from.
+                vendorProductId: true,
+                vendorProduct: { select: { brand: true, model: true, specs: true } },
+              },
+            },
           },
         });
         const poLineById = new Map(detail.lines.map((l) => [l.id, l]));
@@ -689,6 +726,15 @@ export class ProcurementService {
                   categoryId: line.input.categoryId!,
                   subcategoryId: line.input.subcategoryId ?? null,
                   serialNumber: line.input.serialNumbers?.[unit] ?? null,
+                  // The chain: vendor -> product -> order line -> this unit.
+                  vendorProductId: poLine.vendorProductId,
+                  // Inherited from the listing rather than retyped. The order
+                  // line carries a description agreed in writing; the make and
+                  // model of the thing are the supplier's own facts about it,
+                  // and leaving them blank here is what left the register full
+                  // of assets nobody could identify.
+                  brand: poLine.vendorProduct?.brand ?? null,
+                  model: poLine.vendorProduct?.model ?? null,
                   qrToken: ulid(),
                   // Received, not available: it is in the building but nobody has
                   // checked, configured or tagged it yet.

@@ -45,6 +45,14 @@ import {
 } from '@/components/assets/discovery-tabs';
 
 interface AssetDetail {
+  /** v2.47 - the catalogue listing this unit came from, when it came through procurement. */
+  vendorProduct?: {
+    id: string;
+    name: string;
+    brand: string | null;
+    model: string | null;
+    warrantyMonths: number | null;
+  } | null;
   id: string;
   assetTag: string;
   name: string;
@@ -381,6 +389,23 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
               }
             />
             <Row label="Purchased on" value={fmtDate(data.purchaseDate)} />
+            {/* v2.47 - what this unit actually is, according to the supplier who
+                sold it. Only present for units that came through procurement
+                after the link existed; older ones say nothing rather than
+                guessing. */}
+            {data.vendorProduct ? (
+              <Row
+                label="Supplied as"
+                value={
+                  <Link
+                    href={`/catalogue/${data.vendorProduct.id}`}
+                    className="text-[var(--color-brand)] hover:underline"
+                  >
+                    {data.vendorProduct.name}
+                  </Link>
+                }
+              />
+            ) : null}
             <Row
               label="Warranty ends"
               value={

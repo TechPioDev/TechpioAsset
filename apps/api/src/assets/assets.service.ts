@@ -179,6 +179,14 @@ export class AssetsService {
       room: { select: { id: true, name: true } },
       department: { select: { id: true, name: true } },
       vendor: showVendor ? ({ select: { id: true, name: true } } as const) : (false as const),
+      // v2.47 - the catalogue listing this unit came from, so "what exactly is
+      // this and who sold it to us" is answerable from the asset itself.
+      // Gated with the vendor for the same reason: it names a supplier.
+      vendorProduct: showVendor
+        ? ({
+            select: { id: true, name: true, brand: true, model: true, warrantyMonths: true },
+          } as const)
+        : (false as const),
       assignedUser: {
         select: {
           id: true,

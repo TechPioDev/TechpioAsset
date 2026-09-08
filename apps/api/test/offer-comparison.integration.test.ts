@@ -753,6 +753,76 @@ describe('when a company stops reviewing supplier offers', () => {
   });
 });
 
+describe('the chain from a listing to a physical unit', () => {
+  it('counts the units a listing has put into service, and shows the supplier only the count', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const companyId = s.officeAdmin.user.companyId;
+    const category = await prisma.category.findFirstOrThrow({ where: { companyId } });
+
+    // Two units of this listing, one of something else.
+    await prisma.asset.createMany({
+      data: [1, 2].map((n) => ({
+        companyId,
+        assetTag: `CHAIN-${stamp()}-${n}`,
+        name: 'Unit from the listing',
+        categoryId: category.id,
+        qrToken: `chain-${stamp()}-${n}`,
+        status: 'IN_USE' as const,
+        vendorProductId: id,
+      })),
+    });
+    await prisma.asset.create({
+      data: {
+        companyId,
+        assetTag: `CHAIN-OTHER-${stamp()}`,
+        name: 'Nothing to do with it',
+        categoryId: category.id,
+        qrToken: `chain-other-${stamp()}`,
+        status: 'IN_USE',
+      },
+    });
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data._count.assets).toBe(2);
+    // The count, and nothing about where any of it went.
+    expect(JSON.stringify(res.body.data)).not.toContain('CHAIN-');
+  });
+
+  it('refuses to delete a listing that has physical units behind it', async () => {
+    // Section 26's rule, enforced by the database rather than by remembering:
+    // a product with assets is archived, never removed.
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    const companyId = s.officeAdmin.user.companyId;
+    const category = await prisma.category.findFirstOrThrow({ where: { companyId } });
+    await prisma.asset.create({
+      data: {
+        companyId,
+        assetTag: `CHAIN-KEEP-${stamp()}`,
+        name: 'In service',
+        categoryId: category.id,
+        qrToken: `chain-keep-${stamp()}`,
+        status: 'IN_USE',
+        vendorProductId: id,
+      },
+    });
+
+    await expect(prisma.vendorProduct.delete({ where: { id } })).rejects.toThrow();
+
+    // Withdrawing it is still fine - that is a soft delete, and the unit keeps
+    // its provenance.
+    const withdrawn = await api(app).delete(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(withdrawn.status, JSON.stringify(withdrawn.body)).toBe(200);
+    const asset = await prisma.asset.findFirstOrThrow({ where: { vendorProductId: id } });
+    expect(asset.vendorProductId).toBe(id);
+  });
+
+  it('still refuses a supplier the asset register itself', async () => {
+    const res = await api(app).get('/api/v1/assets').set(vendorAuth());
+    expect(res.status).toBe(403);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

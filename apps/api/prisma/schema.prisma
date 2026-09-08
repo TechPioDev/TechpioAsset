@@ -1046,12 +1046,12 @@ model Category {
   createdById String?
   updatedById String?
 
-  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   subcategories  Subcategory[]
   assets         Asset[]
   inventoryItems InventoryItem[]
   requestItems   RequestItem[]
-  invoiceLines   InvoiceLine[]   @relation("SuggestedCategory")
+  invoiceLines   InvoiceLine[]       @relation("SuggestedCategory")
   catalogItems   CatalogItem[]
   vendorProducts VendorProduct[]
   specFields     CategorySpecField[]
@@ -1066,9 +1066,9 @@ model Category {
 /// laptop supplier for are not the ones worth asking a chair supplier for, and
 /// nobody wants a release to add a row to a template.
 model CategorySpecField {
-  id         String @id @default(cuid())
-  companyId  String
-  categoryId String
+  id            String  @id @default(cuid())
+  companyId     String
+  categoryId    String
   /// Narrows the field to one subcategory (v2.43).
   ///
   /// Null means it applies to the whole category. "IT Assets" covers laptops,
@@ -1085,16 +1085,16 @@ model CategorySpecField {
 
   /// How a numeric requirement is read. "16 GB" means at least; "1.4 kg" means
   /// at most. Guessing from the name is how a comparison quietly inverts.
-  intent NumericIntent?
+  intent    NumericIntent?
   /// How far off still counts as a partial match, as a fraction. Null uses the
   /// default in @techpioasset/domain.
-  tolerance Decimal? @db.Decimal(4, 3)
+  tolerance Decimal?       @db.Decimal(4, 3)
 
   /// Allowed values when dataType is ENUM.
   options String[] @default([])
 
   /// A vendor must fill this in before an offer can be submitted for review.
-  isRequired Boolean @default(false)
+  isRequired   Boolean @default(false)
   /// Offered for comparison. A field can be worth recording without being worth
   /// ranking on.
   isComparable Boolean @default(true)
@@ -1135,7 +1135,7 @@ model VendorProposedSpec {
   vendorProductId String
 
   /// As the supplier typed it, shown back to them unchanged.
-  label String
+  label         String
   /// The grouping key: normalizeSpecLabel(label). "NPU TOPS" and "npu (tops)"
   /// are the same question and must land in the same bucket.
   normalizedKey String
@@ -1164,7 +1164,7 @@ model Subcategory {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  category       Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category       Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   assets         Asset[]
   specFields     CategorySpecField[]
   inventoryItems InventoryItem[]
@@ -1216,6 +1216,13 @@ model Asset {
   salvageValue       Decimal?           @db.Decimal(14, 2)
 
   vendorId            String?
+  /// v2.47 - the catalogue entry this unit came from, when it came through
+  /// procurement. Nullable because assets predate the link and because plenty
+  /// arrive outside it: an import, a donation, a thing found in a cupboard.
+  /// Restrict on delete, which is section 26's rule expressed where it cannot
+  /// be forgotten - a product with physical units behind it is archived, never
+  /// removed.
+  vendorProductId     String?
   invoiceLineId       String?
   purchaseOrderNumber String?
 
@@ -1264,6 +1271,7 @@ model Asset {
   category      Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   subcategory   Subcategory?      @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
   vendor        Vendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorProduct VendorProduct?    @relation(fields: [vendorProductId], references: [id], onDelete: Restrict)
   invoiceLine   InvoiceLine?      @relation(fields: [invoiceLineId], references: [id], onDelete: SetNull)
   sourceGrnLine GoodsReceiptLine? @relation("AssetFromReceipt", fields: [sourceGrnLineId], references: [id], onDelete: SetNull)
   office        Office?           @relation(fields: [officeId], references: [id], onDelete: SetNull)
@@ -1293,8 +1301,6 @@ model Asset {
   maintenanceSchedules  MaintenanceSchedule[]
   assessmentsSuggesting RequestAssessment[]     @relation("AssessmentSuitableAsset")
 
-  /// Postgres treats NULLs as distinct in a unique index, so quantity-tracked
-  /// rows (which carry no serial) coexist freely while real serials stay unique.
   @@unique([companyId, assetTag])
   @@unique([companyId, serialNumber])
   @@unique([companyId, macAddress])
@@ -1303,6 +1309,9 @@ model Asset {
   /// not born of a receipt, and Postgres treats NULLs as distinct, so those rows
   /// coexist freely while receipt-born units stay one-per-unit.
   @@unique([sourceGrnLineId, sourceUnitIndex])
+  /// Postgres treats NULLs as distinct in a unique index, so quantity-tracked
+  /// rows (which carry no serial) coexist freely while real serials stay unique.
+  @@index([companyId, vendorProductId])
   @@index([companyId, status])
   // v2.1 Workstream A — powers the flagship multi-dimension filter (AST-051).
   @@index([companyId, lifecycleState, availabilityState])
@@ -1718,6 +1727,10 @@ model PurchaseOrderLine {
   purchaseOrderId String
 
   lineNumber       Int
+  /// v2.47 - what is being bought, when it came from the catalogue. The
+  /// description stays: it is what was agreed in writing and must not change
+  /// underneath the order when a supplier edits its listing.
+  vendorProductId  String?
   description      String
   quantity         Decimal @db.Decimal(14, 3)
   unitPrice        Decimal @db.Decimal(14, 2)
@@ -1728,6 +1741,7 @@ model PurchaseOrderLine {
   updatedAt DateTime @updatedAt
 
   purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  vendorProduct VendorProduct?     @relation(fields: [vendorProductId], references: [id], onDelete: Restrict)
   grnLines      GoodsReceiptLine[]
 
   @@unique([purchaseOrderId, lineNumber])
@@ -3254,12 +3268,12 @@ model QualityCheck {
 
   goodsReceiptLineId String
 
-  outcome QualityOutcome
+  outcome           QualityOutcome
   /// Always equals the quantity on the receipt line; held so the arithmetic
   /// that was checked stays visible even if the line is later corrected.
-  quantityInspected Decimal @db.Decimal(14, 3)
-  quantityAccepted  Decimal @db.Decimal(14, 3)
-  quantityRejected  Decimal @db.Decimal(14, 3)
+  quantityInspected Decimal        @db.Decimal(14, 3)
+  quantityAccepted  Decimal        @db.Decimal(14, 3)
+  quantityRejected  Decimal        @db.Decimal(14, 3)
 
   /// Required whenever anything was rejected: a rejection nobody explained is
   /// one the vendor cannot be held to.
@@ -3919,15 +3933,20 @@ model VendorProduct {
   updatedById String?
   version     Int       @default(0)
 
-  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  category    Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  subcategory Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor             Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  /// The physical units that came from this listing, and the order lines that
+  /// bought them. This is the chain the whole catalogue exists to serve:
+  /// vendor -> product -> order -> asset.
+  assets             Asset[]
+  purchaseOrderLines PurchaseOrderLine[]
+  category           Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  subcategory        Subcategory?        @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
 
   proposedSpecs VendorProposedSpec[]
-  images     VendorProductImage[]
-  reviews    VendorProductReview[]
-  selections ProcurementSelection[]
+  images        VendorProductImage[]
+  reviews       VendorProductReview[]
+  selections    ProcurementSelection[]
 
   @@index([companyId, status])
   @@index([companyId, vendorId])

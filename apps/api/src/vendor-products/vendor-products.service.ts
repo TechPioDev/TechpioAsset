@@ -662,6 +662,11 @@ export class VendorProductsService {
         otherCharges: true,
         paymentTerms: true,
         vendor: { select: { id: true, name: true, contactEmail: true } },
+        // v2.47 - how many physical units this listing has put into service.
+        // A count, never the assets themselves: a supplier may see what it has
+        // supplied, which is its own sales history, and nothing about where any
+        // of it ended up.
+        _count: { select: { assets: true } },
         images: {
           orderBy: { sortOrder: 'asc' },
           // No storageKey: it is an internal path, and the id is all a client

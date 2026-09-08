@@ -78,6 +78,118 @@ async function issuedPo(quantity: number, unitPrice = '40.00') {
 const receive = (poId: string, body: unknown) =>
   api(app).post(`${base}/orders/${poId}/receive`).set(auth(s.superAdmin)).send(body);
 
+describe('a received unit knows the listing it came from (v2.47)', () => {
+  it('carries the selected product onto every asset the receipt creates', async () => {
+    // The chain the catalogue exists to serve: vendor -> listing -> selection
+    // -> order line -> physical unit. Before this the order line described what
+    // was bought in free text and the trail stopped there.
+    const offer = await prisma.client.vendorProduct.create({
+      data: {
+        companyId,
+        vendorId,
+        name: `Chain probe dock ${Date.now()}`,
+        brand: 'Anker',
+        model: 'PowerExpand 13-in-1',
+        categoryId,
+        currency: 'INR',
+        unitPrice: '4000.00',
+        landedCost: '4720.00',
+        availableQuantity: 50,
+        availableFrom: new Date(Date.now() - 86_400_000),
+        availableUntil: new Date(Date.now() + 86_400_000 * 30),
+        status: 'APPROVED',
+      },
+      select: { id: true, name: true },
+    });
+
+    // The request asks for the product by the name the selection records, which
+    // is how the order line and the listing are matched without asking anybody
+    // to retype an id.
+    const pr = await api(app)
+      .post(`${base}/requests`)
+      .set(auth(s.employee))
+      .send({
+        justification: 'Integration probe: the listing must reach the asset.',
+        lines: [{ description: offer.name, quantity: 2, estimatedUnitPrice: '4000.00', inventoryItemId: itemId }],
+      });
+    expect(pr.status, JSON.stringify(pr.body)).toBe(201);
+    const requestId = pr.body.data.id as string;
+
+    await prisma.client.procurementSelection.create({
+      data: {
+        companyId,
+        vendorProductId: offer.id,
+        vendorId,
+        purchaseRequestId: requestId,
+        quantity: 2,
+        currency: 'INR',
+        unitPrice: '4000.00',
+        gstPercent: '18.00',
+        discount: '0.00',
+        shippingCost: '0.00',
+        installationCost: '0.00',
+        otherCharges: '0.00',
+        landedCost: '4720.00',
+        totalCost: '9440.00',
+        productName: offer.name,
+        availableUntil: new Date(Date.now() + 86_400_000 * 30),
+        selectedById: s.superAdmin.user.id,
+      },
+    });
+
+    await api(app).post(`${base}/requests/${requestId}/submit`).set(auth(s.employee));
+    await api(app)
+      .post(`${base}/requests/${requestId}/decision`)
+      .set(auth(s.finance))
+      .send({ decision: 'APPROVE' });
+    const converted = await api(app)
+      .post(`${base}/requests/${requestId}/convert`)
+      .set(auth(s.superAdmin))
+      .send({ vendorId });
+    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
+    const poId = converted.body.data.purchaseOrderId as string;
+
+    // The order line names the listing, not just a description of it.
+    const line = await prisma.client.purchaseOrderLine.findFirstOrThrow({
+      where: { purchaseOrderId: poId },
+      select: { id: true, vendorProductId: true },
+    });
+    expect(line.vendorProductId).toBe(offer.id);
+
+    await api(app).post(`${base}/orders/${poId}/issue`).set(auth(s.superAdmin));
+    const received = await api(app)
+      .post(`${base}/orders/${poId}/receive`)
+      .set(auth(s.superAdmin))
+      .send({ lines: [{ purchaseOrderLineId: line.id, quantity: 2, intake: 'ASSET', categoryId }] });
+    expect(received.status, JSON.stringify(received.body)).toBe(201);
+
+    const assets = await prisma.client.asset.findMany({
+      where: { companyId, vendorProductId: offer.id },
+      select: { vendorProductId: true, brand: true, model: true, vendorId: true },
+    });
+    expect(assets).toHaveLength(2);
+    for (const asset of assets) {
+      expect(asset.vendorProductId).toBe(offer.id);
+      // Make and model come from the listing rather than being left blank, which
+      // is what filled the register with units nobody could identify.
+      expect(asset.brand).toBe('Anker');
+      expect(asset.model).toBe('PowerExpand 13-in-1');
+      expect(asset.vendorId).toBe(vendorId);
+    }
+  });
+
+  it('leaves the link empty rather than guessing when nothing was selected', async () => {
+    const { poId, lineId } = await issuedPo(1);
+    await receive(poId, { lines: [{ purchaseOrderLineId: lineId, quantity: 1, intake: 'ASSET', categoryId }] });
+    const line = await prisma.client.purchaseOrderLine.findUniqueOrThrow({
+      where: { id: lineId },
+      select: { vendorProductId: true },
+    });
+    // A guessed provenance is worse than an honest blank.
+    expect(line.vendorProductId).toBeNull();
+  });
+});
+
 describe('ASSET intake creates the assets', () => {
   it('receiving 3 units creates exactly 3 assets carrying their purchase history', async () => {
     const { poId, lineId, poNumber } = await issuedPo(3);

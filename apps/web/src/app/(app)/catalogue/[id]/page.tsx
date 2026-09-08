@@ -78,6 +78,8 @@ type OfferDetail = Offer & {
   }[];
   reviews: { decision: string; comments: string | null; createdAt: string }[];
   proposedSpecs: { id: string; label: string; normalizedKey: string; value: string }[];
+  /** v2.47 - how many physical units this listing has put into service. */
+  _count?: { assets: number };
 };
 
 type SpecField = { key: string; label: string; unit: string | null };
@@ -563,6 +565,17 @@ export default function OfferPage() {
               <span className="text-[var(--color-content-muted)]">Minimum order</span>
               <span>{offer.minOrderQuantity}</span>
             </div>
+            {/* v2.47 - the other end of the chain. A count only: a supplier may
+                see what it has supplied, and nothing about where any of it
+                went. Internal staff follow the link from the asset instead. */}
+            {offer._count && offer._count.assets > 0 ? (
+              <div className="flex justify-between gap-3">
+                <span className="text-[var(--color-content-muted)]">In service</span>
+                <span>
+                  {offer._count.assets} unit{offer._count.assets === 1 ? '' : 's'} supplied
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-3">
               <span className="text-[var(--color-content-muted)]">Price held until</span>
               <span>
