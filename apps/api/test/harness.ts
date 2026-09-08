@@ -45,6 +45,35 @@ export async function createTestApp(): Promise<INestApplication> {
   applySecurityMiddleware(app);
   app.setGlobalPrefix('api/v1', { exclude: ['health/live', 'health/ready'] });
   await app.init();
+
+  // Listen once, here, rather than letting supertest do it per request.
+  //
+  // Handed a server with no address, supertest starts one on an ephemeral port
+  // for that single request and closes it again when the response ends. It also
+  // sends Connection: close, so every request already costs its own connection.
+  // That is two ephemeral ports per request rather than one, and a full run
+  // makes thousands: measured on this machine, a run sits at roughly 1,800
+  // loopback sockets in TIME_WAIT throughout, against a 16,384-port dynamic
+  // range that Windows releases slowly.
+  //
+  // The suite fails about one test per full run with ECONNRESET - a different
+  // test each time, always passing on its own - which is the shape of a port
+  // collision rather than of a bug in the test. Listening once removes the
+  // listener half of that churn outright: a server with an address is one
+  // supertest connects to and never starts or stops.
+  //
+  // Whether that is the whole cause is measured, not assumed - see the note on
+  // the flake rate in the commit that added this. app.close() shuts the
+  // listener down with the app.
+  await new Promise<void>((resolve, reject) => {
+    const server = app.getHttpServer() as import('node:http').Server;
+    server.once('error', reject);
+    server.listen(0, () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
+  });
+
   return app;
 }
 

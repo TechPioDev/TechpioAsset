@@ -59,8 +59,8 @@ beforeAll(async () => {
   app = await createTestApp();
   rig = await login(app, RIG_EMAIL);
   // A real socket, so the response actually leaves the process rather than
-  // being assembled in it.
-  await app.listen(0);
+  // being assembled in it. The harness already listens, so take the port it
+  // bound - calling listen again on a listening server throws.
   port = (app.getHttpServer().address() as AddressInfo).port;
 });
 
