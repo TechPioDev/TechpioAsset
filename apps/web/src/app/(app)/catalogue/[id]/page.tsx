@@ -20,8 +20,10 @@ import {
 import {
   PERMISSIONS,
   PRODUCT_IMAGE_RULES,
+  VENDOR_STOCK_LABELS,
   editReturnsToReview,
   formatInr,
+  type VendorStockStatus,
 } from '@techpioasset/domain';
 import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -81,6 +83,19 @@ type OfferDetail = Offer & {
   proposedSpecs: { id: string; label: string; normalizedKey: string; value: string }[];
   /** v2.47 - how many physical units this listing has put into service. */
   _count?: { assets: number };
+  /** v2.51 - stock depth. Reserved is derived from live selections, never stored. */
+  reservedQuantity?: number;
+  sellableQuantity?: number;
+  stockStatus?: VendorStockStatus;
+  lowStockThreshold?: number | null;
+  stockChanges?: {
+    id: string;
+    previousQuantity: number;
+    newQuantity: number;
+    delta: number;
+    reason: string | null;
+    createdAt: string;
+  }[];
 };
 
 type SpecField = { key: string; label: string; unit: string | null };
@@ -541,6 +556,42 @@ export default function OfferPage() {
             </Card>
           ) : null}
 
+          {/* v2.51 - what the quantity has done lately. Only for whoever can
+              change it; a buyer does not need the supplier's working. */}
+          {canManage && offer.stockChanges?.length ? (
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold">Stock history</h2>
+              <p className="mb-3 text-xs text-[var(--color-content-muted)]">
+                The last {offer.stockChanges.length} change
+                {offer.stockChanges.length === 1 ? '' : 's'} to how many units are available.
+              </p>
+              <ul className="grid gap-1 text-sm">
+                {offer.stockChanges.map((change) => (
+                  <li
+                    key={change.id}
+                    className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] py-1.5 last:border-0"
+                  >
+                    <span>
+                      {change.previousQuantity} → {change.newQuantity}
+                      <span
+                        className={
+                          change.delta > 0
+                            ? 'ml-2 text-xs text-[var(--tone-success-fg)]'
+                            : 'ml-2 text-xs text-[var(--color-content-subtle)]'
+                        }
+                      >
+                        {change.delta > 0 ? `+${change.delta}` : change.delta}
+                      </span>
+                    </span>
+                    <span className="text-xs text-[var(--color-content-subtle)]">
+                      {new Date(change.createdAt).toLocaleDateString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
           <ProductDocuments productId={offer.id} canManage={canManage && editable} />
 
           {offer.youtubeVideoId ? (
@@ -572,6 +623,34 @@ export default function OfferPage() {
                 {offer.availableQuantity} unit{offer.availableQuantity === 1 ? '' : 's'}
               </span>
             </div>
+            {/* v2.51 - what is actually left for the next buyer. Shown only when
+                some of it is spoken for: "10 available, 0 reserved" is noise. */}
+            {offer.reservedQuantity ? (
+              <>
+                <div className="flex justify-between gap-3">
+                  <span className="text-[var(--color-content-muted)]">Already committed</span>
+                  <span>{offer.reservedQuantity}</span>
+                </div>
+                <div className="flex justify-between gap-3 font-medium">
+                  <span className="text-[var(--color-content-muted)]">Left to sell</span>
+                  <span>{offer.sellableQuantity}</span>
+                </div>
+              </>
+            ) : null}
+            {offer.stockStatus && offer.stockStatus !== 'IN_STOCK' ? (
+              <div className="flex justify-between gap-3">
+                <span className="text-[var(--color-content-muted)]">Stock</span>
+                <span
+                  className={
+                    offer.stockStatus === 'OUT_OF_STOCK'
+                      ? 'font-medium text-[var(--color-destructive)]'
+                      : 'font-medium'
+                  }
+                >
+                  {VENDOR_STOCK_LABELS[offer.stockStatus]}
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-3">
               <span className="text-[var(--color-content-muted)]">Minimum order</span>
               <span>{offer.minOrderQuantity}</span>

@@ -49,6 +49,7 @@ interface Draft {
   brand: string;
   model: string;
   vendorSku: string;
+  lowStockThreshold: string;
   description: string;
   unitPrice: string;
   gstPercent: string;
@@ -76,6 +77,7 @@ const EMPTY: Draft = {
   brand: '',
   model: '',
   vendorSku: '',
+  lowStockThreshold: '',
   description: '',
   unitPrice: '',
   gstPercent: '18',
@@ -135,6 +137,11 @@ export default function OfferEditScreen() {
             brand: String(existing.brand ?? ''),
             model: String(existing.model ?? ''),
             vendorSku: String(existing.vendorSku ?? ''),
+            // Hydrated, or an edit would silently clear a line the supplier drew.
+            lowStockThreshold:
+              existing.lowStockThreshold === null || existing.lowStockThreshold === undefined
+                ? ''
+                : String(existing.lowStockThreshold),
             description: String(existing.description ?? ''),
             unitPrice: String(existing.unitPrice ?? ''),
             gstPercent: String(existing.gstPercent ?? '18'),
@@ -210,6 +217,9 @@ export default function OfferEditScreen() {
         ...(draft.brand.trim() ? { brand: draft.brand.trim() } : {}),
         ...(draft.model.trim() ? { model: draft.model.trim() } : {}),
         ...(draft.vendorSku.trim() ? { vendorSku: draft.vendorSku.trim() } : {}),
+        // Blank means no warning at all, which is not the same as zero.
+        lowStockThreshold:
+          draft.lowStockThreshold.trim() === '' ? null : Number(draft.lowStockThreshold),
         ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
         unitPrice: num(draft.unitPrice),
         gstPercent: num(draft.gstPercent),
@@ -470,6 +480,9 @@ export default function OfferEditScreen() {
       <SectionTitle>Availability</SectionTitle>
       <Card>
         {text('availableQuantity', 'How many you can supply', { keyboardType: 'number-pad' })}
+        {text('lowStockThreshold', 'Tell me when stock falls to (optional)', {
+          keyboardType: 'number-pad',
+        })}
         {text('minOrderQuantity', 'Minimum order', { keyboardType: 'number-pad' })}
         {text('availableFrom', 'Available from (YYYY-MM-DD)')}
         {text('availableUntil', 'Price held until (YYYY-MM-DD)')}

@@ -1216,6 +1216,141 @@ describe('the nightly sweep that chases a supplier (v2.50)', () => {
   });
 });
 
+describe('stock depth on a listing (v2.51)', () => {
+  const patch = (id: string, body: unknown) =>
+    api(app).patch(`/api/v1/vendor-products/${id}`).set(vendorAuth()).send(body);
+
+  it('takes committed units off what is left for the next buyer', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({ where: { id }, data: { availableQuantity: 10 } });
+
+    const chosen = await api(app)
+      .post(`/api/v1/vendor-products/${id}/select`)
+      .set(auth(s.officeAdmin))
+      .send({ quantity: 4 });
+    expect(chosen.status, JSON.stringify(chosen.body)).toBe(201);
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(res.status).toBe(200);
+    expect(res.body.data.availableQuantity).toBe(10);
+    expect(res.body.data.reservedQuantity).toBe(4);
+    // Showing the reserved four as available is how two buyers are promised
+    // the same units.
+    expect(res.body.data.sellableQuantity).toBe(6);
+    expect(res.body.data.stockStatus).toBe('IN_STOCK');
+  });
+
+  it('is out of stock when everything left is spoken for', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({ where: { id }, data: { availableQuantity: 2 } });
+    await api(app)
+      .post(`/api/v1/vendor-products/${id}/select`)
+      .set(auth(s.officeAdmin))
+      .send({ quantity: 2 });
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(res.body.data.sellableQuantity).toBe(0);
+    expect(res.body.data.stockStatus).toBe('OUT_OF_STOCK');
+  });
+
+  it('records every quantity move, and only when it actually moves', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    expect((await patch(id, { availableQuantity: 40 })).status).toBe(200);
+    expect((await patch(id, { availableQuantity: 12 })).status).toBe(200);
+    // Saving without touching the number is not a stock change.
+    expect((await patch(id, { leadTimeDays: 5 })).status).toBe(200);
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    const moves = res.body.data.stockChanges as {
+      previousQuantity: number;
+      newQuantity: number;
+      delta: number;
+    }[];
+    expect(moves).toHaveLength(2);
+    // Newest first.
+    expect(moves[0]).toMatchObject({ previousQuantity: 40, newQuantity: 12, delta: -28 });
+    expect(moves[1]!.newQuantity).toBe(40);
+  });
+
+  it('refuses a negative quantity', async () => {
+    const id = await offer(vendorA, { ram_gb: '16' });
+    const res = await patch(id, { availableQuantity: -5 });
+    expect(res.status).toBe(422);
+  });
+
+  it('warns the supplier on the way past its own threshold, and not again after', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({
+      where: { id },
+      data: { availableQuantity: 40, lowStockThreshold: 5 },
+    });
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    const countLow = () =>
+      prisma.notification.count({
+        where: { userId: user.id, type: 'VENDOR_PRODUCT_LOW_STOCK', entityId: id },
+      });
+
+    expect((await patch(id, { availableQuantity: 4 })).status).toBe(200);
+    expect(await countLow()).toBe(1);
+
+    // Already low yesterday is not news today.
+    expect((await patch(id, { availableQuantity: 3 })).status).toBe(200);
+    expect(await countLow()).toBe(1);
+  });
+
+  it('has no low band at all until the supplier sets one', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({ where: { id }, data: { availableQuantity: 40 } });
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+
+    expect((await patch(id, { availableQuantity: 1 })).status).toBe(200);
+    // Guessing a threshold would put every small supplier permanently in amber.
+    expect(
+      await prisma.notification.count({
+        where: { userId: user.id, type: 'VENDOR_PRODUCT_LOW_STOCK', entityId: id },
+      }),
+    ).toBe(0);
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(res.body.data.stockStatus).toBe('IN_STOCK');
+  });
+
+  it('leaves the threshold alone when an edit does not mention it', async () => {
+    // The web form sends null for a blank box, which is an explicit "no
+    // warning". Omitting the field entirely must mean "unchanged", or every
+    // unrelated edit would quietly clear a line the supplier drew.
+    const id = await offer(vendorA, { ram_gb: '16' });
+    expect((await patch(id, { lowStockThreshold: 8 })).status).toBe(200);
+    expect((await patch(id, { leadTimeDays: 3 })).status).toBe(200);
+
+    const kept = await prisma.vendorProduct.findUniqueOrThrow({
+      where: { id },
+      select: { lowStockThreshold: true },
+    });
+    expect(kept.lowStockThreshold).toBe(8);
+
+    // And null really does clear it.
+    expect((await patch(id, { lowStockThreshold: null })).status).toBe(200);
+    const cleared = await prisma.vendorProduct.findUniqueOrThrow({
+      where: { id },
+      select: { lowStockThreshold: true },
+    });
+    expect(cleared.lowStockThreshold).toBeNull();
+  });
+
+  it('never shows one supplier another’s stock position', async () => {
+    const theirs = await liveOffer(vendorB, { ram_gb: '16' });
+    const res = await api(app).get(`/api/v1/vendor-products/${theirs}`).set(vendorAuth());
+    expect([403, 404]).toContain(res.status);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

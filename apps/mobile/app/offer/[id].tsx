@@ -55,6 +55,10 @@ interface OfferDetail {
   minOrderQuantity: number;
   availableUntil: string;
   productCode?: string | null;
+  reservedQuantity?: number;
+  sellableQuantity?: number;
+  stockStatus?: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+  lowStockThreshold?: number | null;
   vendorSku?: string | null;
   leadTimeDays: number | null;
   warrantyMonths: number | null;
@@ -338,6 +342,13 @@ export default function OfferScreen() {
       <SectionTitle>Terms</SectionTitle>
       <Card>
         {row('Available', `${offer.availableQuantity}`)}
+        {/* Shown only when some of it is spoken for: "10 available, 0
+            reserved" is noise on a phone screen. */}
+        {offer.reservedQuantity ? row('Already committed', `${offer.reservedQuantity}`) : null}
+        {offer.reservedQuantity ? row('Left to sell', `${offer.sellableQuantity ?? 0}`) : null}
+        {offer.stockStatus && offer.stockStatus !== 'IN_STOCK'
+          ? row('Stock', offer.stockStatus === 'OUT_OF_STOCK' ? 'Out of stock' : 'Low stock')
+          : null}
         {row('Minimum order', `${offer.minOrderQuantity}`)}
         {row('Price held until', offerExpiry(offer.availableUntil))}
         {offer.leadTimeDays !== null ? row('Lead time', `${offer.leadTimeDays} days`) : null}

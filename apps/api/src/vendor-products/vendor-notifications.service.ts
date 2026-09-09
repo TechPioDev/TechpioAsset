@@ -135,6 +135,22 @@ export class VendorNotificationsService {
     });
   }
 
+  /** Running down past the line the supplier drew for itself. */
+  async lowStock(
+    product: { companyId: string; vendorId: string; id: string; name: string },
+    sellable: number,
+  ): Promise<void> {
+    await this.tell(product.companyId, product.vendorId, {
+      companyId: product.companyId,
+      type: 'VENDOR_PRODUCT_LOW_STOCK',
+      title: 'Offer running low',
+      body: `"${product.name}" is down to ${sellable} unit${sellable === 1 ? '' : 's'} available, which is at or below the level you asked to be told about.`,
+      linkPath: `/catalogue/${product.id}`,
+      entityType: 'VendorProduct',
+      entityId: product.id,
+    });
+  }
+
   /** Approved and in date, but nothing left to sell - so invisible to buyers. */
   async outOfStock(product: {
     companyId: string;

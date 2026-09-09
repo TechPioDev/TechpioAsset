@@ -384,6 +384,7 @@ enum NotificationType {
   VENDOR_PRODUCT_APPROVED
   VENDOR_PRODUCT_REJECTED
   VENDOR_PRODUCT_EXPIRING
+  VENDOR_PRODUCT_LOW_STOCK
   VENDOR_PRODUCT_OUT_OF_STOCK
   VENDOR_OFFER_SELECTED
 }
@@ -592,6 +593,7 @@ model Company {
   categorySpecFields    CategorySpecField[]
   qualityChecks         QualityCheck[]
   documents             VendorProductDocument[]
+  stockChanges          VendorProductStockChange[]
 
   @@index([deletedAt])
   @@map("companies")
@@ -3930,6 +3932,10 @@ model VendorProduct {
 
   minOrderQuantity  Int     @default(1)
   availableQuantity Int     @default(0)
+  /// v2.51 - the point below which the supplier wants telling. Null means no
+  /// low band at all: inventing a default would put every small supplier
+  /// permanently in amber.
+  lowStockThreshold Int?
   paymentTerms      String?
   leadTimeDays      Int?
   warrantyMonths    Int?
@@ -3963,6 +3969,7 @@ model VendorProduct {
   reviews       VendorProductReview[]
   selections    ProcurementSelection[]
   documents     VendorProductDocument[]
+  stockChanges  VendorProductStockChange[]
 
   @@unique([companyId, productCode])
   /// A supplier's SKU is unique within that supplier, not across the catalogue:
@@ -4049,6 +4056,35 @@ enum ProductDocumentKind {
   TECHNICAL_SPECIFICATION
   INSTALLATION_GUIDE
   OTHER
+}
+
+/// v2.51 - how a listing's quantity has moved, and who moved it.
+///
+/// Separate from the audit trail because a supplier cannot read that, and this
+/// is mostly for them: "you set this to 10 on the 3rd" answers the question
+/// they actually ask. Append-only; rows are never edited or removed.
+model VendorProductStockChange {
+  id              String @id @default(cuid())
+  companyId       String
+  vendorProductId String
+
+  previousQuantity Int
+  newQuantity      Int
+  /// Signed, and stored rather than derived, so a query can sum movements
+  /// without recomputing every row.
+  delta            Int
+  /// Free text from whoever made the change; null for a change made by the
+  /// system, such as stock consumed by an order.
+  reason           String?
+
+  createdAt   DateTime @default(now())
+  changedById String?
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendorProduct VendorProduct @relation(fields: [vendorProductId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorProductId, createdAt])
+  @@map("vendor_product_stock_changes")
 }
 
 model VendorProductReview {

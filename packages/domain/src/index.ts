@@ -34,6 +34,7 @@ export * from './request-policy';
 export * from './product-code';
 export * from './product-documents';
 export * from './vendor-offer-policy';
+export * from './vendor-stock';
 export * from './vendor-catalog';
 export * from './vendor-comparison';
 export * from './quality-check';

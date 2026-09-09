@@ -11,6 +11,9 @@ import {
   formatProductCode,
   productCodeSequence,
   productCodeStem,
+  crossedLowStock,
+  stockQuantityProblem,
+  vendorStockStatus,
   effectiveOfferStatus,
   imageSetProblem,
   statusAfterSubmit,
@@ -179,6 +182,21 @@ export class VendorProductsService {
         detail: `It belongs to "${clash.name}"${clash.productCode ? ` (${clash.productCode})` : ''}. Give this one a different SKU, or leave it blank.`,
       });
     }
+  }
+
+  /**
+   * Units buyers have already committed to but not yet ordered.
+   *
+   * Derived from live selections rather than stored on the product: two places
+   * holding the same number is two places for it to be wrong, and a selection
+   * being withdrawn would have to remember to give the units back.
+   */
+  private async reservedFor(productId: string): Promise<number> {
+    const committed = await this.prisma.client.procurementSelection.aggregate({
+      where: { vendorProductId: productId, deselectedAt: null },
+      _sum: { quantity: true },
+    });
+    return committed._sum.quantity ?? 0;
   }
 
   /** The policy, for clients that must label a button after what it does. */
@@ -478,6 +496,7 @@ export class VendorProductsService {
         availableFrom: true,
         availableUntil: true,
         availableQuantity: true,
+        lowStockThreshold: true,
         _count: { select: { images: true } },
       },
     });
@@ -501,6 +520,14 @@ export class VendorProductsService {
 
     if (input.vendorSku !== undefined) {
       await this.assertSkuFree(actor.companyId, before.vendorId, input.vendorSku, id);
+    }
+
+    // Stated again here rather than trusting the HTTP schema alone: this method
+    // is what an import or a future bulk upload will call, and those do not
+    // come through it.
+    if (input.availableQuantity !== undefined) {
+      const problem = stockQuantityProblem(input.availableQuantity);
+      if (problem) throw new AppError('VALIDATION_FAILED', problem);
     }
 
     const videoId = input.youtubeUrl === undefined ? undefined : this.videoIdOrThrow(input.youtubeUrl);
@@ -529,6 +556,49 @@ export class VendorProductsService {
       },
       select: { ...VendorProductsService.LIST_FIELDS, specs: true, youtubeVideoId: true },
     });
+
+    // A row per quantity move, so a supplier can answer "what did I set it to
+    // and when" without anyone reading the audit trail on their behalf. Only
+    // when it actually moved: saving a form without touching the number is not
+    // a stock change.
+    if (
+      input.availableQuantity !== undefined &&
+      input.availableQuantity !== before.availableQuantity
+    ) {
+      await this.prisma.client.vendorProductStockChange.create({
+        data: {
+          companyId: actor.companyId,
+          vendorProductId: id,
+          previousQuantity: before.availableQuantity,
+          newQuantity: input.availableQuantity,
+          delta: input.availableQuantity - before.availableQuantity,
+          changedById: actor.id,
+        },
+      });
+    }
+
+    // Crossing the line the supplier drew, on the way down only. An offer that
+    // was already low yesterday is not news today, and restocking is not a
+    // warning at all.
+    if (
+      input.availableQuantity !== undefined &&
+      input.availableQuantity !== before.availableQuantity
+    ) {
+      const reserved = await this.reservedFor(id);
+      if (
+        crossedLowStock({
+          previous: before.availableQuantity,
+          next: input.availableQuantity,
+          reserved,
+          lowStockThreshold: input.lowStockThreshold ?? before.lowStockThreshold,
+        })
+      ) {
+        await this.vendorNotifications.lowStock(
+          { companyId: actor.companyId, vendorId: before.vendorId, id, name: product.name },
+          Math.max(0, input.availableQuantity - reserved),
+        );
+      }
+    }
 
     // Undefined means "not editing them"; an empty array means "I removed them all".
     if (proposedSpecs !== undefined) {
@@ -802,12 +872,39 @@ export class VendorProductsService {
           orderBy: { label: 'asc' },
           select: { id: true, label: true, normalizedKey: true, value: true },
         },
+        lowStockThreshold: true,
+        // The recent moves only. A supplier wants to know what they set it to
+        // last week, not to scroll a year of it.
+        stockChanges: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            previousQuantity: true,
+            newQuantity: true,
+            delta: true,
+            reason: true,
+            createdAt: true,
+          },
+        },
       },
     });
     if (!product) throw AppError.notFound('Vendor product', id);
 
+    const reserved = await this.reservedFor(id);
+
     return {
       ...product,
+      // Computed, never stored: see reservedFor. A supplier sees how much of
+      // its own stock is spoken for, which is its own commercial position and
+      // says nothing about who committed to it.
+      reservedQuantity: reserved,
+      sellableQuantity: Math.max(0, product.availableQuantity - reserved),
+      stockStatus: vendorStockStatus({
+        available: product.availableQuantity,
+        reserved,
+        lowStockThreshold: product.lowStockThreshold,
+      }),
       effectiveStatus: effectiveOfferStatus({
         status: product.status as OfferLifecycle,
         availableFrom: product.availableFrom,

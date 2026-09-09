@@ -40,6 +40,7 @@ type Loaded = {
   otherCharges: string;
   minOrderQuantity: number;
   availableQuantity: number;
+  lowStockThreshold: number | null;
   paymentTerms: string | null;
   leadTimeDays: number | null;
   warrantyMonths: number | null;
@@ -76,6 +77,9 @@ function toDraft(o: Loaded): OfferDraft {
     otherCharges: String(o.otherCharges),
     minOrderQuantity: String(o.minOrderQuantity),
     availableQuantity: String(o.availableQuantity),
+    // Hydrated, or saving the form would silently clear a threshold the
+    // supplier had set: a blank field means "no warning", not "unchanged".
+    lowStockThreshold: o.lowStockThreshold === null ? '' : String(o.lowStockThreshold),
     paymentTerms: o.paymentTerms ?? '',
     leadTimeDays: o.leadTimeDays === null ? '' : String(o.leadTimeDays),
     warrantyMonths: o.warrantyMonths === null ? '' : String(o.warrantyMonths),

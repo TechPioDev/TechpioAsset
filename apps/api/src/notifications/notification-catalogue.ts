@@ -316,6 +316,14 @@ export const NOTIFICATION_CATALOGUE: Readonly<Record<NotificationType, Notificat
     mandatory: false,
     channels: ['IN_APP', 'EMAIL'],
   },
+  VENDOR_PRODUCT_LOW_STOCK: {
+    // Only fires where the supplier set a threshold, so it is a line they drew
+    // themselves rather than a number we guessed for them.
+    type: 'VENDOR_PRODUCT_LOW_STOCK',
+    title: 'Offer running low',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL'],
+  },
   VENDOR_PRODUCT_OUT_OF_STOCK: {
     type: 'VENDOR_PRODUCT_OUT_OF_STOCK',
     title: 'Offer out of stock',

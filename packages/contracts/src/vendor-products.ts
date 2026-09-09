@@ -72,6 +72,8 @@ const vendorProductFields = z
 
     minOrderQuantity: z.number().int().positive().max(100_000).default(1),
     availableQuantity: z.number().int().nonnegative().max(1_000_000).default(0),
+    /// v2.51 - the point below which the supplier wants telling. Null clears it.
+    lowStockThreshold: z.number().int().nonnegative().max(1_000_000).optional().nullable(),
     paymentTerms: optionalText(200),
     leadTimeDays: z.number().int().nonnegative().max(365).optional(),
     warrantyMonths: z.number().int().nonnegative().max(240).optional(),

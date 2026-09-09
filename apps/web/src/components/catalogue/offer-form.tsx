@@ -36,6 +36,7 @@ export type OfferDraft = {
   otherCharges: string;
   minOrderQuantity: string;
   availableQuantity: string;
+  lowStockThreshold: string;
   paymentTerms: string;
   leadTimeDays: string;
   warrantyMonths: string;
@@ -82,6 +83,7 @@ export const EMPTY_DRAFT: OfferDraft = {
   otherCharges: '0',
   minOrderQuantity: '1',
   availableQuantity: '0',
+  lowStockThreshold: '',
   paymentTerms: '',
   leadTimeDays: '',
   warrantyMonths: '',
@@ -120,6 +122,8 @@ export function draftToBody(draft: OfferDraft, opts: { includeVendor: boolean })
     otherCharges: num(draft.otherCharges),
     minOrderQuantity: num(draft.minOrderQuantity) || 1,
     availableQuantity: num(draft.availableQuantity),
+    // Blank means no low band at all, which is different from zero.
+    lowStockThreshold: draft.lowStockThreshold.trim() === '' ? null : num(draft.lowStockThreshold),
     paymentTerms: optionalText(draft.paymentTerms),
     ...(draft.leadTimeDays.trim() ? { leadTimeDays: num(draft.leadTimeDays) } : {}),
     ...(draft.warrantyMonths.trim() ? { warrantyMonths: num(draft.warrantyMonths) } : {}),
@@ -514,6 +518,20 @@ export function OfferForm({
             min={0}
             value={draft.availableQuantity}
             onChange={(e) => set('availableQuantity')(e.target.value)}
+            className={controlCls}
+          />
+        </Field>
+        <Field
+          label="Tell me when stock falls to"
+          htmlFor="of-lowStockThreshold"
+          hint="Optional — leave blank for no warning"
+        >
+          <input
+            id="of-lowStockThreshold"
+            type="number"
+            min={0}
+            value={draft.lowStockThreshold}
+            onChange={(e) => set('lowStockThreshold')(e.target.value)}
             className={controlCls}
           />
         </Field>
