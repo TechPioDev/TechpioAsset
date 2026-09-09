@@ -3,6 +3,7 @@ import { AuditAction, Prisma } from '@prisma/client';
 import type { AuthUser, CreateVendorProductInput, UpdateVendorProductInput, ReviewVendorProductInput } from '@techpioasset/contracts';
 import {
   PERMISSIONS,
+  assetRollup,
   calculateLandedCost,
   normalizeSpecLabel,
   proposedSpecsProblem,
@@ -893,8 +894,27 @@ export class VendorProductsService {
 
     const reserved = await this.reservedFor(id);
 
+    // v2.53 - what became of the units bought from this listing.
+    //
+    // Internal staff only. A supplier already sees how many units it supplied,
+    // which is its own sales history; how many of them are broken, idle or
+    // retired is the buying company's operational position and none of the
+    // supplier's business.
+    const rollup = actor.vendorId
+      ? null
+      : assetRollup(
+          (
+            await this.prisma.client.asset.groupBy({
+              by: ['status'],
+              where: { companyId: actor.companyId, vendorProductId: id, deletedAt: null },
+              _count: { _all: true },
+            })
+          ).map((row) => ({ status: row.status, count: row._count._all })),
+        );
+
     return {
       ...product,
+      ...(rollup ? { assetRollup: rollup } : {}),
       // Computed, never stored: see reservedFor. A supplier sees how much of
       // its own stock is spoken for, which is its own commercial position and
       // says nothing about who committed to it.

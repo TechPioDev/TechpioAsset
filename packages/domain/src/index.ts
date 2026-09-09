@@ -1,4 +1,5 @@
 export * from './state-machine';
+export * from './asset-rollup';
 export * from './asset-status';
 export * from './asset-dimensions';
 export * from './request-status';

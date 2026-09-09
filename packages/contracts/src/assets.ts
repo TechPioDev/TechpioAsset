@@ -153,6 +153,9 @@ export const assetListQuerySchema = z.object({
   assignedUserId: z.string().optional(),
   condition: assetConditionEnum.optional(),
   vendorId: z.string().optional(),
+  /// v2.53 - the units bought against one catalogue listing, so the rollup on
+  /// a product page can send somebody to the assets it is counting.
+  vendorProductId: z.string().optional(),
   // v2.1 Workstream A — filter by any of the four status dimensions (AST-051).
   lifecycleState: lifecycleStateEnum.optional(),
   availabilityState: availabilityStateEnum.optional(),

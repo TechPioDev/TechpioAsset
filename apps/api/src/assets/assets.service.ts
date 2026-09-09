@@ -257,6 +257,7 @@ export class AssetsService {
       ...(query.assignedUserId ? { assignedUserId: query.assignedUserId } : {}),
       ...(query.condition ? { condition: query.condition } : {}),
       ...(query.vendorId ? { vendorId: query.vendorId } : {}),
+      ...(query.vendorProductId ? { vendorProductId: query.vendorProductId } : {}),
       // v2.1 Workstream A — dimension filters, ANDed like the rest (AST-051).
       ...(query.lifecycleState ? { lifecycleState: query.lifecycleState } : {}),
       ...(query.availabilityState ? { availabilityState: query.availabilityState } : {}),

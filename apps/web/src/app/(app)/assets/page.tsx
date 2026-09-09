@@ -76,6 +76,9 @@ function AssetsTable() {
   const [warrantyWithinDays, setWarrantyWithinDays] = useState(
     params.get('warrantyWithinDays') ?? '',
   );
+  // v2.53 - the units bought against one catalogue listing. Arrives by link
+  // from that listing's rollup, the same way the warranty filter does.
+  const [vendorProductId, setVendorProductId] = useState(params.get('vendorProductId') ?? '');
   const { user, can } = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -136,6 +139,7 @@ function AssetsTable() {
     // fleet. It arrives by link rather than from a control, so the banner below
     // is what says it is on and what turns it off.
     if (warrantyWithinDays) p.set('warrantyWithinDays', warrantyWithinDays);
+    if (vendorProductId) p.set('vendorProductId', vendorProductId);
     return p;
   };
 
@@ -271,6 +275,18 @@ function AssetsTable() {
               className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
             >
               Warranty ending within {warrantyWithinDays} days · show all assets
+            </button>
+          ) : null}
+          {vendorProductId ? (
+            <button
+              type="button"
+              onClick={() => {
+                setVendorProductId('');
+                setPage(1);
+              }}
+              className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
+            >
+              Bought from one catalogue listing · show all assets
             </button>
           ) : null}
         </div>

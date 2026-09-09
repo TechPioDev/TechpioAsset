@@ -1486,6 +1486,72 @@ describe('bulk import (v2.52)', () => {
   });
 });
 
+describe('what became of the units bought from a listing (v2.53)', () => {
+  async function unitsFor(productId: string, statuses: string[]) {
+    const companyId = s.officeAdmin.user.companyId;
+    const category = await prisma.category.findFirstOrThrow({ where: { companyId } });
+    for (const [i, status] of statuses.entries()) {
+      await prisma.asset.create({
+        data: {
+          companyId,
+          assetTag: `ROLL-${stamp()}-${i}`,
+          name: 'Unit from the listing',
+          categoryId: category.id,
+          qrToken: `roll-${stamp()}-${i}`,
+          status: status as never,
+          vendorProductId: productId,
+        },
+      });
+    }
+  }
+
+  it('folds eighteen statuses into something a buyer can read', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await unitsFor(id, ['IN_USE', 'IN_USE', 'ASSIGNED', 'AVAILABLE', 'DAMAGED', 'RETIRED']);
+
+    const res = await api(app).get(`/api/v1/vendor-products/${id}`).set(auth(s.officeAdmin));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.assetRollup).toMatchObject({
+      inService: 3,
+      available: 1,
+      needsAttention: 1,
+      gone: 1,
+      total: 6,
+    });
+  });
+
+  it('never shows the supplier how its units are faring', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await unitsFor(id, ['DAMAGED', 'LOST', 'IN_USE']);
+
+    const staff = await api(app).get(`/api/v1/vendor-products/${id}`).set(auth(s.officeAdmin));
+    expect(staff.body.data.assetRollup.needsAttention).toBe(2);
+
+    // The supplier keeps its own sales history - how many it supplied - and
+    // learns nothing about how well its customer looks after them.
+    const supplier = await api(app).get(`/api/v1/vendor-products/${id}`).set(vendorAuth());
+    expect(supplier.status).toBe(200);
+    expect(supplier.body.data.assetRollup).toBeUndefined();
+    expect(supplier.body.data._count.assets).toBe(3);
+  });
+
+  it('sends the reader to exactly the assets it counted', async () => {
+    // The rollup links to a filtered asset list. The filter has to exist, or
+    // the link lands on the whole fleet and quietly lies about what it shows.
+    const mine = await liveOffer(vendorA, { ram_gb: '16' });
+    const other = await liveOffer(vendorA, { ram_gb: '32' });
+    await unitsFor(mine, ['IN_USE', 'IN_USE']);
+    await unitsFor(other, ['IN_USE']);
+
+    const res = await api(app)
+      .get(`/api/v1/assets?vendorProductId=${mine}&pageSize=50`)
+      .set(auth(s.officeAdmin));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const rows = res.body.data as { id: string }[];
+    expect(rows).toHaveLength(2);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

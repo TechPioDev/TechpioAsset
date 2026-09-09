@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ASSET_ROLLUP_BUCKETS,
+  ASSET_ROLLUP_LABELS,
   PERMISSIONS,
   PRODUCT_IMAGE_RULES,
   VENDOR_STOCK_LABELS,
@@ -83,6 +85,15 @@ type OfferDetail = Offer & {
   proposedSpecs: { id: string; label: string; normalizedKey: string; value: string }[];
   /** v2.47 - how many physical units this listing has put into service. */
   _count?: { assets: number };
+  /** v2.53 - what became of the units bought from this listing. Internal only. */
+  assetRollup?: {
+    onTheWay: number;
+    available: number;
+    inService: number;
+    needsAttention: number;
+    gone: number;
+    total: number;
+  };
   /** v2.51 - stock depth. Reserved is derived from live selections, never stored. */
   reservedQuantity?: number;
   sellableQuantity?: number;
@@ -589,6 +600,48 @@ export default function OfferPage() {
                   </li>
                 ))}
               </ul>
+            </Card>
+          ) : null}
+
+          {/* v2.53 - the other end of the chain, for the buying team. The
+              supplier sees how many it supplied and nothing about how they are
+              faring, which is our operational position rather than theirs. */}
+          {offer.assetRollup && offer.assetRollup.total > 0 ? (
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold">Units we own from this listing</h2>
+              <p className="mb-3 text-xs text-[var(--color-content-muted)]">
+                {offer.assetRollup.total} unit{offer.assetRollup.total === 1 ? '' : 's'} bought
+                against this product, and where each has got to.
+              </p>
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                {ASSET_ROLLUP_BUCKETS.filter((bucket) => offer.assetRollup![bucket] > 0).map(
+                  (bucket) => (
+                    <div
+                      key={bucket}
+                      className="flex justify-between gap-3 border-b border-[var(--color-border)] pb-1"
+                    >
+                      <dt className="text-[var(--color-content-muted)]">
+                        {ASSET_ROLLUP_LABELS[bucket]}
+                      </dt>
+                      <dd
+                        className={
+                          bucket === 'needsAttention'
+                            ? 'text-right font-medium text-[var(--color-destructive)]'
+                            : 'text-right font-medium'
+                        }
+                      >
+                        {offer.assetRollup![bucket]}
+                      </dd>
+                    </div>
+                  ),
+                )}
+              </dl>
+              <Link
+                href={`/assets?vendorProductId=${offer.id}`}
+                className="mt-3 inline-block text-xs text-[var(--color-brand)] hover:underline"
+              >
+                See these assets →
+              </Link>
             </Card>
           ) : null}
 
