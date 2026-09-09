@@ -40,6 +40,7 @@ import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
 import { OfferComparisonService } from './offer-comparison.service.js';
 import { VendorProductDocumentsService } from './vendor-product-documents.service.js';
+import { VendorProductImportService } from './vendor-product-import.service.js';
 import { VendorProductImagesService } from './vendor-product-images.service.js';
 import { VendorProductsService } from './vendor-products.service.js';
 
@@ -61,6 +62,7 @@ export class VendorProductsController {
     private readonly products: VendorProductsService,
     private readonly images: VendorProductImagesService,
     private readonly documents: VendorProductDocumentsService,
+    private readonly imports: VendorProductImportService,
     private readonly comparison: OfferComparisonService,
   ) {}
 
@@ -124,6 +126,42 @@ export class VendorProductsController {
     @Body(zodBody(updateVendorProductSchema)) body: UpdateVendorProductInput,
   ) {
     return this.products.update(actor, id, body);
+  }
+
+  // ── Bulk import ───────────────────────────────────────────────────────────
+
+  @Post('import')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_MANAGE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Import products from a spreadsheet',
+    description:
+      'Excel or CSV. Send commit=false (the default) to see what would happen without writing ' +
+      'anything; commit=true imports the rows that pass and reports the ones that do not, by line ' +
+      'number and reason. Valid rows are imported even when others fail, because refusing sixty ' +
+      'rows over one bad cell means uploading sixty again. Everything lands as a draft.',
+  })
+  async importProducts(
+    @CurrentUser() actor: AuthUser,
+    @Body() body: { commit?: string; vendorId?: string },
+    @UploadedFile() file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    if (!file?.buffer?.length) throw new AppError('FILE_REJECTED', 'No file was received');
+
+    // A supplier imports into its own catalogue whatever it sends; internal
+    // staff must say whose it is. The same rule as creating one by hand.
+    const vendorId = actor.vendorId ?? body?.vendorId;
+    if (!vendorId) {
+      throw new AppError('VALIDATION_FAILED', 'Say which vendor these products belong to');
+    }
+    if (actor.vendorId && body?.vendorId && body.vendorId !== actor.vendorId) {
+      throw AppError.forbidden('You may only import products for your own company');
+    }
+
+    return body?.commit === 'true'
+      ? this.imports.commit(actor, vendorId, file.buffer)
+      : this.imports.preview(actor, vendorId, file.buffer);
   }
 
   @Post(':id/duplicate')

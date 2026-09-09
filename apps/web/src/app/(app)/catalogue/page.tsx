@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, CalendarClock, Plus, Scale, ShoppingBag } from 'lucide-react';
+import { Building2, CalendarClock, FileSpreadsheet, Plus, Scale, ShoppingBag } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
@@ -145,6 +145,11 @@ export default function CataloguePage() {
           {isVendor ? (
             <Link href="/catalogue/company" className={linkButtonCls.secondary}>
               <Building2 aria-hidden="true" className="size-4" /> Company details
+            </Link>
+          ) : null}
+          {canManage ? (
+            <Link href="/catalogue/import" className={linkButtonCls.secondary}>
+              <FileSpreadsheet aria-hidden="true" className="size-4" /> Import
             </Link>
           ) : null}
           {canManage ? (

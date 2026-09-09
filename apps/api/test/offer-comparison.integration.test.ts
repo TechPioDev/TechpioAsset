@@ -1351,6 +1351,141 @@ describe('stock depth on a listing (v2.51)', () => {
   });
 });
 
+describe('bulk import (v2.52)', () => {
+  const HEADER = 'Product name,Category,Brand,Model,SKU,Unit price,GST %,Available quantity';
+
+  /** The category this suite created, by the name the sheet must use. */
+  let categoryName = '';
+  beforeAll(async () => {
+    const c = await prisma.category.findUniqueOrThrow({
+      where: { id: categoryId },
+      select: { name: true },
+    });
+    categoryName = c.name;
+  });
+
+  const upload = (csv: string, commit: boolean) =>
+    api(app)
+      .post('/api/v1/vendor-products/import')
+      .set(vendorAuth())
+      .field('commit', commit ? 'true' : 'false')
+      .attach('file', Buffer.from(csv, 'utf8'), {
+        filename: 'catalogue.csv',
+        contentType: 'text/csv',
+      });
+
+  it('says what would happen without writing anything', async () => {
+    const before = await prisma.vendorProduct.count({ where: { vendorId: vendorA } });
+    const csv = [
+      HEADER,
+      `Preview laptop ${stamp()},${categoryName},Dell,Latitude 5420,,68000,18,10`,
+    ].join('\n');
+
+    const res = await upload(csv, false);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data).toMatchObject({ totalRows: 1, valid: 1, failed: 0, imported: 0 });
+
+    // Nothing written: that is the whole point of a preview.
+    expect(await prisma.vendorProduct.count({ where: { vendorId: vendorA } })).toBe(before);
+  });
+
+  it('imports the rows that pass and names the ones that do not', async () => {
+    const good = `Import good ${stamp()}`;
+    const csv = [
+      HEADER,
+      `${good},${categoryName},Dell,Latitude 5420,,68000,18,10`,
+      `,${categoryName},HP,x,,1000,18,1`,
+      `Bad category ${stamp()},Nonsense Category,HP,x,,1000,18,1`,
+      `Bad price ${stamp()},${categoryName},HP,x,,not-a-number,18,1`,
+    ].join('\n');
+
+    const res = await upload(csv, true);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const report = res.body.data;
+    expect(report.totalRows).toBe(4);
+    expect(report.imported).toBe(1);
+    expect(report.failed).toBe(3);
+
+    // Every failure names its line and says why, so it can be fixed and resent.
+    const problems = (report.issues as { row: number; problem: string }[]).map((i) => i.problem);
+    expect(problems).toContainEqual(expect.stringMatching(/No product name/));
+    expect(problems).toContainEqual(expect.stringMatching(/No category called/));
+    expect(problems).toContainEqual(expect.stringMatching(/not a number/));
+    expect((report.issues as { row: number }[]).map((i) => i.row).sort()).toEqual([3, 4, 5]);
+
+    const created = await prisma.vendorProduct.findFirstOrThrow({
+      where: { vendorId: vendorA, name: good },
+      select: { status: true, productCode: true, availableQuantity: true },
+    });
+    // A bulk upload is not a way round the picture and the required specs.
+    expect(created.status).toBe('DRAFT');
+    expect(created.productCode).toMatch(/-\d{3}$/);
+    expect(created.availableQuantity).toBe(10);
+  });
+
+  it('catches a SKU that clashes inside the same file', async () => {
+    const sku = `DUP-${stamp()}`;
+    const csv = [
+      HEADER,
+      `First ${stamp()},${categoryName},Dell,A,${sku},1000,18,1`,
+      `Second ${stamp()},${categoryName},Dell,B,${sku},1000,18,1`,
+    ].join('\n');
+
+    const res = await upload(csv, false);
+    expect(res.body.data.valid).toBe(1);
+    expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.issues[0].problem).toMatch(/also on row 2 of this file/);
+  });
+
+  it('catches a SKU the supplier is already using', async () => {
+    const sku = `TAKEN-${stamp()}`;
+    await api(app)
+      .post('/api/v1/vendor-products')
+      .set(vendorAuth())
+      .send({
+        name: `Existing ${stamp()}`,
+        vendorSku: sku,
+        categoryId,
+        unitPrice: 1000,
+        gstPercent: 18,
+        availableQuantity: 1,
+        availableFrom: new Date(Date.now() - 86_400_000).toISOString(),
+        availableUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      });
+
+    const csv = [HEADER, `Clash ${stamp()},${categoryName},Dell,A,${sku},1000,18,1`].join('\n');
+    const res = await upload(csv, false);
+    expect(res.body.data.failed).toBe(1);
+    expect(res.body.data.issues[0].problem).toMatch(/already have a product with the SKU/);
+  });
+
+  it('refuses a file that is not a spreadsheet at all', async () => {
+    const res = await api(app)
+      .post('/api/v1/vendor-products/import')
+      .set(vendorAuth())
+      .field('commit', 'false')
+      .attach('file', Buffer.from([0x00, 0x01, 0x02, 0x03]), {
+        filename: 'nope.csv',
+        contentType: 'text/csv',
+      });
+    expect([400, 415, 422]).toContain(res.status);
+  });
+
+  it('will not let a supplier import into another supplier’s catalogue', async () => {
+    const csv = [HEADER, `Sneaky ${stamp()},${categoryName},Dell,A,,1000,18,1`].join('\n');
+    const res = await api(app)
+      .post('/api/v1/vendor-products/import')
+      .set(vendorAuth())
+      .field('commit', 'true')
+      .field('vendorId', vendorB)
+      .attach('file', Buffer.from(csv, 'utf8'), {
+        filename: 'c.csv',
+        contentType: 'text/csv',
+      });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });

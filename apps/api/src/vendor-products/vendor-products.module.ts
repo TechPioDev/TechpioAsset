@@ -5,6 +5,7 @@ import { SpecTemplatesModule } from '../spec-templates/spec-templates.module.js'
 import { OfferComparisonService } from './offer-comparison.service.js';
 import { VendorNotificationsService } from './vendor-notifications.service.js';
 import { VendorProductDocumentsService } from './vendor-product-documents.service.js';
+import { VendorProductImportService } from './vendor-product-import.service.js';
 import { VendorProductImagesService } from './vendor-product-images.service.js';
 import { VendorProductsController } from './vendor-products.controller.js';
 import { VendorProductsService } from './vendor-products.service.js';
@@ -20,6 +21,7 @@ import { VendorProductsService } from './vendor-products.service.js';
     VendorProductsService,
     VendorProductImagesService,
     VendorProductDocumentsService,
+    VendorProductImportService,
     VendorNotificationsService,
     OfferComparisonService,
   ],

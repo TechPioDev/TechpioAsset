@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, AssetStatus, AssetCondition, TrackingType, AuditAction } from '@prisma/client';
 import type { AuthUser } from '@techpioasset/contracts';
-import ExcelJS from 'exceljs';
 import { ulid } from 'ulid';
 import {
   ASSET_TYPES,
@@ -12,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppError } from '../common/errors/app-error.js';
+import { parseSheet } from '../common/spreadsheet.js';
 import { canSeeCost } from '../common/scope.js';
 
 /**
@@ -108,68 +108,15 @@ export class AssetImportService {
     private readonly audit: AuditService,
   ) {}
 
-  /** Reads an .xlsx buffer into header-keyed rows, skipping any title banner. */
+  /**
+   * Reads an uploaded sheet into header-keyed rows.
+   *
+   * The reader itself now lives in common/spreadsheet.ts, shared with the
+   * vendor catalogue's importer: two copies of this would drift, and the only
+   * thing that differed between them was which header row to look for.
+   */
   async parseWorkbook(buffer: Buffer): Promise<ImportRow[]> {
-    const wb = new ExcelJS.Workbook();
-    try {
-      await wb.xlsx.load(buffer as unknown as ArrayBuffer);
-    } catch {
-      throw new AppError('FILE_REJECTED', 'That file could not be read as an Excel workbook.');
-    }
-    const ws = wb.worksheets[0];
-    if (!ws) throw new AppError('FILE_REJECTED', 'The workbook has no sheets.');
-
-    const text = (v: ExcelJS.CellValue): string => {
-      if (v == null) return '';
-      if (v instanceof Date) return v.toISOString();
-      if (typeof v === 'object') {
-        const o = v as { text?: string; result?: unknown };
-        if (typeof o.text === 'string') return o.text;
-        if (o.result != null) return String(o.result);
-        return '';
-      }
-      return String(v);
-    };
-    const value = (v: ExcelJS.CellValue): string | number | Date | null => {
-      if (v == null || v === '') return null;
-      if (v instanceof Date || typeof v === 'number') return v;
-      if (typeof v === 'object') {
-        const o = v as { text?: string; result?: unknown };
-        return o.text ?? (o.result != null ? String(o.result) : null);
-      }
-      return String(v).trim();
-    };
-
-    // Find the header row (the one that names "Asset Id"); the sheet may carry a
-    // company/title banner above it.
-    let headerRow = 1;
-    let headers: string[] = [];
-    for (let r = 1; r <= Math.min(10, ws.rowCount); r += 1) {
-      const cells = (ws.getRow(r).values as ExcelJS.CellValue[]).slice(1).map(text);
-      if (cells.some((c) => /asset\s*id/i.test(c))) {
-        headers = cells;
-        headerRow = r;
-        break;
-      }
-    }
-    if (!headers.length) {
-      headers = (ws.getRow(1).values as ExcelJS.CellValue[]).slice(1).map(text);
-    }
-
-    const rows: ImportRow[] = [];
-    for (let r = headerRow + 1; r <= ws.rowCount; r += 1) {
-      const cells = (ws.getRow(r).values as ExcelJS.CellValue[]).slice(1);
-      const obj: ImportRow = {};
-      let hasData = false;
-      headers.forEach((h, idx) => {
-        if (!h) return;
-        const v = value(cells[idx] ?? null);
-        obj[h] = v;
-        if (v != null) hasData = true;
-      });
-      if (hasData) rows.push(obj);
-    }
-    return rows;
+    return parseSheet(buffer, { headerHint: /asset\s*id/i });
   }
 
   /** Case/space-insensitive lookup of a cell by any of the given header names. */
