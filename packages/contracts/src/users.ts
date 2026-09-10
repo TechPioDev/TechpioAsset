@@ -34,6 +34,20 @@ export const setUserStatusSchema = z.object({
 export type SetUserStatusInput = z.infer<typeof setUserStatusSchema>;
 
 /**
+ * v2.54 - change the address a user signs in with.
+ *
+ * Its own endpoint rather than a field on the profile edit, because it is not a
+ * profile detail: it is the account's identity. Login resolves by email, so a
+ * typo here locks somebody out, and an address changed by the wrong hands is an
+ * account takeover waiting for a password reset. Both are reasons to keep it
+ * separate, permissioned and audited on its own.
+ */
+export const changeUserEmailSchema = z.object({
+  email: z.string().trim().toLowerCase().email('That is not a valid email address').max(254),
+});
+export type ChangeUserEmailInput = z.infer<typeof changeUserEmailSchema>;
+
+/**
  * v2.11 profile editing — two surfaces, deliberately different.
  *
  * Self-service covers what is YOURS to say: name, phone, job title. It stops

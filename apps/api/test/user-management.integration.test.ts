@@ -137,3 +137,118 @@ describe('changing status (users:manage)', () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe('changing the address a user signs in with (v2.54)', () => {
+  const NEW = 'employee3.moved@techpioasset.dev';
+  let original = '';
+  let target = '';
+
+  beforeAll(async () => {
+    target = await userId('employee3@techpioasset.dev');
+    original = 'employee3@techpioasset.dev';
+  });
+
+  afterEach(async () => {
+    // The suite shares one database, and login resolves by email.
+    await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: original });
+  });
+
+  it('changes it, and the account signs in with the new address', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: NEW });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.email).toBe(NEW);
+
+    // The point of the feature: the person can actually get in afterwards.
+    const login = await api(app)
+      .post('/api/v1/auth/login')
+      .send({ email: NEW, password: 'TechpioDemo!2026' });
+    expect(login.status, JSON.stringify(login.body)).toBe(200);
+
+    // And the address they used to use no longer reaches an account.
+    const old = await api(app)
+      .post('/api/v1/auth/login')
+      .send({ email: original, password: 'TechpioDemo!2026' });
+    expect(old.status).toBe(401);
+  });
+
+  it('records what it was and what it became', async () => {
+    await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: NEW });
+
+    const audit = await api(app)
+      .get(`/api/v1/audit?entityType=User&entityId=${target}&pageSize=5`)
+      .set(auth(s.superAdmin));
+    expect(audit.status, JSON.stringify(audit.body)).toBe(200);
+    const entry = (audit.body.data as { previousValues: unknown; newValues: unknown }[]).find(
+      (row) => JSON.stringify(row.newValues ?? {}).includes(NEW),
+    );
+    // Editing the database by hand left no trail at all; that is the gap.
+    expect(entry, 'an audit entry naming the new address').toBeTruthy();
+    expect(JSON.stringify(entry!.previousValues)).toContain(original);
+  });
+
+  it('stops claiming the address is verified, because nobody proved it', async () => {
+    await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: NEW });
+
+    const detail = await api(app).get(`/api/v1/users/${target}`).set(auth(s.superAdmin));
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.emailVerifiedAt ?? null).toBeNull();
+  });
+
+  it('refuses an address another account already uses', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: 'employee@techpioasset.dev' });
+    expect(res.status).toBe(409);
+    expect(res.body.title ?? res.body.detail).toBeTruthy();
+  });
+
+  it('refuses a no-op rather than writing a meaningless audit entry', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: original });
+    expect(res.status).toBe(422);
+  });
+
+  it('refuses nonsense that is not an address at all', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: 'not-an-email' });
+    expect(res.status).toBe(422);
+  });
+
+  it('will not quietly strip a platform operator of their access', async () => {
+    // Platform access is granted by listing an address in PLATFORM_ADMIN_EMAILS,
+    // so changing one leaves the account working and the platform screens shut,
+    // with nothing to say why. This lane designates admin@techpioasset.dev.
+    const platformAdmin = await userId('admin@techpioasset.dev');
+    const res = await api(app)
+      .patch(`/api/v1/users/${platformAdmin}/email`)
+      .set(auth(s.superAdmin))
+      .send({ email: 'someone.else@techpioasset.dev' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('PLATFORM_ADMIN_EMAILS');
+  });
+
+  it('is refused to anyone without users:manage', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/users/${target}/email`)
+      .set(auth(s.employee))
+      .send({ email: NEW });
+    expect(res.status).toBe(403);
+  });
+});

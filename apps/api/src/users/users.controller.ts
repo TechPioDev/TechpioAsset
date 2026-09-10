@@ -25,12 +25,14 @@ import {
   inviteUserSchema,
   setUserRolesSchema,
   updateMyProfileSchema,
+  changeUserEmailSchema,
   setUserStatusSchema,
   userListQuerySchema,
   type AdminUpdateProfileInput,
   type InviteUserInput,
   type AuthUser,
   type SetUserRolesInput,
+  type ChangeUserEmailInput,
   type SetUserStatusInput,
   type UpdateMyProfileInput,
   type UserListQuery,
@@ -181,6 +183,24 @@ export class UsersController {
     @Body(zodBody(setUserRolesSchema)) body: SetUserRolesInput,
   ) {
     return this.users.setRoles(actor, id, body);
+  }
+
+  @Patch(':id/email')
+  @RequirePermissions(PERMISSIONS.USERS_MANAGE)
+  @ApiOperation({
+    summary: 'Change the address a user signs in with',
+    description:
+      'Its own endpoint because it is the account’s identity rather than a profile detail: login ' +
+      'resolves by email, so this both locks people out when mistyped and hands over the account ' +
+      'when misused. Audited, and announced to the old address as well as the new one. Refused for ' +
+      'a designated platform operator, whose access is granted by address.',
+  })
+  changeEmail(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(changeUserEmailSchema)) body: ChangeUserEmailInput,
+  ) {
+    return this.users.changeEmail(actor, id, body);
   }
 
   @Patch(':id/status')

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { AuditAction, Prisma } from '@prisma/client';
 import type {
-  AdminUpdateProfileInput, InviteUserInput, SetUserRolesInput, SetUserStatusInput, UserListQuery } from '@techpioasset/contracts';
+  AdminUpdateProfileInput, ChangeUserEmailInput, InviteUserInput, SetUserRolesInput, SetUserStatusInput, UserListQuery } from '@techpioasset/contracts';
 import type { AuthUser } from '@techpioasset/contracts';
 import { findSodConflicts } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
@@ -540,6 +540,112 @@ export class UsersService {
 
     const result = await this.findOne(actor, id);
     return { ...result, sodConflicts };
+  }
+
+  /**
+   * Changes the address a user signs in with (users:manage) - v2.54.
+   *
+   * There was no way to do this at all: an email was set at invite and never
+   * again, so correcting a supplier contact meant editing the database by hand,
+   * which leaves no audit trail and is available to nobody but a developer.
+   *
+   * Self-change is allowed. Blocking it would recreate the gap this closes -
+   * an administrator could never fix their own address - and the risk it guards
+   * against, a typo locking somebody out, is the same risk as mistyping anyone
+   * else's.
+   */
+  async changeEmail(actor: AuthUser, id: string, input: ChangeUserEmailInput) {
+    const target = await this.loadInScope(actor, id);
+    const email = input.email.trim().toLowerCase();
+
+    if (email === target.email.toLowerCase()) {
+      throw new AppError('VALIDATION_FAILED', 'That is already this account’s email address');
+    }
+
+    // Platform access is granted by listing an address in PLATFORM_ADMIN_EMAILS,
+    // so changing one silently revokes it - the account keeps working and the
+    // platform screens simply stop opening, with nothing to say why. Refused
+    // here rather than discovered later.
+    const platformAdmins = (this.config.get('PLATFORM_ADMIN_EMAILS') as string)
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    if (platformAdmins.includes(target.email.toLowerCase())) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'This account is a designated platform operator and its address cannot be changed here',
+        {
+          detail:
+            'Platform access is granted by email address. Change PLATFORM_ADMIN_EMAILS on the server first, or the account will quietly lose that access.',
+        },
+      );
+    }
+
+    // Checked before writing so the answer is a sentence rather than a unique
+    // constraint. Deleted users keep their address, so a match against one is
+    // still a clash worth naming.
+    const clash = await this.prisma.client.user.findFirst({
+      where: { companyId: actor.companyId, email },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new AppError('CONFLICT', 'Another account already uses that email address');
+    }
+
+    await this.prisma.client.user.update({
+      where: { id },
+      data: {
+        email,
+        // The new address has not been proved to belong to anyone. Nothing
+        // currently gates on this flag, so clearing it locks nobody out; it
+        // simply stops the record claiming a verification that never happened.
+        emailVerifiedAt: null,
+      },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.USER_UPDATED,
+      entityType: 'User',
+      entityId: id,
+      previousValues: { email: target.email },
+      newValues: { email },
+      reason: 'Sign-in email changed',
+    });
+
+    // Both addresses, deliberately. The new one so they know where to sign in;
+    // the old one so an address changed by the wrong hands is visible to the
+    // person losing the account rather than only to an auditor later.
+    const notify = async (toEmail: string, body: string) => {
+      try {
+        await this.notifications.sendTransactional({
+          companyId: actor.companyId,
+          // A security alert, not a profile notice: mandatory, so neither the
+          // person losing an account nor the one gaining it can have muted it.
+          type: 'SECURITY_ALERT',
+          toEmail,
+          toUserId: id,
+          recipientName: target.profile?.firstName ?? email,
+          title: 'The email address on your PioAssets account has changed',
+          body,
+          linkPath: '/login',
+        });
+      } catch {
+        // A change that has already happened is not undone by a mail server
+        // having a bad day.
+      }
+    };
+    await notify(
+      email,
+      `Your PioAssets account now signs in with ${email}. Your password has not changed.`,
+    );
+    await notify(
+      target.email,
+      `Your PioAssets account has been changed to sign in with ${email}. If you did not expect this, contact your administrator straight away.`,
+    );
+
+    return { id, email };
   }
 
   /**

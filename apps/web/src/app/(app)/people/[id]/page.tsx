@@ -11,6 +11,7 @@ import { Breadcrumbs } from '@/components/breadcrumbs';
 import { StatusBadge } from '@/components/status-badge';
 import { EquipmentKit } from '@/components/assets/equipment-kit';
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
+import { ChangeEmail } from '@/components/people/change-email';
 
 /**
  * A person's profile (v2.15) - the people-side counterpart of the asset
@@ -166,6 +167,10 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
             }
           />
           <Row label="Email verified" value={p.emailVerifiedAt ? fmtDate(p.emailVerifiedAt) : 'Not yet'} />
+          {/* v2.54 - the sign-in address is the account's identity, not a
+              profile detail, so it is changed here rather than on the profile
+              form. Renders nothing without users:manage. */}
+          <Row label="Sign-in email" value={<ChangeEmail userId={id} current={p.email} />} />
         </dl>
       </Card>
 
