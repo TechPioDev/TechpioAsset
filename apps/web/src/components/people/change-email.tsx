@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PencilLine } from 'lucide-react';
-import { PERMISSIONS } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -28,7 +27,10 @@ export function ChangeEmail({ userId, current }: { userId: string; current: stri
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(current);
 
-  const canManage = Boolean(user?.permissions?.includes(PERMISSIONS.USERS_MANAGE));
+  // Super Admin alone, matching the server. users:manage is not enough: the
+  // Company Admin holds it too, and changing a sign-in address hands the
+  // account over rather than merely inconveniencing its owner.
+  const canManage = Boolean(user?.roles?.includes('SUPER_ADMIN'));
 
   const save = useMutation({
     mutationFn: (email: string) =>

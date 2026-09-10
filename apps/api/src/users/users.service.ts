@@ -543,7 +543,7 @@ export class UsersService {
   }
 
   /**
-   * Changes the address a user signs in with (users:manage) - v2.54.
+   * Changes the address a user signs in with (Super Admin only) - v2.54.
    *
    * There was no way to do this at all: an email was set at invite and never
    * again, so correcting a supplier contact meant editing the database by hand,
@@ -555,6 +555,17 @@ export class UsersService {
    * else's.
    */
   async changeEmail(actor: AuthUser, id: string, input: ChangeUserEmailInput) {
+    // Super Admin alone, which is narrower than the users:manage the route
+    // already requires - that permission is also held by the Company Admin.
+    // Suspending an account inconveniences its owner; changing the address it
+    // signs in with hands it to somebody else, and the next password reset
+    // goes with it. Enforced here rather than by the route decorator because
+    // there is no super-admin-only permission to require: the role simply
+    // holds all of them.
+    if (!actor.roles.includes('SUPER_ADMIN')) {
+      throw AppError.forbidden('Only a Super Admin can change the address an account signs in with');
+    }
+
     const target = await this.loadInScope(actor, id);
     const email = input.email.trim().toLowerCase();
 

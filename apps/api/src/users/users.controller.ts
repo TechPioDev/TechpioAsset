@@ -188,9 +188,10 @@ export class UsersController {
   @Patch(':id/email')
   @RequirePermissions(PERMISSIONS.USERS_MANAGE)
   @ApiOperation({
-    summary: 'Change the address a user signs in with',
+    summary: 'Change the address a user signs in with (Super Admin only)',
     description:
-      'Its own endpoint because it is the account’s identity rather than a profile detail: login ' +
+      'Super Admin alone - narrower than the users:manage this route requires, which the Company ' +
+      'Admin also holds. Its own endpoint because it is the account’s identity rather than a profile detail: login ' +
       'resolves by email, so this both locks people out when mistyped and hands over the account ' +
       'when misused. Audited, and announced to the old address as well as the new one. Refused for ' +
       'a designated platform operator, whose access is granted by address.',

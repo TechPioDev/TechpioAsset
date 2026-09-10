@@ -244,6 +244,50 @@ describe('changing the address a user signs in with (v2.54)', () => {
     expect(JSON.stringify(res.body)).toContain('PLATFORM_ADMIN_EMAILS');
   });
 
+  it('is refused to a Company Admin, who holds users:manage but is not a Super Admin', async () => {
+    // The gate that matters. Only SUPER_ADMIN and COMPANY_ADMIN hold
+    // users:manage, so a permission check alone would let the tenant owner hand
+    // any account to anybody. employee2 is lent the role and given it back,
+    // because the suite shares one database.
+    const borrower = await userId('employee2@techpioasset.dev');
+    const before = await api(app).get(`/api/v1/users/${borrower}`).set(auth(s.superAdmin));
+    const originalKeys = (before.body.data.roles as { role: { key: string } }[]).map(
+      (r) => r.role.key,
+    );
+
+    try {
+      const assign = await api(app)
+        .patch(`/api/v1/users/${borrower}/roles`)
+        .set(auth(s.superAdmin))
+        .send({ roleKeys: ['COMPANY_ADMIN'] });
+      // Asserted, because a silent failure here would leave the borrower with
+      // no permission at all and the refusal below would prove nothing. It did
+      // exactly that once: the field is roleKeys, and roleIds failed quietly.
+      expect(assign.status, JSON.stringify(assign.body)).toBe(200);
+
+      const session = await api(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'employee2@techpioasset.dev', password: 'TechpioDemo!2026' });
+      expect(session.status, JSON.stringify(session.body)).toBe(200);
+      expect(session.body.data.user.permissions).toContain('users:manage');
+
+      const res = await api(app)
+        .patch(`/api/v1/users/${target}/email`)
+        .set({ Authorization: `Bearer ${session.body.data.accessToken}` })
+        .send({ email: NEW });
+      expect(res.status).toBe(403);
+      // Named, so this cannot pass for the wrong reason: had the permission
+      // been missing, the refusal would have come from the route guard instead
+      // and the new gate would be untested.
+      expect(JSON.stringify(res.body)).toContain('Only a Super Admin');
+    } finally {
+      await api(app)
+        .patch(`/api/v1/users/${borrower}/roles`)
+        .set(auth(s.superAdmin))
+        .send({ roleKeys: originalKeys });
+    }
+  });
+
   it('is refused to anyone without users:manage', async () => {
     const res = await api(app)
       .patch(`/api/v1/users/${target}/email`)
