@@ -49,6 +49,15 @@ export class ApiClient {
     return `${this.options.baseUrl}/api/v1`;
   }
 
+  /**
+   * The full address of an API path, for handing to something outside the app
+   * - the system browser opening a signed download link. Everything else goes
+   * through request(), which adds the sign-in header this cannot.
+   */
+  absoluteUrl(path: string): string {
+    return `${this.base}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
   setAccessToken(token: string | null): void {
     this.accessToken = token;
   }

@@ -1,7 +1,12 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { PRODUCT_IMAGE_RULES } from '@techpioasset/domain';
+import {
+  PRODUCT_DOCUMENT_LABELS,
+  PRODUCT_DOCUMENT_RULES,
+  PRODUCT_IMAGE_RULES,
+  type ProductDocumentKind,
+} from '@techpioasset/domain';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
 import { Button } from './ui';
@@ -17,6 +22,12 @@ import { Button } from './ui';
  * It also unblocks the rest: an offer cannot go for review without a picture,
  * so a vendor working only from a phone could previously write a draft and
  * never publish it.
+ *
+ * v2.55: the same camera files a document when given one. A compliance
+ * certificate is very often a sheet of paper in a drawer, and photographing it
+ * is how a phone gets it into the system without a file-picking module that
+ * would mean a new app build for everyone. With no `document` prop the sheet
+ * behaves exactly as it always has.
  */
 export function OfferPhotoSheet({
   visible,
@@ -24,12 +35,16 @@ export function OfferPhotoSheet({
   imageCount,
   onClose,
   onUploaded,
+  document,
 }: {
   visible: boolean;
   productId: string;
+  /** For a document, how many documents the offer already has. */
   imageCount: number;
   onClose: () => void;
   onUploaded: () => void;
+  /** When set, the picture is filed as a document of this kind instead of an offer image. */
+  document?: { kind: ProductDocumentKind };
 }) {
   const { api } = useSession();
   const { c, radius, spacing } = useTheme();
@@ -39,7 +54,8 @@ export function OfferPhotoSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const full = imageCount >= PRODUCT_IMAGE_RULES.max;
+  const limit = document ? PRODUCT_DOCUMENT_RULES.max : PRODUCT_IMAGE_RULES.max;
+  const full = imageCount >= limit;
 
   function close() {
     setPending(null);
@@ -68,10 +84,14 @@ export function OfferPhotoSheet({
       // React Native's FormData takes a { uri, name, type } descriptor.
       form.append('file', {
         uri: pending,
-        name: `offer-${Date.now()}.jpg`,
+        name: `${document ? 'document' : 'offer'}-${Date.now()}.jpg`,
         type: 'image/jpeg',
       } as unknown as Blob);
-      await api.request(`/vendor-products/${productId}/images`, { formData: form });
+      if (document) form.append('kind', document.kind);
+      await api.request(
+        `/vendor-products/${productId}/${document ? 'documents' : 'images'}`,
+        { formData: form },
+      );
       setPending(null);
       onUploaded();
       close();
@@ -96,11 +116,17 @@ export function OfferPhotoSheet({
             gap: spacing.md,
           }}
         >
-          <Text style={{ color: c.text, fontSize: 17, fontWeight: '800' }}>Add a picture</Text>
+          <Text style={{ color: c.text, fontSize: 17, fontWeight: '800' }}>
+            {document ? `Photograph a ${PRODUCT_DOCUMENT_LABELS[document.kind].toLowerCase()}` : 'Add a picture'}
+          </Text>
           <Text style={{ color: c.muted, fontSize: 13 }}>
-            {full
-              ? `This offer already has ${PRODUCT_IMAGE_RULES.max} pictures. Remove one first.`
-              : `Up to ${PRODUCT_IMAGE_RULES.max} per offer, ${PRODUCT_IMAGE_RULES.maxBytes / 1024} KB each. An offer needs at least one before it can go for review.`}
+            {document
+              ? full
+                ? `This offer already has ${PRODUCT_DOCUMENT_RULES.max} documents. Remove one first.`
+                : 'Lay the page flat in good light. A PDF can be added from the web app; here the camera files a picture of it.'
+              : full
+                ? `This offer already has ${PRODUCT_IMAGE_RULES.max} pictures. Remove one first.`
+                : `Up to ${PRODUCT_IMAGE_RULES.max} per offer, ${PRODUCT_IMAGE_RULES.maxBytes / 1024} KB each. An offer needs at least one before it can go for review.`}
           </Text>
 
           {full ? null : !permission?.granted ? (

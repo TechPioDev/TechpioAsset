@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppearanceProvider } from '../src/providers/appearance';
 import { SessionProvider } from '../src/providers/session';
+import { NotificationTaps } from '../src/components/notification-taps';
 import { useTheme } from '../src/theme';
 
 /**
@@ -25,6 +26,7 @@ function RootShell() {
     <SafeAreaProvider>
       <SessionProvider>
         <StatusBar style="auto" />
+        <NotificationTaps />
         <Stack
           screenOptions={{
             headerShown: false,

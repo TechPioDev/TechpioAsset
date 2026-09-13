@@ -7,6 +7,9 @@ import {
   editReturnsToReview,
   formatInr,
   submitActionLabel,
+  ASSET_ROLLUP_BUCKETS,
+  ASSET_ROLLUP_LABELS,
+  type AssetRollup,
   type OfferLifecycle,
 } from '@techpioasset/domain';
 import {
@@ -16,6 +19,7 @@ import {
 } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { OfferPhotoSheet } from '../../src/components/offer-photo-sheet';
+import { OfferDocuments } from '../../src/components/offer-documents';
 import { AuthImage } from '../../src/components/auth-image';
 import { useSession } from '../../src/providers/session';
 import { useOfferPolicy } from '../../src/lib/use-offer-policy';
@@ -59,6 +63,10 @@ interface OfferDetail {
   sellableQuantity?: number;
   stockStatus?: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
   lowStockThreshold?: number | null;
+  /** v2.53 - how many units this listing has put into service. */
+  _count?: { assets: number };
+  /** v2.53 - what became of those units. Sent to internal staff only. */
+  assetRollup?: AssetRollup;
   vendorSku?: string | null;
   leadTimeDays: number | null;
   warrantyMonths: number | null;
@@ -386,6 +394,30 @@ export default function OfferScreen() {
           />
         </Card>
       ) : null}
+
+      {/* v2.53 - the other end of the chain, for the buying team only; the API
+          never sends it to a supplier. Buckets with nothing in them are left
+          out, so a phone screen shows three lines rather than five zeros. */}
+      {offer.assetRollup && offer.assetRollup.total > 0 ? (
+        <>
+          <SectionTitle>Units we own from this listing</SectionTitle>
+          <Card>
+            {ASSET_ROLLUP_BUCKETS.filter((bucket) => offer.assetRollup![bucket] > 0).map((bucket) =>
+              row(ASSET_ROLLUP_LABELS[bucket], String(offer.assetRollup![bucket])),
+            )}
+            {row('Total bought', String(offer.assetRollup.total))}
+          </Card>
+        </>
+      ) : !isVendor ? null : offer._count && offer._count.assets > 0 ? (
+        // The supplier gets the count - its own sales history - and nothing
+        // about how any of those units are faring.
+        <>
+          <SectionTitle>Supplied</SectionTitle>
+          <Card>{row('Units supplied', String(offer._count.assets))}</Card>
+        </>
+      ) : null}
+
+      <OfferDocuments productId={offer.id} canManage={canManage && editable} />
 
       {canManage ? (
         <>

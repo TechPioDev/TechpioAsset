@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { type ComponentProps, useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import type {
@@ -31,6 +31,8 @@ interface AssetDetail {
   lifecycleState: LifecycleState | null;
   availabilityState: AvailabilityState | null;
   ownershipType: OwnershipType | null;
+  /** v2.53 - the catalogue listing this unit came from, when it came through procurement. */
+  vendorProduct?: { id: string; name: string } | null;
   assignments: {
     id: string;
     assignedAt: string;
@@ -56,6 +58,7 @@ type MobileAssetTab = 'info' | 'history';
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, user } = useSession();
+  const router = useRouter();
   const { c, scheme, spacing } = useTheme();
 
   const [asset, setAsset] = useState<AssetDetail | null>(null);
@@ -178,6 +181,19 @@ export default function AssetDetailScreen() {
             {asset.serialNumber ? <DetailRow label="Serial" value={asset.serialNumber} /> : null}
             {asset.brand || asset.model ? (
               <DetailRow label="Model" value={[asset.brand, asset.model].filter(Boolean).join(' ')} />
+            ) : null}
+            {/* v2.53 - what this unit is according to the supplier who sold it.
+                A link only for someone who can open the catalogue: an employee
+                looking at their own laptop would otherwise tap through to a
+                screen that refuses them. */}
+            {asset.vendorProduct ? (
+              <DetailRow
+                label="Supplied as"
+                value={asset.vendorProduct.name}
+                {...(user?.permissions.includes(PERMISSIONS.VENDOR_PRODUCTS_READ)
+                  ? { onPress: () => router.push(`/offer/${asset.vendorProduct!.id}`) }
+                  : {})}
+              />
             ) : null}
             <DetailRow label="Condition" value={asset.condition} last />
           </Card>
@@ -413,13 +429,25 @@ function buildHistory(asset: AssetDetail): HistoryEvent[] {
   return events.sort((a, b) => b.ts - a.ts);
 }
 
-function DetailRow({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
+function DetailRow({
+  label,
+  value,
+  last = false,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+  /** When set, the value reads as a link and the row opens something. */
+  onPress?: () => void;
+}) {
   const { c } = useTheme();
-  return (
+  const body = (
     <View
       style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
+        gap: 12,
         paddingHorizontal: 16,
         paddingVertical: 14,
         borderBottomWidth: last ? 0 : 1,
@@ -427,7 +455,19 @@ function DetailRow({ label, value, last = false }: { label: string; value: strin
       }}
     >
       <Text style={{ color: c.muted, fontSize: 14 }}>{label}</Text>
-      <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>{value}</Text>
+      <Text
+        numberOfLines={1}
+        style={{ color: onPress ? c.brand : c.text, fontWeight: '600', fontSize: 14, flexShrink: 1 }}
+      >
+        {value}
+      </Text>
     </View>
+  );
+  return onPress ? (
+    <Pressable onPress={onPress} accessibilityRole="link">
+      {body}
+    </Pressable>
+  ) : (
+    body
   );
 }

@@ -37,7 +37,7 @@ import {
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
-import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
+import { CurrentUser, Public, RequirePermissions } from '../auth/decorators.js';
 import { OfferComparisonService } from './offer-comparison.service.js';
 import { VendorProductDocumentsService } from './vendor-product-documents.service.js';
 import { VendorProductImportService } from './vendor-product-import.service.js';
@@ -382,6 +382,41 @@ export class VendorProductsController {
       });
     }
     return this.documents.add(actor, id, { kind, title: body?.title ?? null }, file);
+  }
+
+  @Post(':id/documents/:documentId/link')
+  @RequirePermissions(PERMISSIONS.VENDOR_PRODUCTS_READ)
+  @ApiOperation({
+    summary: 'A two-minute download link for one document',
+    description:
+      'For the phone app, which can open a link in the system browser but cannot attach a ' +
+      'sign-in header to it. Access is checked here, when the link is made; the link itself ' +
+      'names only that document and stops working after two minutes.',
+  })
+  documentLink(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.documents.createLink(actor, id, documentId);
+  }
+
+  // Public on purpose, and only this one route: the signature is the
+  // credential. Nothing here trusts the caller; everything comes from what was
+  // signed when an authorised user asked for the link.
+  @Get('document-links/:token')
+  @Public()
+  @ApiOperation({ summary: 'Download a document through a signed link' })
+  async readDocumentLink(@Param('token') token: string, @Res() res: Response) {
+    const document = await this.documents.readByLink(token);
+    res.setHeader('Content-Type', document.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${document.originalName.replace(/[^\w.\- ]/g, '_')}"`,
+    );
+    // Never cached: a link is meant to stop working, and a cache would not.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(document.data);
   }
 
   @Get(':id/documents/:documentId')

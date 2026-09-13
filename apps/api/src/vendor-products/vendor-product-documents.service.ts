@@ -1,3 +1,4 @@
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import type { AuthUser } from '@techpioasset/contracts';
@@ -10,6 +11,7 @@ import {
 import { AppError } from '../common/errors/app-error.js';
 import { vendorScopeFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
+import { AppConfig } from '../config/config.module.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageProvider } from '../providers/storage/storage.provider.js';
 import { validateUpload } from '../providers/storage/file-validation.js';
@@ -32,7 +34,24 @@ export class VendorProductDocumentsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageProvider,
     private readonly audit: AuditService,
+    private readonly config: AppConfig,
   ) {}
+
+  /** How long a download link works for. Long enough to tap, short enough to be useless if copied. */
+  private static readonly LINK_TTL_SECONDS = 120;
+
+  /**
+   * The key download links are signed with.
+   *
+   * Derived from the access-token secret rather than reusing it, so a document
+   * link can never be presented as a sign-in token or the other way round: they
+   * are signed with different keys even though both come from one secret.
+   */
+  private linkKey(): Buffer {
+    return createHash('sha256')
+      .update(`vendor-document-link:${this.config.get('JWT_ACCESS_SECRET') as string}`)
+      .digest();
+  }
 
   /** The product, if this actor may touch it at all. */
   private async productForWrite(actor: AuthUser, productId: string) {
@@ -140,6 +159,81 @@ export class VendorProductDocumentsService {
       select: { storageKey: true, mimeType: true, originalName: true },
     });
     if (!document) throw AppError.notFound('Product document', documentId);
+    return { ...document, data: await this.storage.get(document.storageKey) };
+  }
+
+
+  /**
+   * A short-lived link to one document that works without a sign-in header.
+   *
+   * For the phone. It can open a link in the system browser but has no way to
+   * attach an authorisation header to that request, and the alternative - a
+   * native file-handling module - means a new app build that every user has to
+   * reinstall.
+   *
+   * The access check happens here, when the link is made, through the same
+   * vendor scope as every other read: a supplier cannot mint a link to a
+   * competitor's paperwork. The link then carries the document, the company and
+   * an expiry, signed, and is good for two minutes.
+   */
+  async createLink(actor: AuthUser, productId: string, documentId: string) {
+    await this.productForWrite(actor, productId);
+    const document = await this.prisma.client.vendorProductDocument.findFirst({
+      where: { id: documentId, vendorProductId: productId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!document) throw AppError.notFound('Product document', documentId);
+
+    const expiresAt = Math.floor(Date.now() / 1000) + VendorProductDocumentsService.LINK_TTL_SECONDS;
+    const payload = Buffer.from(
+      JSON.stringify({ d: document.id, c: actor.companyId, e: expiresAt }),
+    ).toString('base64url');
+    const signature = createHmac('sha256', this.linkKey()).update(payload).digest('base64url');
+    return {
+      path: `/vendor-products/document-links/${payload}.${signature}`,
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * The bytes behind a signed link, for a request that carries no session.
+   *
+   * Everything this trusts comes from the signature: the document, the company
+   * and the expiry. The company is filtered on explicitly rather than left to
+   * row-level security, because a request with no session sets no tenant and
+   * the policy is permissive when none is set.
+   */
+  async readByLink(token: string) {
+    const [payload, signature] = token.split('.');
+    const refuse = () => AppError.notFound('Product document', 'link');
+    if (!payload || !signature) throw refuse();
+
+    const expected = createHmac('sha256', this.linkKey()).update(payload).digest();
+    const given = Buffer.from(signature, 'base64url');
+    // Same length first: timingSafeEqual throws on a mismatch, and a thrown
+    // error would tell a caller something a refusal does not.
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw refuse();
+
+    let claims: { d?: unknown; c?: unknown; e?: unknown };
+    try {
+      claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    } catch {
+      throw refuse();
+    }
+    if (typeof claims.d !== 'string' || typeof claims.c !== 'string' || typeof claims.e !== 'number') {
+      throw refuse();
+    }
+    if (claims.e < Math.floor(Date.now() / 1000)) {
+      throw new AppError('UNAUTHENTICATED', 'This download link has expired', {
+        detail: 'Open the document again from the app to get a fresh link.',
+      });
+    }
+
+    const document = await this.prisma.client.vendorProductDocument.findFirst({
+      where: { id: claims.d, companyId: claims.c, deletedAt: null },
+      select: { storageKey: true, mimeType: true, originalName: true },
+    });
+    if (!document) throw refuse();
     return { ...document, data: await this.storage.get(document.storageKey) };
   }
 

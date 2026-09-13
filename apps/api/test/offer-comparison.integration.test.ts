@@ -1552,6 +1552,97 @@ describe('what became of the units bought from a listing (v2.53)', () => {
   });
 });
 
+describe('signed download links for documents (v2.55)', () => {
+  const pdf = () => Buffer.from('%PDF-1.7 signed link probe');
+
+  async function withDocument(vendorId: string, as: Record<string, string>) {
+    const id = await offer(vendorId, { ram_gb: '16' });
+    const added = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents`)
+      .set(as)
+      .field('kind', 'DATASHEET')
+      .attach('file', pdf(), { filename: 'sheet.pdf', contentType: 'application/pdf' });
+    expect(added.status, JSON.stringify(added.body)).toBe(201);
+    return { id, documentId: added.body.data.id as string };
+  }
+
+  it('opens the document with no sign-in header, which is the point of it', async () => {
+    const { id, documentId } = await withDocument(vendorA, vendorAuth());
+    const link = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents/${documentId}/link`)
+      .set(vendorAuth());
+    expect(link.status, JSON.stringify(link.body)).toBe(201);
+
+    // No Authorization header at all.
+    const res = await api(app).get(`/api/v1${link.body.data.path}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain('attachment');
+    expect(res.headers['cache-control']).toContain('no-store');
+  });
+
+  it('will not mint a link to a competitor’s paperwork', async () => {
+    const theirs = await withDocument(vendorB, auth(s.officeAdmin));
+    const res = await api(app)
+      .post(`/api/v1/vendor-products/${theirs.id}/documents/${theirs.documentId}/link`)
+      .set(vendorAuth());
+    expect([403, 404]).toContain(res.status);
+  });
+
+  it('refuses a link whose signature has been tampered with', async () => {
+    const { id, documentId } = await withDocument(vendorA, vendorAuth());
+    const link = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents/${documentId}/link`)
+      .set(vendorAuth());
+    const path = link.body.data.path as string;
+    const [head, signature] = path.split('.');
+    // Flip the last character of the signature.
+    const last = signature!.slice(-1);
+    const forged = `${head}.${signature!.slice(0, -1)}${last === 'A' ? 'B' : 'A'}`;
+    expect((await api(app).get(`/api/v1${forged}`)).status).toBe(404);
+  });
+
+  it('refuses a link rewritten to point at a different document', async () => {
+    // The signature covers the document id, so swapping it must fail even
+    // though the signature itself is genuine.
+    const mine = await withDocument(vendorA, vendorAuth());
+    const theirs = await withDocument(vendorB, auth(s.officeAdmin));
+    const link = await api(app)
+      .post(`/api/v1/vendor-products/${mine.id}/documents/${mine.documentId}/link`)
+      .set(vendorAuth());
+    const [prefixAndPayload, signature] = (link.body.data.path as string).split('.');
+    const prefix = prefixAndPayload!.slice(0, prefixAndPayload!.lastIndexOf('/') + 1);
+    const payload = JSON.parse(
+      Buffer.from(prefixAndPayload!.slice(prefix.length), 'base64url').toString('utf8'),
+    );
+    payload.d = theirs.documentId;
+    const swapped = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    expect((await api(app).get(`/api/v1${prefix}${swapped}.${signature}`)).status).toBe(404);
+  });
+
+  it('refuses a link after it has expired', async () => {
+    const { id, documentId } = await withDocument(vendorA, vendorAuth());
+    const link = await api(app)
+      .post(`/api/v1/vendor-products/${id}/documents/${documentId}/link`)
+      .set(vendorAuth());
+    expect(new Date(link.body.data.expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(121_000);
+
+    // Wind the clock past the two minutes rather than waiting them out.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 5 * 60 * 1000;
+    try {
+      const res = await api(app).get(`/api/v1${link.body.data.path}`);
+      expect(res.status).toBe(401);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it('refuses garbage rather than throwing on it', async () => {
+    expect((await api(app).get('/api/v1/vendor-products/document-links/not-a-token')).status).toBe(404);
+    expect((await api(app).get('/api/v1/vendor-products/document-links/a.b')).status).toBe(404);
+  });
+});
+
 describe('comparison', () => {
   it('marks a specification the vendor never filled in as a fail that says so', async () => {
     const a = await liveOffer(vendorA, { ram_gb: '16', os: 'Windows 11' });
