@@ -62,6 +62,9 @@ services:
       # should be able to write - a server that can forge its own backup receipt
       # is reporting on itself.
       - /var/lib/techpioasset/offsite:/app/offsite:ro
+      # Firebase service-account key for push (PUSH_PROVIDER=fcm). A directory,
+      # not the file: a missing file mount would be created as an empty folder.
+      - /etc/techpioasset/firebase:/app/firebase:ro
     # Localhost only: the host's nginx proxies /api/* and /health/* here.
     ports:
       - '127.0.0.1:3001:3001'

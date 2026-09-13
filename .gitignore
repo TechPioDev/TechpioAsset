@@ -57,3 +57,6 @@ pnpm-debug.log*
 # Real staff names/emails extracted from HR sheets - never committed.
 apps/api/scripts/import-real-data.json
 apps/api/scripts/sync-gadget-update.json
+
+# Firebase config is supplied on the build server, never committed
+apps/mobile/google-services.json

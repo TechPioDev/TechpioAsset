@@ -7,7 +7,7 @@
  */
 
 export interface PushMessage {
-  /** Expo push tokens for the recipient's registered devices. */
+  /** Push tokens for the recipient's registered devices. */
   tokens: string[];
   title: string;
   body: string;

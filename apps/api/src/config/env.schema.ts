@@ -121,8 +121,10 @@ export const envSchema = z
     // bullmq uses REDIS_URL and survives restarts.
     QUEUE_PROVIDER: z.enum(['in-process', 'bullmq']).default('in-process'),
 
-    PUSH_PROVIDER: z.enum(['mock', 'expo']).default('mock'),
+    PUSH_PROVIDER: z.enum(['mock', 'expo', 'fcm']).default('mock'),
     EXPO_ACCESS_TOKEN: z.string().optional(),
+    /** v2.56 — path to the Firebase service-account key JSON, for PUSH_PROVIDER=fcm. */
+    FCM_SERVICE_ACCOUNT_FILE: z.string().optional(),
 
     /**
      * v2.3 — encrypts stored licence keys (AES-256-GCM). Optional: without it,
@@ -217,6 +219,13 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['EXPO_ACCESS_TOKEN'],
         message: 'Required when PUSH_PROVIDER=expo',
+      });
+    }
+    if (env.PUSH_PROVIDER === 'fcm' && !env.FCM_SERVICE_ACCOUNT_FILE) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['FCM_SERVICE_ACCOUNT_FILE'],
+        message: 'Required when PUSH_PROVIDER=fcm',
       });
     }
     if (env.NODE_ENV === 'production') {

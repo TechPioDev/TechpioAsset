@@ -192,7 +192,7 @@ export class NotificationsService implements OnModuleInit {
         ...(payload.linkPath ? { data: { linkPath: payload.linkPath } } : {}),
       });
 
-      // Prune tokens Expo reported as dead, so they stop being retried.
+      // Prune tokens the push service reported as dead, so they stop being retried.
       if (result.invalidTokens.length > 0) {
         await this.prisma.client.deviceToken.updateMany({
           where: { token: { in: result.invalidTokens } },

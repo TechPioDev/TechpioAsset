@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
+import { registerForPush, type PushState } from '../../src/lib/push';
 import { Avatar, Button, Card, Screen, SectionTitle } from '../../src/components/ui';
 import type { IconName } from '../../src/components/ui';
 
@@ -13,28 +13,13 @@ export default function ProfileScreen() {
   const { user, api, logout } = useSession();
   const router = useRouter();
   const { c, spacing } = useTheme();
-  const [pushState, setPushState] = useState<'idle' | 'registered' | 'denied'>('idle');
+  const [pushState, setPushState] = useState<PushState | 'idle'>('idle');
 
+  // Registration itself happens at sign-in; this repeats it (it is idempotent)
+  // so the row shows the real answer rather than a guess.
   useEffect(() => {
-    void registerForPush();
-  }, []);
-
-  async function registerForPush() {
-    if (Platform.OS === 'web') return;
-    const settings = await Notifications.getPermissionsAsync();
-    let granted = settings.granted;
-    if (!granted) granted = (await Notifications.requestPermissionsAsync()).granted;
-    if (!granted) {
-      setPushState('denied');
-      return;
-    }
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    await api.request('/mobile/devices', {
-      method: 'POST',
-      body: { token, platform: Platform.OS === 'ios' ? 'ios' : 'android' },
-    });
-    setPushState('registered');
-  }
+    void registerForPush(api).then(setPushState);
+  }, [api]);
 
   async function onLogout() {
     await logout();
@@ -43,8 +28,13 @@ export default function ProfileScreen() {
 
   if (!user) return null;
 
-  const pushLabel =
-    pushState === 'registered' ? 'On' : pushState === 'denied' ? 'Blocked in settings' : 'Setting up…';
+  const pushLabel = {
+    idle: 'Setting up…',
+    registered: 'On',
+    denied: 'Blocked in settings',
+    failed: 'Not available',
+    unsupported: 'Not on this device',
+  }[pushState];
 
   return (
     <Screen scroll>

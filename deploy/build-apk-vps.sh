@@ -64,6 +64,7 @@ cp "$APP_JSON" "$APP_JSON_BACKUP"
 restore_sources() {
   cp "$APP_JSON_BACKUP" "$APP_JSON"
   rm -f "$APP_JSON_BACKUP"
+  rm -f "$APP_DIR/apps/mobile/google-services.json"
   # `expo prebuild` also rewrites package.json's android/ios scripts to
   # `expo run:*`. That is a TRACKED file, so leaving it modified is what would
   # eventually make `git pull` on this box fail. (android/ is generated and
@@ -72,11 +73,28 @@ restore_sources() {
 }
 trap restore_sources EXIT
 
+# ── Firebase: push only works in a build that carries google-services.json ────
+#
+# It is read from the server rather than committed, and wired into app.json for
+# this build only, the same way the versionCode is. Without it the build still
+# succeeds - it simply cannot receive push - so its absence is announced loudly
+# instead of failing the build.
+FIREBASE_CONFIG="${FIREBASE_CONFIG:-/etc/techpioasset/firebase/google-services.json}"
+USE_FIREBASE=false
+if [ -f "$FIREBASE_CONFIG" ]; then
+  cp "$FIREBASE_CONFIG" "$APP_DIR/apps/mobile/google-services.json"
+  USE_FIREBASE=true
+  echo "[0/4] firebase: using $FIREBASE_CONFIG"
+else
+  echo "[0/4] WARNING: no $FIREBASE_CONFIG - this APK will NOT receive push notifications"
+fi
+
 node -e "
 const fs=require('fs');
 const j=JSON.parse(fs.readFileSync('$APP_JSON','utf8'));
 j.expo.android = j.expo.android || {};
 j.expo.android.versionCode = $NEXT_CODE;
+if ($USE_FIREBASE) j.expo.android.googleServicesFile = './google-services.json';
 fs.writeFileSync('$APP_JSON', JSON.stringify(j,null,2)+'\n');
 "
 
@@ -101,4 +119,4 @@ mkdir -p "$(dirname "$PUBLISH_TO")"
 cp "$APK" "$PUBLISH_TO"
 chmod 644 "$PUBLISH_TO"
 echo "done: $APK -> $PUBLISH_TO ($(du -h "$PUBLISH_TO" | cut -f1))"
-echo "published $VERSION_NAME (versionCode $NEXT_CODE)"
+echo "published $VERSION_NAME (versionCode $NEXT_CODE, push: $USE_FIREBASE)"

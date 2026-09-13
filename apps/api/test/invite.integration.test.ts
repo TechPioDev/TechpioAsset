@@ -21,6 +21,15 @@ const HR_EMAIL = 'hr-invitee@techpioasset.test';
 const PASSWORD = 'Invitee!Pass2026x';
 
 async function cleanupInvitee() {
+  // The bulk accounts were never cleaned up: two per run, for months, until the
+  // invite sweep in onboarding-notifications had several hundred stale invitees
+  // to remind and ran past its test timeout. They are soft-deleted rather than
+  // removed, because later suites assign assets to whoever is pending and the
+  // foreign keys rightly refuse to drop a user who holds one. Soft-deleted
+  // accounts are outside the sweep, which is all that matters here.
+  await prisma.client.$executeRawUnsafe(
+    `UPDATE users SET "deletedAt" = now() WHERE "deletedAt" IS NULL AND email LIKE 'bulk-_-%@techpioasset.test'`,
+  );
   const rows = await prisma.client.$queryRawUnsafe<{ id: string }[]>(
     'SELECT id FROM users WHERE email = $1 OR email = $2',
     EMAIL,

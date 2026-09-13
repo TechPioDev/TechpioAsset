@@ -855,7 +855,7 @@ model DeviceToken {
   id     String @id @default(cuid())
   userId String
 
-  /// Expo push token. Unique so re-registering the same device updates rather
+  /// Push token (an FCM token on Android since v2.56). Unique so re-registering the same device updates rather
   /// than duplicating, which is what stops one tap sending three notifications.
   token      String  @unique
   platform   String // ios | android

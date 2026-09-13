@@ -12,6 +12,7 @@ import {
 import type { AuthUser } from '@techpioasset/contracts';
 import { ApiClient } from '../lib/api-client';
 import { SecureTokenStore } from '../lib/secure-token-store';
+import { unregisterPush } from '../lib/push';
 
 /**
  * Session and auth for the mobile app (spec section 16 employee/admin features).
@@ -136,6 +137,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      // While still signed in: removing the device needs the session, and a
+      // phone left registered keeps showing this person's alerts to whoever
+      // signs in next.
+      await unregisterPush(api);
       await api.request('/auth/logout', { method: 'POST' });
     } finally {
       await tokenStore.setRefreshToken(null);

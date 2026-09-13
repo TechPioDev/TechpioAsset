@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useSession } from '../providers/session';
 import { notificationRoute } from '../lib/notification-route';
+import { registerForPush } from '../lib/push';
 
 /**
  * Follows the link in a push notification when it is tapped (v2.55).
@@ -24,9 +25,17 @@ import { notificationRoute } from '../lib/notification-route';
  */
 export function NotificationTaps() {
   const router = useRouter();
-  const { status } = useSession();
+  const { status, user, api } = useSession();
   const handled = useRef(new Set<string>());
   const [pending, setPending] = useState<string | null>(null);
+
+  // Register this handset whenever somebody signs in (v2.56). Keyed on the
+  // user, so a different person signing in on the same phone registers too.
+  const userId = user?.id;
+  useEffect(() => {
+    if (status !== 'authenticated' || !userId) return;
+    void registerForPush(api);
+  }, [status, userId, api]);
 
   // Collect the tap, whether it arrived now or launched the app.
   useEffect(() => {

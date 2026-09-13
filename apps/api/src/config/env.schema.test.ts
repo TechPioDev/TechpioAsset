@@ -72,6 +72,12 @@ describe('environment validation', () => {
       expect(() => validateEnv({ ...BASE, PUSH_PROVIDER: 'expo' })).toThrow(/EXPO_ACCESS_TOKEN/);
     });
 
+    it('refuses PUSH_PROVIDER=fcm without a service account file', () => {
+      expect(() => validateEnv({ ...BASE, PUSH_PROVIDER: 'fcm' })).toThrow(
+        /FCM_SERVICE_ACCOUNT_FILE/,
+      );
+    });
+
     it('accepts a fully configured azure setup', () => {
       const env = validateEnv({
         ...BASE,
