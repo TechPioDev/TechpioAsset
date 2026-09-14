@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { relativeAge, reportFreshnessWording } from '@techpioasset/domain';
 
 /**
  * How old the agent's data is, said plainly (v2.38).
@@ -20,36 +21,19 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
  * of what you are reading before you read it - and it changes tone as it ages.
  */
 
-/** Past this, a machine has almost certainly stopped reporting rather than being off for the weekend. */
-const STALE_DAYS = 7;
-/** Past this it is worth a glance, but a laptop off over a weekend is normal. */
-const AGEING_DAYS = 2;
-
-function daysSince(at: string): number {
-  return (Date.now() - new Date(at).getTime()) / 86_400_000;
-}
-
-/** "3 hours ago", "8 days ago" - the form that makes age obvious at a glance. */
-export function relativeAge(at: string): string {
-  const days = daysSince(at);
-  if (days < 1 / 24) return 'just now';
-  if (days < 1) {
-    const hours = Math.max(1, Math.round(days * 24));
-    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  }
-  const whole = Math.round(days);
-  return `${whole} day${whole === 1 ? '' : 's'} ago`;
-}
+// The thresholds and every word of the banner live in the domain package, so
+// the phone's Hardware tab says exactly what this one does. Re-exported for
+// the pages that already import the relative age from here.
+export { relativeAge };
 
 export function ReportedFreshness({ source, at }: { source: string; at: string }) {
-  const days = daysSince(at);
-  const stale = days >= STALE_DAYS;
-  const ageing = !stale && days >= AGEING_DAYS;
+  const { freshness, headline, detail } = reportFreshnessWording(
+    source,
+    at,
+    new Date(at).toLocaleString(),
+  );
 
-  const exact = new Date(at).toLocaleString();
-  const who = source.toLowerCase();
-
-  if (stale) {
+  if (freshness === 'stale') {
     return (
       <div
         className="mb-4 flex items-start gap-2 rounded-[var(--radius-control)] border px-3 py-2.5 text-sm"
@@ -61,11 +45,7 @@ export function ReportedFreshness({ source, at }: { source: string; at: string }
       >
         <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 flex-none" />
         <p>
-          <span className="font-medium">
-            This machine last reported {relativeAge(at)}.
-          </span>{' '}
-          What follows is a snapshot from {exact}, not its current state — the {who} has stopped
-          checking in, so anything changed since then is not shown here.
+          <span className="font-medium">{headline}</span> {detail}
         </p>
       </div>
     );
@@ -74,13 +54,13 @@ export function ReportedFreshness({ source, at }: { source: string; at: string }
   return (
     <p
       className={`mb-4 flex items-center gap-1.5 text-xs ${
-        ageing ? 'text-[var(--tone-warning-fg)]' : 'text-[var(--color-content-subtle)]'
+        freshness === 'ageing' ? 'text-[var(--tone-warning-fg)]' : 'text-[var(--color-content-subtle)]'
       }`}
     >
       <RefreshCw aria-hidden="true" className="size-3.5" />
       {/* Relative first because that is the part being judged; the exact time
           follows for anyone who needs to quote it. */}
-      Reported by {who} {relativeAge(at)} · {exact}
+      {headline}
     </p>
   );
 }

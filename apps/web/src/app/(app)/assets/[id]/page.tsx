@@ -14,11 +14,18 @@ import {
   type StatusToken,
 } from '@techpioasset/ui-tokens';
 import {
-  ASSET_TYPES_BY_KEY, isAgentReportedType, warrantySource,
+  assetDetailTabs,
+  assetSpecRows,
+  custodyHistory,
+  deviceLifecycle,
+  hasDiscoveryTabs,
+  issuedByName,
+  warrantySource,
   PERMISSIONS,
   type AssetCondition,
   type AssetStatus,
   type LifecycleState,
+  type AssetDetailTabKey,
   type AvailabilityState,
   type OwnershipType,
 } from '@techpioasset/domain';
@@ -113,15 +120,7 @@ interface AssetDetail {
   _count: { installedSoftware: number };
 }
 
-type AssetTab =
-  | 'overview'
-  | 'lifecycle'
-  | 'hardware'
-  | 'os'
-  | 'software'
-  | 'health'
-  | 'history'
-  | 'financials';
+type AssetTab = AssetDetailTabKey;
 
 function fmtDate(value: string | null): string {
   if (!value) return '—';
@@ -141,7 +140,6 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** Whole months between two dates, floored — for age and warranty-remaining. */
 /** Drop badges whose label an earlier badge already carries. */
 function dedupeBadges(tokens: (StatusToken | null)[]): StatusToken[] {
   const seen = new Set<string>();
@@ -150,20 +148,6 @@ function dedupeBadges(tokens: (StatusToken | null)[]): StatusToken[] {
     seen.add(t.label);
     return true;
   });
-}
-
-function monthsBetween(from: Date, to: Date): number {
-  return Math.max(
-    0,
-    (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()),
-  );
-}
-
-function humanDuration(months: number): string {
-  if (months <= 0) return '—';
-  const y = Math.floor(months / 12);
-  const m = months % 12;
-  return [y ? `${y} yr${y > 1 ? 's' : ''}` : '', m ? `${m} mo` : ''].filter(Boolean).join(' ') || '—';
 }
 
 export default function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -229,13 +213,8 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
   // on a tab that no longer exists, showing nothing at all. This sits above the
   // loading and error returns: a hook after an early return runs on some
   // renders and not others, which React rejects outright.
-  const discoveryAvailable =
-    !data ||
-    isAgentReportedType(data.subcategory?.key) ||
-    Boolean(data.hardwareProfile) ||
-    Boolean(data.osInfo) ||
-    Boolean(data.health) ||
-    data._count.installedSoftware > 0;
+  // The rule itself is shared with the phone (domain asset-detail.ts).
+  const discoveryAvailable = !data || hasDiscoveryTabs(data);
 
   useEffect(() => {
     if (!discoveryAvailable && (tab === 'hardware' || tab === 'os' || tab === 'software' || tab === 'health')) {
@@ -263,23 +242,14 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
   // v2.20 - render the stored specification in the type's own field order, so
   // two monitors always read the same way round, and label it from the shared
   // catalogue rather than showing raw keys.
-  const typeDef = data.subcategory ? ASSET_TYPES_BY_KEY[data.subcategory.key] : undefined;
+  const spec = assetSpecRows(data.subcategory?.key, data.specs);
 
   /**
-   * The agent-reported sections belong to things that boot. A headset shows
-   * four tabs that say "Nothing discovered yet" forever, which reads as
-   * discovery being broken rather than inapplicable.
-   *
-   * They are still shown for any asset that actually carries the data, whatever
-   * its type: something reported it, and hiding that would lose real
-   * information. Only the permanently-empty case disappears.
+   * The agent-reported sections belong to things that boot; see
+   * hasDiscoveryTabs in the domain package for why an empty headset hides them.
    */
   const showDiscovery = discoveryAvailable;
-  const specRows: [string, string][] = typeDef
-    ? typeDef.fields
-        .filter((f) => data.specs?.[f.key])
-        .map((f) => [f.unit ? `${f.label} (${f.unit})` : f.label, data.specs![f.key]!])
-    : Object.entries(data.specs ?? {});
+  const specRows = spec.rows;
 
   return (
     <div className="mx-auto grid max-w-3xl gap-4">
@@ -373,25 +343,11 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
         aria-label="Asset detail sections"
         className="flex gap-1 border-b border-[var(--color-border)]"
       >
-        {(
-          [
-            ['overview', 'Overview'],
-            ['lifecycle', 'Lifecycle'],
-            ...(showDiscovery
-              ? ([
-                  ['hardware', 'Hardware'],
-                  ['os', 'OS & Security'],
-                  [
-                    'software',
-                    `Software${data._count.installedSoftware ? ` (${data._count.installedSoftware})` : ''}`,
-                  ],
-                  ['health', 'Health'],
-                ] as const)
-              : []),
-            ['history', 'History'],
-            ...(canSeeCost ? ([['financials', 'Financials']] as const) : []),
-          ] as const
-        ).map(([key, label]) => (
+        {assetDetailTabs({
+          showDiscovery,
+          softwareCount: data._count.installedSoftware,
+          canSeeCost,
+        }).map(({ key, label }) => (
           <button
             key={key}
             type="button"
@@ -477,11 +433,10 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
                       </span>
                     ) : null}
                     {(() => {
-                      const open = data.assignments.find((a) => !a.returnedAt);
-                      return open?.assignedBy?.profile ? (
+                      const issuedBy = issuedByName(data.assignments);
+                      return issuedBy ? (
                         <span className="block text-xs text-[var(--color-content-subtle)]">
-                          issued by {open.assignedBy.profile.firstName}{' '}
-                          {open.assignedBy.profile.lastName}
+                          issued by {issuedBy}
                         </span>
                       ) : null;
                     })()}
@@ -503,7 +458,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           {specRows.length > 0 ? (
             <div className="mt-4 border-t border-[var(--color-border)] pt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-content-subtle)]">
-                {typeDef?.name ?? 'Specification'}
+                {spec.title}
               </p>
               <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
                 {specRows.map(([label, value]) => (
@@ -575,45 +530,32 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
             <p className="mt-3 text-sm text-[var(--color-content-muted)]">No history yet.</p>
           ) : (
             <ol className="mt-3 space-y-3">
-              {data.assignments.map((a) => (
-                <li key={`a-${a.id}`} className="flex gap-3 text-sm">
-                  <span className="mt-1 size-2 shrink-0 rounded-full bg-[var(--color-brand)]" />
+              {custodyHistory(data, fmtDate).map((entry) => (
+                <li key={entry.key} className="flex gap-3 text-sm">
+                  <span
+                    className={`mt-1 size-2 shrink-0 rounded-full ${
+                      entry.kind === 'assignment'
+                        ? 'bg-[var(--color-brand)]'
+                        : 'bg-[var(--color-content-subtle)]'
+                    }`}
+                  />
                   <span>
-                    <span className="font-medium">
-                      {a.returnedAt ? 'Returned by ' : 'Assigned to '}
-                      {a.user?.profile
-                        ? `${a.user.profile.firstName} ${a.user.profile.lastName}`
-                        : (a.user?.email ?? 'someone')}
-                    </span>
+                    <span className="font-medium">{entry.title}</span>
                     <span className="text-[var(--color-content-subtle)]">
                       {' '}
-                      · {fmtDate(a.returnedAt ?? a.assignedAt)}
-                      {!a.returnedAt && a.assignedBy?.profile
-                        ? ` · issued by ${a.assignedBy.profile.firstName} ${a.assignedBy.profile.lastName}`
-                        : ''}
+                      · {entry.date}
+                      {entry.suffix}
                     </span>
-                    {a.assetReturn?.damageNotes ? (
-                      <span className="block text-xs text-[var(--tone-warning-fg)]">
-                        {a.assetReturn.damageNotes}
+                    {entry.note ? (
+                      <span
+                        className={`block text-xs ${
+                          entry.noteTone === 'warning'
+                            ? 'text-[var(--tone-warning-fg)]'
+                            : 'text-[var(--color-content-subtle)]'
+                        }`}
+                      >
+                        {entry.note}
                       </span>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-              {data.conditionLogs.map((log) => (
-                <li key={`c-${log.id}`} className="flex gap-3 text-sm">
-                  <span className="mt-1 size-2 shrink-0 rounded-full bg-[var(--color-content-subtle)]" />
-                  <span>
-                    <span className="font-medium">
-                      {log.previousStatus && log.newStatus && log.previousStatus !== log.newStatus
-                        ? `${log.previousStatus} → ${log.newStatus}`
-                        : log.previousCondition && log.newCondition
-                          ? `Condition ${log.previousCondition} → ${log.newCondition}`
-                          : 'Status change'}
-                    </span>
-                    <span className="text-[var(--color-content-subtle)]"> · {fmtDate(log.recordedAt)}</span>
-                    {log.reason ? (
-                      <span className="block text-xs text-[var(--color-content-subtle)]">{log.reason}</span>
                     ) : null}
                   </span>
                 </li>
@@ -681,94 +623,13 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
 
 /**
  * Device lifecycle (v2.12) — the story of one device, for the person holding it.
- *
- * Built entirely from data the asset endpoint already returns and already
- * anonymises for OWN-scope viewers: purchase and warranty dates, assignment
- * events (previous holders reduced to a count, never named), and condition /
- * status changes that stand in for repairs and maintenance. No cost, no vendor,
- * no colleague identities — those never leave the API for an employee.
+ * See deviceLifecycle in the domain package for what it is built from, and why
+ * it never names a previous holder.
  */
 function LifecycleTab({ data }: { data: AssetDetail }) {
-  const now = new Date();
-  const purchase = data.purchaseDate ? new Date(data.purchaseDate) : null;
-  const warrantyEnd = data.warrantyEndDate ? new Date(data.warrantyEndDate) : null;
-  const ageMonths = purchase ? monthsBetween(purchase, now) : 0;
-  const warrantyMonthsLeft = warrantyEnd && warrantyEnd > now ? monthsBetween(now, warrantyEnd) : 0;
-  const underWarranty = Boolean(warrantyEnd && warrantyEnd > now);
-
-  type Event = { date: Date | null; title: string; detail?: string; tone: string };
-  const events: Event[] = [];
-  if (purchase) events.push({ date: purchase, title: 'Purchased', tone: 'info' });
-  if (data.warrantyStartDate)
-    events.push({ date: new Date(data.warrantyStartDate), title: 'Warranty started', tone: 'success' });
-
-  for (const a of data.assignments) {
-    events.push({
-      date: new Date(a.assignedAt),
-      title: a.user ? 'Assigned to you' : 'Assigned',
-      detail: a.user ? undefined : 'to a team member',
-      tone: 'progress',
-    });
-    if (a.returnedAt)
-      events.push({
-        date: new Date(a.returnedAt),
-        title: 'Returned',
-        detail: a.assetReturn?.conditionIn ? `condition: ${a.assetReturn.conditionIn.toLowerCase()}` : undefined,
-        tone: 'muted',
-      });
-  }
-
-  for (const log of data.conditionLogs) {
-    const bits = [
-      log.previousStatus && log.newStatus && log.previousStatus !== log.newStatus
-        ? `${log.previousStatus.toLowerCase()} → ${log.newStatus.toLowerCase()}`
-        : null,
-      log.previousCondition && log.newCondition && log.previousCondition !== log.newCondition
-        ? `condition ${log.newCondition.toLowerCase()}`
-        : null,
-      log.reason ?? null,
-    ].filter(Boolean);
-    events.push({
-      date: new Date(log.recordedAt),
-      title: 'Status update',
-      detail: bits.join(' · ') || undefined,
-      tone: 'warning',
-    });
-  }
-
-  if (warrantyEnd)
-    events.push({
-      date: warrantyEnd,
-      title: warrantyEnd > now ? 'Warranty ends' : 'Warranty ended',
-      tone: warrantyEnd > now ? 'muted' : 'critical',
-    });
-  if (data.expectedReplacementDate)
-    events.push({
-      date: new Date(data.expectedReplacementDate),
-      title: 'Expected replacement',
-      tone: 'info',
-    });
-
-  // Chronological story, oldest first, ending with where the device stands now.
-  events.sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
-
-  const chips: { label: string; value: string }[] = [
-    { label: 'Purchased', value: fmtDate(data.purchaseDate) },
-    { label: 'Asset age', value: purchase ? humanDuration(ageMonths) : '—' },
-    {
-      label: 'Warranty',
-      value: warrantyEnd
-        ? underWarranty
-          ? `${humanDuration(warrantyMonthsLeft)} left`
-          : 'Expired'
-        : '—',
-    },
-    { label: 'Expected replacement', value: fmtDate(data.expectedReplacementDate) },
-    {
-      label: 'Times assigned',
-      value: String(data.assignmentCount ?? data.assignments.length),
-    },
-  ];
+  // The story itself - chips, events, their order and wording - is built in
+  // the domain package, so the phone's Lifecycle tab tells the same one.
+  const { chips, events, timesAssigned } = deviceLifecycle(data, fmtDate);
 
   return (
     <div className="grid gap-4">
@@ -780,8 +641,8 @@ function LifecycleTab({ data }: { data: AssetDetail }) {
           ))}
         </dl>
         <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-content-subtle)]">
-          This device has been assigned {data.assignmentCount ?? data.assignments.length} time
-          {(data.assignmentCount ?? data.assignments.length) === 1 ? '' : 's'}. Previous holders are
+          This device has been assigned {timesAssigned} time
+          {timesAssigned === 1 ? '' : 's'}. Previous holders are
           not shown.
         </p>
       </Card>

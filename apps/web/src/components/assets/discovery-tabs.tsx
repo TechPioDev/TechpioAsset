@@ -3,6 +3,18 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
+import {
+  ASSET_DETAIL_COPY,
+  HEALTH_GRADE_TONE,
+  hardwareRows,
+  healthDimensionLabel,
+  healthSubScoreTone,
+  osRows,
+  securityPostureRows,
+  type DetailRow,
+  type HardwareSnapshot,
+  type OsSnapshot,
+} from '@techpioasset/domain';
 import { apiFetch, apiFetchPage } from '@/lib/api-client';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui';
 import { ReportedFreshness } from './reported-freshness';
@@ -13,38 +25,15 @@ import { ReportedFreshness } from './reported-freshness';
  * the machine yet: an empty state, never invented values.
  */
 
-export interface HardwareProfileDto {
-  manufacturer: string | null;
-  modelName: string | null;
-  cpu: string | null;
-  cpuCores: number | null;
-  ramGb: string | null;
-  ramSlotsUsed: number | null;
-  ramSlotsTotal: number | null;
-  storageTotalGb: string | null;
-  storageFreeGb: string | null;
-  smartStatus: 'HEALTHY' | 'WARNING' | 'FAILING' | null;
-  batteryHealthPct: number | null;
-  batteryCycleCount: number | null;
-  gpu: string | null;
-  biosVersion: string | null;
+// Every label and badge below comes from the domain package (asset-detail.ts),
+// which the phone's asset screen renders too - so the two cannot drift.
+
+export interface HardwareProfileDto extends HardwareSnapshot {
   source: string;
   lastDiscoveredAt: string;
 }
 
-export interface OsInfoDto {
-  osName: string | null;
-  osVersion: string | null;
-  osBuild: string | null;
-  osSupported: boolean | null;
-  osActivated: boolean | null;
-  lastBootAt: string | null;
-  diskEncrypted: boolean | null;
-  defenderEnabled: boolean | null;
-  firewallEnabled: boolean | null;
-  tpmPresent: boolean | null;
-  localAdminCount: number | null;
-  missingCriticalPatches: number | null;
+export interface OsInfoDto extends OsSnapshot {
   source: string;
   lastDiscoveredAt: string;
 }
@@ -57,20 +46,6 @@ export interface HealthDto {
   capped: boolean;
   computedAt: string;
 }
-
-const GRADE_TONE: Record<HealthDto['grade'], string> = {
-  EXCELLENT: 'success',
-  GOOD: 'success',
-  FAIR: 'warning',
-  POOR: 'critical',
-  CRITICAL: 'critical',
-};
-
-const SMART_TONE: Record<NonNullable<HardwareProfileDto['smartStatus']>, string> = {
-  HEALTHY: 'success',
-  WARNING: 'warning',
-  FAILING: 'critical',
-};
 
 export function Tone({ tone, children }: { tone: string; children: React.ReactNode }) {
   return (
@@ -96,58 +71,30 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-const NOT_DISCOVERED = {
-  title: 'Nothing discovered yet',
-  description:
-    'No agent or connector has reported this machine. Data appears here after a discovery run matches it.',
-};
+/** A shared detail row: a badge when it carries a tone, plain text otherwise. */
+function DetailRows({ rows }: { rows: DetailRow[] }) {
+  return rows.map((row) => (
+    <Row
+      key={row.label}
+      label={row.label}
+      value={row.tone && row.value != null ? <Tone tone={row.tone}>{row.value}</Tone> : row.value}
+    />
+  ));
+}
+
+const NOT_DISCOVERED = ASSET_DETAIL_COPY.notDiscovered;
 
 export function HardwareTab({ hw }: { hw: HardwareProfileDto | null }) {
   if (!hw) return <EmptyState {...NOT_DISCOVERED} />;
-  const gb = (v: string | null) => (v != null ? `${Number(v).toLocaleString()} GB` : null);
   return (
     <Card className="p-5">
       {/* Ahead of the data, not under it: you should know how old a snapshot is
           before you start reading it as fact. */}
       <ReportedFreshness source={hw.source} at={hw.lastDiscoveredAt} />
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-        <Row label="Manufacturer" value={hw.manufacturer} />
-        <Row label="Model" value={hw.modelName} />
-        <Row label="Processor" value={hw.cpu} />
-        <Row label="Cores" value={hw.cpuCores} />
-        <Row label="Memory" value={gb(hw.ramGb)} />
-        <Row
-          label="Memory slots"
-          value={hw.ramSlotsTotal != null ? `${hw.ramSlotsUsed ?? '?'} of ${hw.ramSlotsTotal} used` : null}
-        />
-        <Row label="Storage" value={gb(hw.storageTotalGb)} />
-        <Row label="Free space" value={gb(hw.storageFreeGb)} />
-        <Row
-          label="Drive (SMART)"
-          value={hw.smartStatus ? <Tone tone={SMART_TONE[hw.smartStatus]}>{hw.smartStatus.toLowerCase()}</Tone> : null}
-        />
-        <Row
-          label="Battery"
-          value={hw.batteryHealthPct != null ? `${hw.batteryHealthPct}% health` : null}
-        />
-        <Row label="Battery cycles" value={hw.batteryCycleCount} />
-        <Row label="Graphics" value={hw.gpu} />
-        <Row label="BIOS" value={hw.biosVersion} />
+        <DetailRows rows={hardwareRows(hw)} />
       </dl>
     </Card>
-  );
-}
-
-function PostureRow({ label, ok, detail }: { label: string; ok: boolean | null; detail?: string }) {
-  return (
-    <div className="flex items-center justify-between py-2">
-      <span className="text-sm">{label}</span>
-      {ok === null ? (
-        <span className="text-xs text-[var(--color-content-subtle)]">not reported</span>
-      ) : (
-        <Tone tone={ok ? 'success' : 'critical'}>{detail ?? (ok ? 'on' : 'off')}</Tone>
-      )}
-    </div>
   );
 }
 
@@ -161,49 +108,22 @@ export function OsTab({ os }: { os: OsInfoDto | null }) {
       <Card className="p-5">
         <h2 className="text-[15px] font-semibold">Operating system</h2>
         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-          <Row label="OS" value={os.osName} />
-          <Row label="Version" value={os.osVersion} />
-          <Row label="Build" value={os.osBuild} />
-          <Row
-            label="Support"
-            value={
-              os.osSupported == null ? null : (
-                <Tone tone={os.osSupported ? 'success' : 'critical'}>
-                  {os.osSupported ? 'supported' : 'out of support'}
-                </Tone>
-              )
-            }
-          />
-          <Row
-            label="Activation"
-            value={
-              os.osActivated == null ? null : (
-                <Tone tone={os.osActivated ? 'success' : 'warning'}>
-                  {os.osActivated ? 'activated' : 'not activated'}
-                </Tone>
-              )
-            }
-          />
-          <Row label="Last boot" value={os.lastBootAt ? new Date(os.lastBootAt).toLocaleString() : null} />
+          <DetailRows rows={osRows(os, (at) => new Date(at).toLocaleString())} />
         </dl>
       </Card>
       <Card className="p-5">
         <h2 className="text-[15px] font-semibold">Security posture</h2>
         <div className="mt-2 divide-y divide-[var(--color-border)]">
-          <PostureRow label="Disk encryption" ok={os.diskEncrypted} />
-          <PostureRow label="Antivirus" ok={os.defenderEnabled} />
-          <PostureRow label="Firewall" ok={os.firewallEnabled} />
-          <PostureRow label="TPM" ok={os.tpmPresent} detail={os.tpmPresent ? 'present' : 'missing'} />
-          <PostureRow
-            label="Local administrators"
-            ok={os.localAdminCount == null ? null : os.localAdminCount <= 1}
-            detail={os.localAdminCount != null ? `${os.localAdminCount}` : undefined}
-          />
-          <PostureRow
-            label="Missing critical updates"
-            ok={os.missingCriticalPatches == null ? null : os.missingCriticalPatches === 0}
-            detail={os.missingCriticalPatches != null ? `${os.missingCriticalPatches}` : undefined}
-          />
+          {securityPostureRows(os).map((row) => (
+            <div key={row.label} className="flex items-center justify-between py-2">
+              <span className="text-sm">{row.label}</span>
+              {row.state === null ? (
+                <span className="text-xs text-[var(--color-content-subtle)]">not reported</span>
+              ) : (
+                <Tone tone={row.state.tone}>{row.state.text}</Tone>
+              )}
+            </div>
+          ))}
         </div>
       </Card>
     </div>
@@ -228,10 +148,7 @@ export function SoftwareTab({ assetId }: { assetId: string }) {
   if (isPending) return <Skeleton className="h-48" />;
   if (!data || data.data.length === 0) {
     return (
-      <EmptyState
-        title="No software inventory"
-        description="Installed applications appear here once discovery reports this machine."
-      />
+      <EmptyState {...ASSET_DETAIL_COPY.noSoftware} />
     );
   }
   const { totalItems, totalPages } = data.meta.page as { totalItems: number; totalPages?: number };
@@ -278,15 +195,6 @@ export function SoftwareTab({ assetId }: { assetId: string }) {
   );
 }
 
-const DIMENSION_LABELS: Record<string, string> = {
-  battery: 'Battery',
-  storage: 'Storage',
-  memory: 'Memory',
-  warranty: 'Warranty',
-  security: 'Security',
-  updates: 'Updates',
-};
-
 export function HealthTab({
   assetId,
   health,
@@ -304,14 +212,11 @@ export function HealthTab({
 
   if (!health) {
     return (
-      <EmptyState
-        title="No health score"
-        description="Health is derived from discovered hardware and security posture. Nothing is known about this machine yet, so no score is shown — never a made-up one."
-      />
+      <EmptyState {...ASSET_DETAIL_COPY.noHealth} />
     );
   }
 
-  const tone = GRADE_TONE[health.grade];
+  const tone = HEALTH_GRADE_TONE[health.grade];
   return (
     <div className="grid gap-4">
       <Card className="p-5">
@@ -342,31 +247,25 @@ export function HealthTab({
               borderColor: 'var(--tone-critical-border)',
             }}
           >
-            Capped at Poor: a safety-critical dimension (security or storage) scored badly, so the
-            overall cannot read higher no matter how good the rest looks.
+            {ASSET_DETAIL_COPY.healthCapped}
           </p>
         ) : null}
         <div className="mt-4 grid gap-2.5">
           {health.subScores.map((sub) => (
             <div key={sub.key} className="grid grid-cols-[7rem_1fr_3rem] items-center gap-3 text-sm">
               <span className="text-[var(--color-content-muted)]">
-                {DIMENSION_LABELS[sub.key] ?? sub.key}
+                {healthDimensionLabel(sub.key)}
               </span>
               <div
                 className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-sunken)]"
                 role="img"
-                aria-label={`${DIMENSION_LABELS[sub.key] ?? sub.key}: ${sub.score} out of 100`}
+                aria-label={`${healthDimensionLabel(sub.key)}: ${sub.score} out of 100`}
               >
                 <div
                   className="h-full rounded-full"
                   style={{
                     width: `${sub.score}%`,
-                    backgroundColor:
-                      sub.score >= 75
-                        ? 'var(--tone-success-fg)'
-                        : sub.score >= 40
-                          ? 'var(--tone-warning-fg)'
-                          : 'var(--tone-critical-fg)',
+                    backgroundColor: `var(--tone-${healthSubScoreTone(sub.score)}-fg)`,
                   }}
                 />
               </div>
@@ -375,8 +274,7 @@ export function HealthTab({
           ))}
         </div>
         <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-content-subtle)]">
-          Computed {new Date(health.computedAt).toLocaleString()} · dimensions discovery knows
-          nothing about are excluded, not guessed.
+          Computed {new Date(health.computedAt).toLocaleString()} · {ASSET_DETAIL_COPY.healthExcluded}
         </p>
       </Card>
 

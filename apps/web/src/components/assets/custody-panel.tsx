@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, UserCheck, UserMinus, UserPlus } from 'lucide-react';
-import { PERMISSIONS, type AssetCondition, type AssetStatus } from '@techpioasset/domain';
+import { PERMISSIONS, custodyOptions, type AssetCondition, type AssetStatus } from '@techpioasset/domain';
 import { apiFetch, apiFetchPage, ApiError } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -156,13 +156,13 @@ export function CustodyPanel({
   });
 
   const isHeld = Boolean(holderId);
-  const assignable = status === 'AVAILABLE' || status === 'RESERVED';
   const busy = assign.isPending || reassign.isPending || returnAsset.isPending;
 
   // Nothing to offer: no permission, or the asset is in a state where custody
   // cannot move (under repair, disposed…). Saying nothing beats a dead button.
-  if (!canAssign && !canReturn) return null;
-  if (!isHeld && !assignable) return null;
+  // The same rule decides the phone's custody card (domain asset-detail.ts).
+  const offer = custodyOptions({ canAssign, canReturn, status, isHeld });
+  if (!offer.show) return null;
 
   const peopleOptions = (people.data?.data ?? []).filter((p) => p.id !== holderId);
 
@@ -177,17 +177,17 @@ export function CustodyPanel({
 
       {mode === null ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {!isHeld && assignable && canAssign ? (
+          {offer.assign ? (
             <Button size="sm" onClick={() => setMode('assign')}>
               <UserPlus aria-hidden="true" className="size-3.5" /> Assign
             </Button>
           ) : null}
-          {isHeld && canAssign && canReturn ? (
+          {offer.handOver ? (
             <Button size="sm" variant="secondary" onClick={() => setMode('reassign')}>
               <ArrowLeftRight aria-hidden="true" className="size-3.5" /> Hand over
             </Button>
           ) : null}
-          {isHeld && canReturn ? (
+          {offer.recordReturn ? (
             <Button size="sm" variant="secondary" onClick={() => setMode('return')}>
               <UserMinus aria-hidden="true" className="size-3.5" /> Record return
             </Button>

@@ -1,5 +1,6 @@
 export * from './state-machine';
 export * from './asset-rollup';
+export * from './asset-list';
 export * from './asset-status';
 export * from './asset-dimensions';
 export * from './request-status';
@@ -40,3 +41,4 @@ export * from './vendor-catalog';
 export * from './vendor-comparison';
 export * from './quality-check';
 export * from './spec-proposals';
+export * from './asset-detail';

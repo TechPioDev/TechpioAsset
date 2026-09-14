@@ -19,6 +19,11 @@ import {
   AVAILABILITY_STATES,
   OWNERSHIP_TYPES,
   PERMISSIONS,
+  assetHolderName,
+  assetListEmptyState,
+  assetListFilterParams,
+  defaultAssetTypeFilter,
+  type AssetListSortField,
   type AssetCondition,
   type AssetStatus,
   type LifecycleState,
@@ -39,13 +44,7 @@ import { SortableHeader } from '@/components/sortable-header';
 const DESTRUCTIVE_STATUSES = new Set(['RETIRED', 'DISPOSED', 'DONATED', 'LOST', 'STOLEN']);
 
 /** Columns the asset list can be ordered by, as the API names them. */
-type AssetSortField =
-  | 'name'
-  | 'category'
-  | 'status'
-  | 'condition'
-  | 'assignedUser'
-  | 'purchaseCost';
+type AssetSortField = AssetListSortField;
 
 interface AssetRow {
   id: string;
@@ -105,8 +104,12 @@ function AssetsTable() {
    */
   // Arriving with a filter on the URL counts as a choice: the dashboard's
   // warranty tile counts every asset type, so letting the laptop default apply
-  // on top would show a subset of the number that was clicked.
-  const [typeChosen, setTypeChosen] = useState(Boolean(params.get('warrantyWithinDays')));
+  // on top would show a subset of the number that was clicked. The same goes
+  // for a catalogue listing's units - a monitor offer filtered to laptops
+  // showed "No assets found".
+  const [typeChosen, setTypeChosen] = useState(
+    Boolean(params.get('warrantyWithinDays') || params.get('vendorProductId')),
+  );
   /**
    * Columns the API can order by, named as the API names them so a heading
    * cannot ask for a sort the server will quietly ignore.
@@ -124,24 +127,23 @@ function AssetsTable() {
    * only ever sent q and status - so filtering to monitors and pressing Export
    * downloaded the whole fleet.
    */
-  const filterParams = () => {
-    const p = new URLSearchParams();
-    if (q) p.set('q', q);
-    if (status) p.set('status', status);
-    if (lifecycle) p.set('lifecycleState', lifecycle);
-    if (availability) p.set('availabilityState', availability);
-    if (ownership) p.set('ownershipType', ownership);
-    if (type.startsWith('sub:')) p.set('subcategoryId', type.slice(4));
-    if (type.startsWith('cat:')) p.set('categoryId', type.slice(4));
-    // v2.26 - carried straight through from the URL. The dashboard's warranty
-    // tile links here with it; the page rebuilt its query from its own controls
-    // only, so the parameter was dropped and the tile landed on the whole
-    // fleet. It arrives by link rather than from a control, so the banner below
-    // is what says it is on and what turns it off.
-    if (warrantyWithinDays) p.set('warrantyWithinDays', warrantyWithinDays);
-    if (vendorProductId) p.set('vendorProductId', vendorProductId);
-    return p;
-  };
+  // The rules live in @techpioasset/domain so the phone list asks the same
+  // question. warrantyWithinDays and vendorProductId (v2.26, v2.53) are carried
+  // straight through from the URL: they arrive by link rather than from a
+  // control, so the banner above is what says they are on and turns them off.
+  const filterParams = () =>
+    new URLSearchParams(
+      assetListFilterParams({
+        q,
+        status,
+        lifecycle,
+        availability,
+        ownership,
+        type,
+        warrantyWithinDays,
+        vendorProductId,
+      }),
+    );
 
   // Click a heading to sort by it, click again to reverse - and go back to the
   // first page, because page 4 of the old order is meaningless in the new one.
@@ -176,15 +178,29 @@ function AssetsTable() {
 
   useEffect(() => {
     if (typeChosen || !categories) return;
-    const laptop = categories
-      .flatMap((c) => c.subcategories)
-      .find((sub) => sub.name.toLowerCase() === 'laptop');
-    if (laptop) setType(`sub:${laptop.id}`);
+    const laptop = defaultAssetTypeFilter(categories);
+    if (laptop) setType(laptop);
     setTypeChosen(true);
   }, [categories, typeChosen]);
 
   const { data, isPending, isError, error } = useQuery({
-    queryKey: ['assets', q, status, lifecycle, availability, ownership, type, page, sort, order],
+    // Every filter belongs in the key. The two that arrive by link were missing,
+    // so clearing their banner changed the request but not the key, and the
+    // filtered rows stayed on screen.
+    queryKey: [
+      'assets',
+      q,
+      status,
+      lifecycle,
+      availability,
+      ownership,
+      type,
+      warrantyWithinDays,
+      vendorProductId,
+      page,
+      sort,
+      order,
+    ],
     queryFn: () => apiFetchPage<AssetRow>(`/assets?${query.toString()}`),
     // Hold the first fetch until the default type is settled, so the table does
     // not show the whole fleet for a moment and then replace it. If the
@@ -492,14 +508,7 @@ function AssetsTable() {
         ) : isError ? (
           <ErrorState title="Could not load assets" detail={(error as Error).message} />
         ) : data.data.length === 0 ? (
-          <EmptyState
-            title="No assets found"
-            description={
-              q || status
-                ? 'Try clearing the search or status filter.'
-                : 'Nothing has been assigned to you yet.'
-            }
-          />
+          <EmptyState {...assetListEmptyState({ q, status })} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -608,9 +617,7 @@ function AssetsTable() {
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
-                      {asset.assignedUser?.profile
-                        ? `${asset.assignedUser.profile.firstName} ${asset.assignedUser.profile.lastName}`
-                        : (asset.assignedUser?.email ?? '—')}
+                      {assetHolderName(asset.assignedUser)}
                     </td>
                     {showCost ? (
                       <td className="px-4 py-2.5 text-right tabular-nums">

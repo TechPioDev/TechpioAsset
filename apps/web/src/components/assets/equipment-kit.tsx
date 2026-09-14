@@ -24,7 +24,7 @@ import {
   UserMinus,
   type LucideIcon,
 } from 'lucide-react';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { PERMISSIONS, assetIdentifier } from '@techpioasset/domain';
 import { apiFetch, apiFetchPage, ApiError } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -91,12 +91,7 @@ function typeIcon(key: string | undefined): LucideIcon {
 }
 
 /** Serial is the usual identifier; a phone is known by its IMEI, a NIC by MAC. */
-function identifierOf(a: KitAsset): { label: string; value: string } | null {
-  if (a.serialNumber) return { label: 'SN', value: a.serialNumber };
-  if (a.imei) return { label: 'IMEI', value: a.imei };
-  if (a.macAddress) return { label: 'MAC', value: a.macAddress };
-  return null;
-}
+const identifierOf = (a: KitAsset) => assetIdentifier(a);
 
 /** A consumable the person holds: counted, not serialised. */
 interface HeldConsumable {

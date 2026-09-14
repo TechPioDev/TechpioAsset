@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Camera, ImageOff, Trash2 } from 'lucide-react';
 import { apiFetch, API_BASE, getAccessToken } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { PERMISSIONS, conditionPhotosEmptyMessage } from '@techpioasset/domain';
 import { Button, Card, Skeleton } from '@/components/ui';
 import { PhotoLightbox, type LightboxPhoto } from './photo-lightbox';
 
@@ -377,11 +377,7 @@ export function ConditionPhotos({
           people's trust.
         */
         <p className="mt-3 text-sm text-[var(--color-content-muted)]">
-          {current
-            ? 'No photos recorded yet.'
-            : holderName
-              ? `Recorded as being with ${holderName}, but never handed over through the system — imported records carry no handover. Use "Hand over" above, and photos will attach to it.`
-              : 'Photos attach to a handover or a return, so there is nothing to attach them to until this asset is given to someone.'}
+          {conditionPhotosEmptyMessage(Boolean(current), holderName)}
         </p>
       ) : (
         <ul className="mt-4 grid gap-4">
