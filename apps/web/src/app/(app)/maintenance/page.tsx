@@ -2,10 +2,13 @@
 
 import Link from 'next/link';
 import { Suspense, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, User } from 'lucide-react';
-import { apiFetchPage } from '@/lib/api-client';
-import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
+import { PERMISSIONS, maintenanceStatusLabel, workOrderActions } from '@techpioasset/domain';
+import { apiFetch, apiFetchPage, ApiError } from '@/lib/api-client';
+import { Button, Card, EmptyState, ErrorState, Skeleton, linkButtonCls } from '@/components/ui';
+import { useConfirm } from '@/providers/confirm-provider';
+import { useToast } from '@/providers/toast-provider';
 import { SchedulesPanel } from '@/components/maintenance/schedules-panel';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
@@ -14,6 +17,11 @@ import { useAuth } from '@/providers/auth-provider';
  * v2.5 H5 — the work-order board. Open work grouped by status with SLA
  * indicators: an overdue deadline reads red, an escalated order says so.
  * Closed work keeps the table treatment below the board.
+ *
+ * Sign-off: cards carry the next step for the viewer - Accept for the assigned
+ * technician, Complete (opens the form, so cost and downtime are not lost),
+ * Approve / Send back once work awaits approval. Gated by the same domain rules
+ * the API enforces.
  */
 
 interface MaintenanceRow {
@@ -24,6 +32,8 @@ interface MaintenanceRow {
   scheduledFor: string | null;
   completedAt: string | null;
   technicianId: string | null;
+  acceptedById: string | null;
+  completedById: string | null;
   slaDueAt: string | null;
   escalatedAt: string | null;
   asset: { id: string; assetTag: string; name: string } | null;
@@ -35,6 +45,7 @@ const COLUMNS = [
   { key: 'SCHEDULED', label: 'Scheduled', tone: 'info' },
   { key: 'IN_PROGRESS', label: 'In progress', tone: 'warning' },
   { key: 'ON_HOLD', label: 'On hold', tone: 'neutral' },
+  { key: 'AWAITING_APPROVAL', label: 'Awaiting approval', tone: 'info' },
 ] as const;
 
 const CLOSED = new Set(['COMPLETED', 'CANCELLED', 'FAILED']);
@@ -75,7 +86,27 @@ function MaintenanceBoard() {
   const [openOnly] = useState(params.get('open') === 'true');
   // "Mine" - the phone's technician filter: work orders assigned to me. Read
   // from the URL on every render so the choice survives a reload and a link.
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const canManage = can(PERMISSIONS.MAINTENANCE_MANAGE);
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const act = useMutation({
+    mutationFn: (input: { id: string; action: 'accept' | 'approve' }) =>
+      apiFetch(`/maintenance/${input.id}/${input.action}`, { method: 'POST', body: {} }),
+    onSuccess: (_data, input) => {
+      toast.success(
+        input.action === 'accept' ? 'Work order accepted.' : 'Approved - work order closed.',
+      );
+      void queryClient.invalidateQueries({ queryKey: ['maintenance'] });
+    },
+    onError: (caught) =>
+      toast.error(
+        caught instanceof ApiError
+          ? (caught.problem.detail ?? caught.problem.title)
+          : 'The action failed.',
+      ),
+  });
   const mine = params.get('mine') === '1';
   const { data, isPending, isError, error } = useQuery({
     queryKey: ['maintenance', openOnly, mine ? (user?.id ?? null) : null],
@@ -97,8 +128,8 @@ function MaintenanceBoard() {
 
   if (isPending) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} className="h-56" />
         ))}
       </div>
@@ -137,7 +168,7 @@ function MaintenanceBoard() {
           }
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {COLUMNS.map((column) => {
             const rows = open.filter((row) => row.status === column.key);
             return (
@@ -160,10 +191,21 @@ function MaintenanceBoard() {
                       Nothing here
                     </p>
                   ) : (
-                    rows.map((row) => (
-                      <Link key={row.id} href={`/maintenance/${row.id}`} className="block">
-                        <Card className="grid gap-1.5 p-3 transition-colors hover:border-[var(--color-border-strong)]">
-                          <p className="text-sm font-medium leading-snug">{row.title}</p>
+                    rows.map((row) => {
+                      const actions = workOrderActions(row, { id: user?.id ?? '', canManage });
+                      return (
+                        // The card is not one big link any more: it holds buttons,
+                        // and a button inside a link is not operable by keyboard.
+                        <Card
+                          key={row.id}
+                          className="grid gap-1.5 p-3 transition-colors hover:border-[var(--color-border-strong)]"
+                        >
+                          <Link
+                            href={`/maintenance/${row.id}`}
+                            className="text-sm font-medium leading-snug hover:underline"
+                          >
+                            {row.title}
+                          </Link>
                           <p className="text-xs text-[var(--color-content-subtle)]">
                             {row.asset?.assetTag ?? '—'} · {row.type.toLowerCase()}
                           </p>
@@ -183,13 +225,64 @@ function MaintenanceBoard() {
                             ) : null}
                             {row.technicianId ? (
                               <span className="inline-flex items-center gap-1 text-xs text-[var(--color-content-subtle)]">
-                                <User aria-hidden="true" className="size-3" /> assigned
+                                <User aria-hidden="true" className="size-3" />
+                                {row.acceptedById === row.technicianId ? 'accepted' : 'assigned'}
                               </span>
                             ) : null}
                           </div>
+                          {actions.accept ||
+                          actions.complete ||
+                          actions.approve ||
+                          actions.sendBack ? (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {actions.accept ? (
+                                <Button
+                                  size="sm"
+                                  loading={act.isPending && act.variables?.id === row.id}
+                                  onClick={() => act.mutate({ id: row.id, action: 'accept' })}
+                                >
+                                  Accept
+                                </Button>
+                              ) : null}
+                              {actions.complete ? (
+                                // The completion form carries cost, downtime and notes.
+                                <Link
+                                  href={`/maintenance/${row.id}#complete`}
+                                  className={linkButtonCls.secondary}
+                                >
+                                  Complete…
+                                </Link>
+                              ) : null}
+                              {actions.approve ? (
+                                <Button
+                                  size="sm"
+                                  loading={act.isPending && act.variables?.id === row.id}
+                                  onClick={async () => {
+                                    const ok = await confirm({
+                                      title: `Approve “${row.title}”?`,
+                                      body: 'The work order closes and the asset returns to service if the technician asked for it.',
+                                      confirmLabel: 'Approve',
+                                    });
+                                    if (ok) act.mutate({ id: row.id, action: 'approve' });
+                                  }}
+                                >
+                                  Approve
+                                </Button>
+                              ) : null}
+                              {actions.sendBack ? (
+                                // Sending back needs a reason; the detail page asks for it.
+                                <Link
+                                  href={`/maintenance/${row.id}#signoff`}
+                                  className={linkButtonCls.secondary}
+                                >
+                                  Send back…
+                                </Link>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </Card>
-                      </Link>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </section>
@@ -208,10 +301,18 @@ function MaintenanceBoard() {
               <caption className="sr-only">Recently closed work orders</caption>
               <thead>
                 <tr className="border-b border-[var(--color-border)] text-left">
-                  <th scope="col" className="px-4 py-2.5 font-medium">Work</th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">Asset</th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">Outcome</th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">Closed</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Work
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Asset
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Outcome
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Closed
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
@@ -234,7 +335,7 @@ function MaintenanceBoard() {
                           borderColor: `var(--tone-${CLOSED_TONE[row.status] ?? 'neutral'}-border)`,
                         }}
                       >
-                        {row.status.toLowerCase()}
+                        {maintenanceStatusLabel(row.status)}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
@@ -252,7 +353,9 @@ function MaintenanceBoard() {
 }
 
 function isSlaOverdue(row: MaintenanceRow): boolean {
-  return row.slaDueAt != null && new Date(row.slaDueAt).getTime() < Date.now() && !CLOSED.has(row.status);
+  return (
+    row.slaDueAt != null && new Date(row.slaDueAt).getTime() < Date.now() && !CLOSED.has(row.status)
+  );
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { PERMISSIONS, workOrderActions } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { useSession } from '../../src/providers/session';
@@ -12,6 +13,11 @@ import { WO_TONE, isSlaOverdue, woLabel } from '../work-orders';
  * v2.5 H6 - the technician's work-order detail: start / hold / resume /
  * complete, diagnosis notes, and part draw through the v2.4 guarded stock.
  * A refused draw shows the API's honest numbers in an alert - nothing moves.
+ *
+ * Sign-off: the assigned technician accepts before starting; completing sends
+ * the job for approval; another manager approves (Closed) or sends it back with
+ * a reason; any open job can be cancelled. Buttons follow the same domain rules
+ * the API enforces.
  */
 
 interface PartRow {
@@ -31,6 +37,10 @@ interface WoDetail {
   slaDueAt: string | null;
   escalatedAt: string | null;
   technicianId: string | null;
+  acceptedById: string | null;
+  completedById: string | null;
+  approvedAt: string | null;
+  restoreAssetOnApproval: boolean | null;
   completedAt: string | null;
   resolutionNotes: string | null;
   asset: { id: string; assetTag: string; name: string } | null;
@@ -50,7 +60,7 @@ interface StockLocation {
 
 export default function WorkOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api } = useSession();
+  const { api, user } = useSession();
   const { c, scheme, spacing } = useTheme();
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
 
@@ -58,6 +68,7 @@ export default function WorkOrderScreen() {
   const [busy, setBusy] = useState(false);
   const [diagnosis, setDiagnosis] = useState('');
   const [notes, setNotes] = useState('');
+  const [sendBackReason, setSendBackReason] = useState('');
   const [items, setItems] = useState<StockItem[]>([]);
   const [locations, setLocations] = useState<StockLocation[]>([]);
   const [itemId, setItemId] = useState('');
@@ -87,11 +98,38 @@ export default function WorkOrderScreen() {
     try {
       await api.request(`/maintenance/${id}/${path}`, { method, body: body ?? {} });
       await load();
+      return true;
     } catch (error) {
       Alert.alert('Could not update', error instanceof Error ? error.message : 'Try again.');
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  // Two buttons each - Android shows at most three.
+  function confirmApprove(restoreAsset: boolean | null) {
+    Alert.alert(
+      'Approve this work order?',
+      restoreAsset === false
+        ? 'It closes. The asset stays out of service, as the technician asked.'
+        : 'It closes and the asset returns to service.',
+      [
+        { text: 'Not yet', style: 'cancel' },
+        { text: 'Approve', onPress: () => void act('approve') },
+      ],
+    );
+  }
+
+  function confirmCancel() {
+    Alert.alert(
+      'Cancel this work order?',
+      'It closes without being completed. This cannot be undone.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        { text: 'Cancel work order', style: 'destructive', onPress: () => void act('cancel') },
+      ],
+    );
   }
 
   async function drawPart() {
@@ -128,6 +166,12 @@ export default function WorkOrderScreen() {
   const overdue = isSlaOverdue(wo);
   const open = !['COMPLETED', 'CANCELLED', 'FAILED'].includes(wo.status);
   const working = wo.status === 'IN_PROGRESS' || wo.status === 'ON_HOLD';
+  const actions = workOrderActions(wo, {
+    id: user?.id ?? '',
+    canManage: user?.permissions.includes(PERMISSIONS.MAINTENANCE_MANAGE) ?? false,
+  });
+  const unaccepted = wo.technicianId !== null && wo.acceptedById !== wo.technicianId;
+  const awaitingApproval = wo.status === 'AWAITING_APPROVAL';
 
   return (
     <Screen scroll>
@@ -204,7 +248,12 @@ export default function WorkOrderScreen() {
           <SectionTitle>Outcome</SectionTitle>
           <Card style={{ marginBottom: spacing.xl }}>
             <Text style={{ color: c.muted, fontSize: 13 }}>
-              Completed {new Date(wo.completedAt).toLocaleDateString()}.
+              Completed {new Date(wo.completedAt).toLocaleDateString()}
+              {wo.approvedAt
+                ? `, approved ${new Date(wo.approvedAt).toLocaleDateString()}.`
+                : awaitingApproval
+                  ? ', awaiting approval.'
+                  : '.'}
               {wo.resolutionNotes ? ` ${wo.resolutionNotes}` : ''}
             </Text>
           </Card>
@@ -282,10 +331,30 @@ export default function WorkOrderScreen() {
         <>
           <SectionTitle>Actions</SectionTitle>
           <View style={{ gap: spacing.md }}>
-            {wo.status === 'REQUESTED' || wo.status === 'SCHEDULED' ? (
+            {actions.accept ? (
+              <>
+                <Text style={{ color: c.muted, fontSize: 13 }}>
+                  This job is assigned to you. Accept it to start work.
+                </Text>
+                <Button
+                  label="Accept work order"
+                  icon="checkmark-circle-outline"
+                  loading={busy}
+                  onPress={() => void act('accept')}
+                />
+              </>
+            ) : null}
+            {actions.start ? (
               <Button label="Start work" icon="play-outline" loading={busy} onPress={() => void act('start')} />
             ) : null}
-            {wo.status === 'IN_PROGRESS' ? (
+            {unaccepted &&
+            !actions.accept &&
+            ['REQUESTED', 'SCHEDULED', 'ON_HOLD'].includes(wo.status) ? (
+              <Text style={{ color: c.muted, fontSize: 13 }}>
+                Waiting for the assigned technician to accept before work can start.
+              </Text>
+            ) : null}
+            {actions.hold ? (
               <Button
                 label="Put on hold"
                 variant="secondary"
@@ -294,20 +363,23 @@ export default function WorkOrderScreen() {
                 onPress={() => void act('hold')}
               />
             ) : null}
-            {wo.status === 'ON_HOLD' ? (
+            {actions.resume ? (
               <Button label="Resume work" icon="play-outline" loading={busy} onPress={() => void act('resume')} />
             ) : null}
-            {wo.status === 'IN_PROGRESS' ? (
+            {actions.complete ? (
               <>
                 <Field
                   label="Resolution notes (optional)"
                   value={notes}
                   onChangeText={setNotes}
-                  placeholder="Replaced the battery, tested charge…"
+                  placeholder="Replaced the battery, tested charge..."
                   multiline
                 />
+                <Text style={{ color: c.muted, fontSize: 12 }}>
+                  Another manager approves the work; the asset returns to service then.
+                </Text>
                 <Button
-                  label="Complete and return to service"
+                  label="Complete and send for approval"
                   icon="checkmark-done-outline"
                   loading={busy}
                   onPress={() =>
@@ -319,6 +391,54 @@ export default function WorkOrderScreen() {
                   }
                 />
               </>
+            ) : null}
+            {awaitingApproval && !actions.approve ? (
+              <Text style={{ color: c.muted, fontSize: 13 }}>
+                {wo.completedById === user?.id
+                  ? 'You completed this job, so another manager must approve it or send it back.'
+                  : 'Waiting for a manager to approve it.'}
+              </Text>
+            ) : null}
+            {actions.approve ? (
+              <Button
+                label="Approve and close"
+                icon="shield-checkmark-outline"
+                loading={busy}
+                onPress={() => confirmApprove(wo.restoreAssetOnApproval)}
+              />
+            ) : null}
+            {actions.sendBack ? (
+              <Card>
+                <Field
+                  label="Reason for sending back"
+                  value={sendBackReason}
+                  onChangeText={setSendBackReason}
+                  placeholder="What still needs doing?"
+                  maxLength={500}
+                  multiline
+                />
+                <Button
+                  label="Send back"
+                  variant="secondary"
+                  icon="arrow-undo-outline"
+                  loading={busy}
+                  disabled={!sendBackReason.trim()}
+                  onPress={() =>
+                    void act('send-back', { reason: sendBackReason.trim() }).then((ok) => {
+                      if (ok) setSendBackReason('');
+                    })
+                  }
+                />
+              </Card>
+            ) : null}
+            {actions.cancel ? (
+              <Button
+                label="Cancel work order"
+                variant="danger"
+                icon="close-circle-outline"
+                loading={busy}
+                onPress={confirmCancel}
+              />
             ) : null}
           </View>
         </>

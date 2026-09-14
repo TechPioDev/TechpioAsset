@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Upload } from 'lucide-react';
+import { FilePlus2, Upload } from 'lucide-react';
 import { VERIFICATION_STATUS_TOKENS } from '@techpioasset/ui-tokens';
 import { PERMISSIONS, type VerificationStatus } from '@techpioasset/domain';
 import { apiFetchPage } from '@/lib/api-client';
@@ -41,19 +41,39 @@ function InvoicesTable() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Invoices</h1>
           <p className="mt-1 text-sm text-[var(--color-content-muted)]">
-            {canUpload
-              ? 'Scan a bill or enter it manually, then verify against the record.'
-              : 'Bills captured by Finance, verified against asset and purchase records.'}
+            {canUpload ? (
+              <>
+                Scan a bill or{' '}
+                <Link
+                  href="/invoices/new"
+                  className="font-medium text-[var(--color-brand)] hover:underline"
+                >
+                  enter it manually
+                </Link>
+                , then verify against the record.
+              </>
+            ) : (
+              'Bills captured by Finance, verified against asset and purchase records.'
+            )}
           </p>
         </div>
         {canUpload ? (
-          <Link
-            href="/invoices/upload"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--color-brand)] px-4 text-sm font-medium text-[var(--color-brand-contrast)] hover:bg-[var(--color-brand-hover)]"
-          >
-            <Upload aria-hidden="true" className="size-4" />
-            Scan a bill
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/invoices/new"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-sunken)]"
+            >
+              <FilePlus2 aria-hidden="true" className="size-4" />
+              Add invoice
+            </Link>
+            <Link
+              href="/invoices/upload"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--color-brand)] px-4 text-sm font-medium text-[var(--color-brand-contrast)] hover:bg-[var(--color-brand-hover)]"
+            >
+              <Upload aria-hidden="true" className="size-4" />
+              Scan a bill
+            </Link>
+          </div>
         ) : null}
       </header>
 
@@ -71,7 +91,7 @@ function InvoicesTable() {
             title="No invoices yet"
             description={
               canUpload
-                ? 'Scan your first bill to get started.'
+                ? 'Scan your first bill or add one manually to get started.'
                 : 'No bills have been captured yet.'
             }
           />

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, Upload } from 'lucide-react';
@@ -72,7 +73,14 @@ export default function InvoiceUploadPage() {
         <h1 className="text-xl font-semibold tracking-tight">Upload invoice</h1>
         <p className="mt-1 text-sm text-[var(--color-content-muted)]">
           PDF, JPG, PNG or HEIC. If AI is enabled it will extract the fields for you to review;
-          otherwise you can enter them manually on the next screen.
+          otherwise you can enter them manually on the next screen. No file?{' '}
+          <Link
+            href="/invoices/new"
+            className="font-medium text-[var(--color-brand)] hover:underline"
+          >
+            Enter the invoice manually
+          </Link>
+          .
         </p>
       </header>
 

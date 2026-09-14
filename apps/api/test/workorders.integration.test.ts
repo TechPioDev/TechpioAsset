@@ -157,6 +157,8 @@ describe('hold and resume', () => {
       .set(auth(s.itAdmin))
       .send({ replacementRecommended: false, restoreAsset: true });
     expect(done.status, JSON.stringify(done.body)).toBe(201);
+    // Completion goes for sign-off; it no longer closes the order by itself.
+    expect(done.body.data.status).toBe('AWAITING_APPROVAL');
   });
 });
 
@@ -218,7 +220,10 @@ describe('SLA escalation', () => {
         technicianId: s.itAdmin.user.id,
         slaDueAt: new Date(Date.now() - 3_600_000).toISOString(), // already overdue
       });
-    await api(app).post(`${base}/${id}/start`).set(auth(s.itAdmin));
+    // An assigned order starts only once its technician has accepted it.
+    await api(app).post(`${base}/${id}/accept`).set(auth(s.itAdmin));
+    const started = await api(app).post(`${base}/${id}/start`).set(auth(s.itAdmin));
+    expect(started.status, JSON.stringify(started.body)).toBe(201);
 
     const first = await sweep.runWorkOrderSweep();
     const mine = (await prisma.client.maintenanceRecord.findUnique({ where: { id } }))!;

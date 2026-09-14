@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, Plus } from 'lucide-react';
+import { Boxes, PackagePlus, Plus } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
-import { apiFetch, apiFetchPage } from '@/lib/api-client';
+import { ApiError, apiFetch, apiFetchPage } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
-import { Button, Card, EmptyState, ErrorState, Field, Skeleton } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, NativeSelect, Skeleton } from '@/components/ui';
 import { TonePill, fmtDate, inputCls } from '@/components/procurement/shared';
 
 interface Level {
@@ -47,7 +47,14 @@ interface Batch {
 }
 interface Item {
   id: string;
+  sku: string;
   name: string;
+}
+interface Category {
+  id: string;
+  name: string;
+  defaultTrackingType: 'INDIVIDUAL' | 'QUANTITY';
+  subcategories: { id: string; name: string }[];
 }
 
 const MOVEMENT_TONE: Record<string, string> = {
@@ -66,8 +73,11 @@ export default function InventoryPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<'levels' | 'batches' | 'ledger' | 'locations'>('levels');
 
-  // Adjust / transfer form state (inline panel, one at a time).
-  const [action, setAction] = useState<'adjust' | 'transfer' | null>(null);
+  // Add / adjust / transfer form state (inline panel, one at a time). "add" is
+  // an adjustment with a positive delta - the same audited ledger path, framed
+  // as the everyday act of putting stock on a shelf.
+  const [action, setAction] = useState<'add' | 'adjust' | 'transfer' | null>(null);
+  const [newItemOpen, setNewItemOpen] = useState(false);
   const [itemId, setItemId] = useState('');
   const [locationId, setLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
@@ -105,10 +115,15 @@ export default function InventoryPage() {
 
   const run = useMutation({
     mutationFn: () => {
-      if (action === 'adjust') {
+      if (action === 'adjust' || action === 'add') {
         return apiFetch('/stock/adjust', {
           method: 'POST',
-          body: { inventoryItemId: itemId, stockLocationId: locationId, delta: amount, reason: reason.trim() },
+          body: {
+            inventoryItemId: itemId,
+            stockLocationId: locationId,
+            delta: action === 'add' ? Math.abs(amount) : amount,
+            reason: reason.trim(),
+          },
         });
       }
       return apiFetch('/stock/transfer', {
@@ -123,7 +138,7 @@ export default function InventoryPage() {
       });
     },
     onSuccess: () => {
-      toast.success(action === 'adjust' ? 'Stock adjusted' : 'Stock transferred');
+      toast.success(action === 'add' ? 'Stock added' : action === 'adjust' ? 'Stock adjusted' : 'Stock transferred');
       setAction(null);
       setReason('');
       refresh();
@@ -137,9 +152,24 @@ export default function InventoryPage() {
   const validForm =
     itemId &&
     locationId &&
-    (action === 'adjust'
-      ? amount !== 0 && reason.trim().length >= 5
-      : amount > 0 && toLocationId && toLocationId !== locationId);
+    (action === 'add'
+      ? Number.isInteger(amount) && amount > 0 && reason.trim().length >= 5
+      : action === 'adjust'
+        ? amount !== 0 && reason.trim().length >= 5
+        : amount > 0 && toLocationId && toLocationId !== locationId);
+
+  /** Open the add-stock panel, optionally preset to one item and shelf. */
+  const openAdd = (preset?: { itemId: string; locationId?: string }) => {
+    setAction('add');
+    setAmount(1);
+    setReason('');
+    if (preset) {
+      setItemId(preset.itemId);
+      if (preset.locationId) setLocationId(preset.locationId);
+    }
+  };
+  const noItems = items.isSuccess && items.data.length === 0;
+  const noLocations = locations.isSuccess && locations.data.length === 0;
 
   return (
     <div className="grid gap-5">
@@ -155,7 +185,17 @@ export default function InventoryPage() {
             The movement ledger is the record; levels are its rollup, never edited directly.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {canAdjust ? (
+            <Button variant="secondary" onClick={() => setNewItemOpen(true)}>
+              <Plus className="size-4" /> New item
+            </Button>
+          ) : null}
+          {canAdjust ? (
+            <Button onClick={() => (action === 'add' ? setAction(null) : openAdd())}>
+              <PackagePlus className="size-4" /> Add stock
+            </Button>
+          ) : null}
           {canAdjust ? (
             <Button variant="ghost" onClick={() => setAction(action === 'adjust' ? null : 'adjust')}>
               Adjust
@@ -169,14 +209,43 @@ export default function InventoryPage() {
         </div>
       </header>
 
+      {newItemOpen ? (
+        <NewItemDialog
+          canEnterCost={can(PERMISSIONS.ASSETS_COST_READ)}
+          onClose={() => setNewItemOpen(false)}
+          onCreated={(created) => {
+            setNewItemOpen(false);
+            void qc.invalidateQueries({ queryKey: ['stock-items'] });
+            // Straight on to the next thing anyone does with a new item.
+            openAdd({ itemId: created.id });
+          }}
+        />
+      ) : null}
+
+      {action && (noItems || noLocations) && action !== 'transfer' ? (
+        <Card className="p-4 text-sm text-[var(--color-content-muted)]">
+          {noItems ? 'There are no stock items yet - create one with “New item” first. ' : ''}
+          {noLocations
+            ? can(PERMISSIONS.INVENTORY_LOCATIONS_MANAGE)
+              ? 'There are no stock locations yet - add one on the Locations tab.'
+              : 'There are no stock locations yet - ask an Inventory Manager to add one.'
+            : ''}
+        </Card>
+      ) : null}
+
       {action ? (
         <Card className="flex flex-wrap items-end gap-3 p-4">
+          {action === 'add' ? (
+            <p className="w-full text-[13px] font-semibold uppercase tracking-wide text-[var(--color-content-subtle)]">
+              Add stock to a location
+            </p>
+          ) : null}
           <div>
             <label htmlFor="inv-item" className="mb-1 block text-[13px] font-medium">Item</label>
             <select id="inv-item" value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>
               <option value="">Choose…</option>
               {(items.data ?? []).map((i) => (
-                <option key={i.id} value={i.id}>{i.name}</option>
+                <option key={i.id} value={i.id}>{i.name} · {i.sku}</option>
               ))}
             </select>
           </div>
@@ -206,11 +275,13 @@ export default function InventoryPage() {
           ) : null}
           <div>
             <label htmlFor="inv-qty" className="mb-1 block text-[13px] font-medium">
-              {action === 'adjust' ? 'Delta (+/−)' : 'Quantity'}
+              {action === 'adjust' ? 'Delta (+/−)' : action === 'add' ? 'Quantity to add' : 'Quantity'}
             </label>
             <input
               id="inv-qty"
               type="number"
+              min={action === 'adjust' ? undefined : 1}
+              step={action === 'add' ? 1 : undefined}
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
               className={`${inputCls} w-28`}
@@ -218,18 +289,25 @@ export default function InventoryPage() {
           </div>
           <div className="min-w-56 flex-1">
             <label htmlFor="inv-reason" className="mb-1 block text-[13px] font-medium">
-              {action === 'adjust' ? 'Reason (required)' : 'Note'}
+              {action === 'transfer' ? 'Note' : 'Reason (required)'}
             </label>
             <input
               id="inv-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={action === 'adjust' ? 'Adjustments are audited' : 'Optional'}
+              placeholder={
+                action === 'add'
+                  ? 'e.g. Opening stock count, bought locally'
+                  : action === 'adjust'
+                    ? 'Adjustments are audited'
+                    : 'Optional'
+              }
               className={inputCls}
             />
           </div>
           <Button loading={run.isPending} disabled={!validForm} onClick={() => run.mutate()}>
-            <Plus className="size-4" /> {action === 'adjust' ? 'Post adjustment' : 'Move stock'}
+            <Plus className="size-4" />{' '}
+            {action === 'add' ? 'Add stock' : action === 'adjust' ? 'Post adjustment' : 'Move stock'}
           </Button>
         </Card>
       ) : null}
@@ -266,7 +344,29 @@ export default function InventoryPage() {
           <ErrorState title="Could not load stock" detail={(levels.error as Error).message} />
         ) : levels.data.data.length === 0 ? (
           <Card className="p-8">
-            <EmptyState title="No stock yet" description="Receive a purchase order into a location, or post an adjustment." />
+            <EmptyState
+              title="No stock yet"
+              description={
+                canAdjust
+                  ? noItems
+                    ? 'Create your first stock item, then add the quantity you have on the shelf.'
+                    : 'Add stock to a location, or receive a purchase order into one.'
+                  : 'Receive a purchase order into a location, or post an adjustment.'
+              }
+              action={
+                canAdjust ? (
+                  noItems ? (
+                    <Button onClick={() => setNewItemOpen(true)}>
+                      <Plus className="size-4" /> New item
+                    </Button>
+                  ) : (
+                    <Button onClick={() => openAdd()}>
+                      <PackagePlus className="size-4" /> Add stock
+                    </Button>
+                  )
+                ) : undefined
+              }
+            />
           </Card>
         ) : (
           <Card className="overflow-x-auto p-0">
@@ -278,6 +378,11 @@ export default function InventoryPage() {
                   <th className="px-4 py-3 font-semibold">On hand</th>
                   <th className="px-4 py-3 font-semibold">Reserved</th>
                   <th className="px-4 py-3 font-semibold">Available</th>
+                  {canAdjust ? (
+                    <th className="px-4 py-3 font-semibold">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
@@ -297,6 +402,21 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 tabular-nums">{reserved}</td>
                       <td className="px-4 py-3 font-semibold tabular-nums">{Math.max(0, qty - reserved)}</td>
+                      {canAdjust ? (
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Add stock of ${l.inventoryItem.name} at ${l.stockLocation.name}`}
+                            onClick={() => {
+                              openAdd({ itemId: l.inventoryItem.id, locationId: l.stockLocation.id });
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                          >
+                            <PackagePlus className="size-3.5" /> Add
+                          </Button>
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
@@ -406,6 +526,150 @@ export default function InventoryPage() {
           {can(PERMISSIONS.INVENTORY_LOCATIONS_MANAGE) ? <NewLocationCard onCreated={() => void qc.invalidateQueries({ queryKey: ['stock-locations'] })} /> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A new item in the stock catalogue. Describes the item only - quantity is
+ * added afterwards through the audited adjust path, which this dialog hands
+ * straight on to. Purchase cost is shown only to roles that may see money.
+ */
+function NewItemDialog({
+  canEnterCost,
+  onClose,
+  onCreated,
+}: {
+  canEnterCost: boolean;
+  onClose: () => void;
+  onCreated: (item: { id: string; name: string }) => void;
+}) {
+  const toast = useToast();
+  const categories = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => apiFetch<Category[]>('/categories'),
+  });
+  const [name, setName] = useState('');
+  const [sku, setSku] = useState('');
+  const [unit, setUnit] = useState('unit');
+  const [categoryId, setCategoryId] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
+  const [minStock, setMinStock] = useState('');
+  const [unitCost, setUnitCost] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Quantity-tracked categories first: they are the ones stock is kept in.
+  const sorted = [...(categories.data ?? [])].sort(
+    (a, b) => Number(b.defaultTrackingType === 'QUANTITY') - Number(a.defaultTrackingType === 'QUANTITY'),
+  );
+  const subcategories = sorted.find((c) => c.id === categoryId)?.subcategories ?? [];
+
+  const create = useMutation({
+    mutationFn: () =>
+      apiFetch<{ id: string; name: string }>('/stock/items', {
+        method: 'POST',
+        body: {
+          name: name.trim(),
+          sku: sku.trim(),
+          unit: unit.trim() || 'unit',
+          categoryId,
+          ...(subcategoryId ? { subcategoryId } : {}),
+          ...(minStock.trim() !== '' ? { minStock: Number(minStock) } : {}),
+          ...(canEnterCost && unitCost.trim() ? { unitCost: unitCost.trim(), currency: 'INR' } : {}),
+        },
+      }),
+    onSuccess: (item) => {
+      toast.success(`${item.name} added to the catalogue`);
+      onCreated(item);
+    },
+    onError: (e) => {
+      if (e instanceof ApiError) setFieldErrors(e.fieldErrors);
+      toast.error(e instanceof Error ? e.message : 'Could not create the item');
+    },
+  });
+
+  const minStockBad = minStock.trim() !== '' && !(Number(minStock) >= 0);
+  const costBad = canEnterCost && unitCost.trim() !== '' && !/^\d{1,12}(\.\d{1,2})?$/.test(unitCost.trim());
+  const valid = name.trim().length >= 2 && sku.trim().length >= 2 && categoryId && !minStockBad && !costBad;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="New stock item">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-xl">
+        <h2 className="text-[15px] font-semibold">New stock item</h2>
+        <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+          Adds the item to the catalogue. You add the quantity on the shelf next, with a reason - every
+          unit is recorded in the ledger.
+        </p>
+        <form
+          className="mt-4 grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) create.mutate();
+          }}
+        >
+          <Field label="Name" htmlFor="ni-name" error={fieldErrors.name}>
+            <input id="ni-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. HDMI cable 2m" className={inputCls} />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="SKU" htmlFor="ni-sku" hint="Unique in your company" error={fieldErrors.sku}>
+              <input id="ni-sku" value={sku} onChange={(e) => setSku(e.target.value.toUpperCase())} placeholder="CAB-HDMI-2M" className={inputCls} />
+            </Field>
+            <Field label="Unit" htmlFor="ni-unit" hint="pcs, box, metre…" error={fieldErrors.unit}>
+              <input id="ni-unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} />
+            </Field>
+            <Field label="Category" htmlFor="ni-cat" error={fieldErrors.categoryId}>
+              <NativeSelect
+                id="ni-cat"
+                className="w-full"
+                value={categoryId}
+                onChange={(e) => {
+                  setCategoryId(e.target.value);
+                  setSubcategoryId('');
+                }}
+              >
+                <option value="">{categories.isPending ? 'Loading…' : 'Choose a category'}</option>
+                {sorted.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </NativeSelect>
+            </Field>
+            {subcategories.length > 0 ? (
+              <Field label="Subcategory" htmlFor="ni-sub">
+                <NativeSelect id="ni-sub" className="w-full" value={subcategoryId} onChange={(e) => setSubcategoryId(e.target.value)}>
+                  <option value="">None</option>
+                  {subcategories.map((sc) => (
+                    <option key={sc.id} value={sc.id}>{sc.name}</option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            ) : null}
+            <Field
+              label="Low-stock level"
+              htmlFor="ni-min"
+              hint="Alert when a location drops to this"
+              error={minStockBad ? 'Enter zero or more' : fieldErrors.minStock}
+            >
+              <input id="ni-min" type="number" min={0} value={minStock} onChange={(e) => setMinStock(e.target.value)} placeholder="Optional" className={inputCls} />
+            </Field>
+            {canEnterCost ? (
+              <Field
+                label="Unit cost (INR)"
+                htmlFor="ni-cost"
+                hint="Visible to Finance and admins only"
+                error={costBad ? 'A non-negative amount, at most two decimals' : fieldErrors.unitCost}
+              >
+                <input id="ni-cost" inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="0.00" className={inputCls} />
+              </Field>
+            ) : null}
+          </div>
+          <div className="mt-1 flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" loading={create.isPending} disabled={!valid}>
+              <Plus className="size-4" /> Create item
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

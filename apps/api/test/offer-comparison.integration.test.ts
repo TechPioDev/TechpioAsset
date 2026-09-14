@@ -1595,7 +1595,8 @@ describe('signed download links for documents (v2.55)', () => {
       .set(vendorAuth());
     const path = link.body.data.path as string;
     const [head, signature] = path.split('.');
-    // Flip the last character of the signature.
+    // Flip the last character. It carries two unread bits, so this also pins
+    // that only the exact signature text is accepted, not any decoding of it.
     const last = signature!.slice(-1);
     const forged = `${head}.${signature!.slice(0, -1)}${last === 'A' ? 'B' : 'A'}`;
     expect((await api(app).get(`/api/v1${forged}`)).status).toBe(404);

@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
+  approveWorkOrderSchema,
   assignWorkOrderSchema,
+  cancelMaintenanceSchema,
   completeMaintenanceSchema,
   consumePartSchema,
   createMaintenanceSchema,
@@ -11,14 +13,18 @@ import {
   holdWorkOrderSchema,
   maintenanceListQuerySchema,
   scheduleMaintenanceSchema,
+  sendBackWorkOrderSchema,
   updateMaintenanceScheduleSchema,
+  type ApproveWorkOrderInput,
   type AssignWorkOrderInput,
   type AuthUser,
+  type CancelMaintenanceInput,
   type ConsumePartInput,
   type CreateMaintenanceInput,
   type CreateMaintenanceScheduleInput,
   type HoldWorkOrderInput,
   type MaintenanceListQuery,
+  type SendBackWorkOrderInput,
   type UpdateMaintenanceScheduleInput,
 } from '@techpioasset/contracts';
 import { PERMISSIONS } from '@techpioasset/domain';
@@ -161,9 +167,22 @@ export class MaintenanceController {
     return this.maintenance.start(actor, id);
   }
 
+  @Post(':id/accept')
+  @RequirePermissions(PERMISSIONS.MAINTENANCE_MANAGE)
+  @ApiOperation({
+    summary: 'The assigned technician accepts the work order',
+    description: 'Required before work starts on an assigned order. Reassignment clears it.',
+  })
+  accept(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.maintenance.accept(actor, id);
+  }
+
   @Post(':id/complete')
   @RequirePermissions(PERMISSIONS.MAINTENANCE_MANAGE)
-  @ApiOperation({ summary: 'Complete, recording cost and downtime' })
+  @ApiOperation({
+    summary: 'Complete, recording cost and downtime',
+    description: 'Moves the order to AWAITING_APPROVAL; a different manager signs it off.',
+  })
   complete(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
@@ -172,11 +191,45 @@ export class MaintenanceController {
     return this.maintenance.complete(actor, id, body);
   }
 
+  @Post(':id/approve')
+  @RequirePermissions(PERMISSIONS.MAINTENANCE_MANAGE)
+  @ApiOperation({
+    summary: 'Approve completed work (closes the order, restores the asset)',
+    description: 'Refused (403) for the person who completed it - segregation of duties.',
+  })
+  approve(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    // Body optional: a bare POST approves with the technician's restore choice.
+    @Body(zodBody(approveWorkOrderSchema.optional())) body: ApproveWorkOrderInput | undefined,
+  ) {
+    return this.maintenance.approve(actor, id, body ?? {});
+  }
+
+  @Post(':id/send-back')
+  @RequirePermissions(PERMISSIONS.MAINTENANCE_MANAGE)
+  @ApiOperation({
+    summary: 'Send completed work back to the technician with a reason',
+    description: 'Refused (403) for the person who completed it - segregation of duties.',
+  })
+  sendBack(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(sendBackWorkOrderSchema)) body: SendBackWorkOrderInput,
+  ) {
+    return this.maintenance.sendBack(actor, id, body.reason);
+  }
+
   @Post(':id/cancel')
   @RequirePermissions(PERMISSIONS.MAINTENANCE_MANAGE)
-  @ApiOperation({ summary: 'Cancel a maintenance record' })
-  cancel(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
-    return this.maintenance.cancel(actor, id);
+  @ApiOperation({ summary: 'Cancel a maintenance record (optional reason)' })
+  cancel(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    // Optional, so the original body-less cancel call still works.
+    @Body(zodBody(cancelMaintenanceSchema.optional())) body: CancelMaintenanceInput | undefined,
+  ) {
+    return this.maintenance.cancel(actor, id, body?.reason);
   }
 
   @Post('assets/:assetId/repair-advice')

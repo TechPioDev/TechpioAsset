@@ -50,8 +50,10 @@ function parts(path: string) {
 
 function forge(path: string) {
   const { prefix, payload, signature } = parts(path);
-  const last = signature.slice(-1);
-  return `${prefix}${payload}.${signature.slice(0, -1)}${last === 'A' ? 'B' : 'A'}`;
+  // Change the FIRST character. The last one carries two bits nobody reads, so
+  // swapping A for B there left the MAC unchanged about one run in sixteen.
+  const first = signature.slice(0, 1);
+  return `${prefix}${payload}.${first === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
 }
 
 function swapId(path: string, otherId: string) {

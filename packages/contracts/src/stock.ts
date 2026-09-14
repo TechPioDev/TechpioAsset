@@ -1,9 +1,45 @@
 import { z } from 'zod';
+import { moneyString } from './money.js';
 import { pageQuerySchema } from './pagination.js';
 
 /** v2.4 Warehouse stock contracts: locations, guarded movements, conversion. */
 
 const qty = z.number().positive().max(1_000_000);
+
+/**
+ * A new stock item in the catalogue (Sep 2026).
+ *
+ * Stock previously arrived only through purchase-order receiving, so a tenant
+ * with no procurement flow had no way to put anything on the shelf. This only
+ * describes the item - quantity arrives through /stock/adjust, so every unit on
+ * the shelf still has a ledger row and a reason behind it.
+ *
+ * The SKU is upper-cased so the per-company unique index is effectively
+ * case-insensitive: "cab-hdmi" and "CAB-HDMI" are the same box.
+ *
+ * `unitCost` is money: only holders of the cost permission may send it, and the
+ * API refuses it (403) from anyone else rather than silently dropping it.
+ */
+export const createInventoryItemSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  sku: z
+    .string()
+    .trim()
+    .min(2)
+    .max(60)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._\-/]*$/, 'Letters, digits and . _ - / only')
+    .toUpperCase(),
+  categoryId: z.string().min(1),
+  subcategoryId: z.string().min(1).optional().nullable(),
+  unit: z.string().trim().min(1).max(20).default('unit'),
+  description: z.string().trim().max(1000).optional().nullable(),
+  /** Low-stock level: at or below this a location raises LOW_STOCK. */
+  minStock: z.number().min(0).max(1_000_000).optional().nullable(),
+  reorderLevel: z.number().min(0).max(1_000_000).optional().nullable(),
+  unitCost: moneyString.optional().nullable(),
+  currency: z.string().length(3).toUpperCase().optional().nullable(),
+});
+export type CreateInventoryItemInput = z.infer<typeof createInventoryItemSchema>;
 
 export const createStockLocationSchema = z.object({
   code: z.string().trim().min(2).max(30).toUpperCase(),

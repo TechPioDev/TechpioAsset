@@ -1,14 +1,22 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import {
+  MAINTENANCE_OPEN_STATUSES,
+  PERMISSIONS,
+  maintenanceStatusLabel,
+  workOrderActions,
+} from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Card, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { Button, Card, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
 
 /**
  * v2.5 H6 - the technician's work-order list. "Mine" is the default (the jobs
  * on my plate, SLA-overdue first); "All open" shows the rest of the queue.
+ * A job assigned to me that I have not accepted carries its Accept button on
+ * the card - work cannot start until it is pressed.
  */
 
 export interface WorkOrderRow {
@@ -18,6 +26,8 @@ export interface WorkOrderRow {
   title: string;
   scheduledFor: string | null;
   technicianId: string | null;
+  acceptedById: string | null;
+  completedById: string | null;
   slaDueAt: string | null;
   escalatedAt: string | null;
   asset: { id: string; assetTag: string; name: string } | null;
@@ -28,13 +38,15 @@ export const WO_TONE: Record<string, 'neutral' | 'info' | 'warning' | 'success' 
   SCHEDULED: 'info',
   IN_PROGRESS: 'warning',
   ON_HOLD: 'neutral',
+  AWAITING_APPROVAL: 'info',
   COMPLETED: 'success',
   CANCELLED: 'muted',
   FAILED: 'critical',
 };
 
+/** "Awaiting approval", and "Closed" for a signed-off (COMPLETED) order. */
 export function woLabel(status: string): string {
-  return status.replace(/_/g, ' ').toLowerCase();
+  return maintenanceStatusLabel(status);
 }
 
 export function isSlaOverdue(row: { slaDueAt: string | null; status: string }): boolean {
@@ -45,7 +57,8 @@ export function isSlaOverdue(row: { slaDueAt: string | null; status: string }): 
   );
 }
 
-const OPEN = ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD'];
+// Open work, including jobs finished and waiting on a manager's sign-off.
+const OPEN: readonly string[] = MAINTENANCE_OPEN_STATUSES;
 
 export default function WorkOrdersScreen() {
   const { api, user } = useSession();
@@ -56,6 +69,8 @@ export default function WorkOrdersScreen() {
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const [rows, setRows] = useState<WorkOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const canManage = user?.permissions.includes(PERMISSIONS.MAINTENANCE_MANAGE) ?? false;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,6 +92,18 @@ export default function WorkOrdersScreen() {
     }
   }, [api, scope, user?.id]);
   useEffect(() => void load(), [load]);
+
+  async function accept(id: string) {
+    setAccepting(id);
+    try {
+      await api.request(`/maintenance/${id}/accept`, { method: 'POST', body: {} });
+      await load();
+    } catch (error) {
+      Alert.alert('Could not accept', error instanceof Error ? error.message : 'Try again.');
+    } finally {
+      setAccepting(null);
+    }
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
@@ -136,6 +163,7 @@ export default function WorkOrdersScreen() {
         renderItem={({ item }) => {
           const tone = palette[WO_TONE[item.status] ?? 'neutral'];
           const overdue = isSlaOverdue(item);
+          const canAccept = workOrderActions(item, { id: user?.id ?? '', canManage }).accept;
           return (
             <Card
               onPress={() => router.push(`/work-order/${item.id}`)}
@@ -164,6 +192,15 @@ export default function WorkOrdersScreen() {
                     />
                   ) : null}
                 </View>
+                {canAccept ? (
+                  <Button
+                    label="Accept"
+                    icon="checkmark-circle-outline"
+                    loading={accepting === item.id}
+                    onPress={() => void accept(item.id)}
+                    style={{ marginTop: spacing.md, paddingVertical: 10 }}
+                  />
+                ) : null}
               </View>
             </Card>
           );

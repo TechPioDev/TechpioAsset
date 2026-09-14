@@ -125,6 +125,64 @@ describe('upload with AI DISABLED (spec section 10)', () => {
     const verification = response.body.data.verifications[0];
     expect(verification.outcome).not.toBe('COST_MISMATCH');
   });
+
+  // The exact body the web /invoices/new page and the phone's invoice/new
+  // screen build (buildCreateInvoicePayload): money and quantity as strings,
+  // INR, every optional charge, dates and a printed PO number.
+  it('accepts the body the Add invoice forms send, and only from invoices:upload', async () => {
+    await setAiEnabled(false);
+    const vendorId = await firstVendorId();
+    const body = {
+      vendorId,
+      invoiceNumber: `FORM-${Date.now()}`,
+      invoiceDate: '2026-09-01',
+      currency: 'INR',
+      subtotal: '90001.30',
+      total: '106799.99',
+      lines: [
+        {
+          lineNumber: 1,
+          description: 'Laptop',
+          quantity: '2',
+          unitPrice: '45000.50',
+          lineTotal: '90001.00',
+        },
+        {
+          lineNumber: 2,
+          description: 'Mouse',
+          quantity: '3',
+          unitPrice: '0.10',
+          lineTotal: '0.30',
+        },
+      ],
+      dueDate: '2026-10-01',
+      purchaseDate: '2026-08-28',
+      purchaseOrderNumber: 'PO-PRINTED-7',
+      discount: '1.30',
+      tax: '16200',
+      shipping: '500',
+      otherCharges: '99.99',
+      notes: 'Entered from the paper bill',
+    };
+
+    const refused = await api(app).post('/api/v1/invoices').set(auth(s.employee)).send(body);
+    expect(refused.status).toBe(403);
+
+    const response = await api(app).post('/api/v1/invoices').set(auth(s.finance)).send(body);
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    const invoice = response.body.data;
+    expect(invoice.currency).toBe('INR');
+    expect(Number(invoice.total)).toBe(106799.99);
+    expect(invoice.lines.map((l: { lineTotal: string }) => Number(l.lineTotal))).toEqual([
+      90001, 0.3,
+    ]);
+    const issues = invoice.verifications[0].issues as { code: string }[];
+    // The figures add up, so nothing about cost is flagged.
+    expect(issues.map((i) => i.code)).not.toEqual(
+      expect.arrayContaining(['SUBTOTAL_MISMATCH', 'TOTAL_MISMATCH', 'LINE_TOTAL_MISMATCH']),
+    );
+    expect(invoice.verifications[0].outcome).not.toBe('COST_MISMATCH');
+  });
 });
 
 describe('upload with AI ENABLED', () => {
@@ -228,8 +286,13 @@ describe('the monthly spending ceiling', () => {
     const res = await api(app)
       .patch('/api/v1/ai-config')
       .set(auth(s.superAdmin))
-      .send({ globallyEnabled: true, paused: false, monthlyBudgetUsd,
-              featureModes: { INVOICE_OCR: 'MANUAL_REVIEW_REQUIRED' }, humanReviewRequired: true });
+      .send({
+        globallyEnabled: true,
+        paused: false,
+        monthlyBudgetUsd,
+        featureModes: { INVOICE_OCR: 'MANUAL_REVIEW_REQUIRED' },
+        humanReviewRequired: true,
+      });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
   }
 

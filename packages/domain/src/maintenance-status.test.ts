@@ -1,10 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { canTransition, isTerminal } from './state-machine';
-import { MAINTENANCE_STATUSES, maintenanceStatusMachine } from './maintenance-status';
+import {
+  MAINTENANCE_ACTIVE_STATUSES,
+  MAINTENANCE_OPEN_STATUSES,
+  MAINTENANCE_STATUSES,
+  maintenanceStatusLabel,
+  maintenanceStatusMachine,
+} from './maintenance-status';
 
 describe('maintenance status machine', () => {
-  it('declares all seven statuses (spec section 14 + v2.5 ON_HOLD)', () => {
-    expect(MAINTENANCE_STATUSES).toHaveLength(7);
+  it('declares all eight statuses (spec section 14 + v2.5 ON_HOLD + sign-off)', () => {
+    expect(MAINTENANCE_STATUSES).toHaveLength(8);
   });
 
   it('holds and resumes only from in-progress (v2.5 work orders)', () => {
@@ -17,10 +23,31 @@ describe('maintenance status machine', () => {
     expect(canTransition(maintenanceStatusMachine, 'REQUESTED', 'ON_HOLD')).toBe(false);
   });
 
-  it('walks the standard schedule → start → complete path', () => {
+  it('walks the standard schedule → start → complete → approve path', () => {
     expect(canTransition(maintenanceStatusMachine, 'REQUESTED', 'SCHEDULED')).toBe(true);
     expect(canTransition(maintenanceStatusMachine, 'SCHEDULED', 'IN_PROGRESS')).toBe(true);
-    expect(canTransition(maintenanceStatusMachine, 'IN_PROGRESS', 'COMPLETED')).toBe(true);
+    expect(canTransition(maintenanceStatusMachine, 'IN_PROGRESS', 'AWAITING_APPROVAL')).toBe(true);
+    expect(canTransition(maintenanceStatusMachine, 'AWAITING_APPROVAL', 'COMPLETED')).toBe(true);
+  });
+
+  it('never closes work without sign-off', () => {
+    expect(canTransition(maintenanceStatusMachine, 'IN_PROGRESS', 'COMPLETED')).toBe(false);
+    expect(canTransition(maintenanceStatusMachine, 'ON_HOLD', 'AWAITING_APPROVAL')).toBe(false);
+  });
+
+  it('sends back to work or cancels from awaiting approval, and it is not terminal', () => {
+    expect(canTransition(maintenanceStatusMachine, 'AWAITING_APPROVAL', 'IN_PROGRESS')).toBe(true);
+    expect(canTransition(maintenanceStatusMachine, 'AWAITING_APPROVAL', 'CANCELLED')).toBe(true);
+    expect(canTransition(maintenanceStatusMachine, 'AWAITING_APPROVAL', 'ON_HOLD')).toBe(false);
+    expect(isTerminal(maintenanceStatusMachine, 'AWAITING_APPROVAL')).toBe(false);
+  });
+
+  it('labels COMPLETED as Closed and counts awaiting approval as open but not SLA-active', () => {
+    expect(maintenanceStatusLabel('COMPLETED')).toBe('Closed');
+    expect(maintenanceStatusLabel('AWAITING_APPROVAL')).toBe('Awaiting approval');
+    expect(MAINTENANCE_OPEN_STATUSES).toContain('AWAITING_APPROVAL');
+    expect(MAINTENANCE_OPEN_STATUSES).toContain('ON_HOLD');
+    expect(MAINTENANCE_ACTIVE_STATUSES).not.toContain('AWAITING_APPROVAL');
   });
 
   it('allows a repair to fail from in-progress', () => {

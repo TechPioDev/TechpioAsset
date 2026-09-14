@@ -208,8 +208,12 @@ export class VendorProductDocumentsService {
     const refuse = () => AppError.notFound('Product document', 'link');
     if (!payload || !signature) throw refuse();
 
-    const expected = createHmac('sha256', this.linkKey()).update(payload).digest();
-    const given = Buffer.from(signature, 'base64url');
+    // The exact text, not decoded bytes: the last of the 43 characters carries
+    // two unread bits, so a byte comparison accepts four spellings of one MAC.
+    const expected = Buffer.from(
+      createHmac('sha256', this.linkKey()).update(payload).digest('base64url'),
+    );
+    const given = Buffer.from(signature);
     // Same length first: timingSafeEqual throws on a mismatch, and a thrown
     // error would tell a caller something a refusal does not.
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw refuse();

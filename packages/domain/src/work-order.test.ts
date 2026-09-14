@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { advanceSchedule, shouldEscalateWorkOrder } from './work-order';
+import {
+  advanceSchedule,
+  awaitingAcceptance,
+  shouldEscalateWorkOrder,
+  signoffRefusal,
+  workOrderActions,
+} from './work-order';
 
 const now = new Date('2026-08-02T12:00:00Z');
 const past = new Date('2026-08-01T12:00:00Z');
@@ -30,6 +36,75 @@ describe('shouldEscalateWorkOrder', () => {
         false,
       );
     }
+  });
+});
+
+describe('SLA and sign-off', () => {
+  it('never escalates an order awaiting approval - the wait is on the approver', () => {
+    expect(
+      shouldEscalateWorkOrder({ status: 'AWAITING_APPROVAL', slaDueAt: past, escalatedAt: null }, now),
+    ).toBe(false);
+  });
+});
+
+describe('work-order sign-off rules', () => {
+  const tech = 'u-tech';
+  const boss = 'u-boss';
+  const base = { technicianId: tech, acceptedById: null, completedById: null };
+
+  it('only the assigned technician accepts, once', () => {
+    const order = { ...base, status: 'REQUESTED' };
+    expect(awaitingAcceptance(order)).toBe(true);
+    expect(signoffRefusal('accept', order, tech)).toBeNull();
+    expect(signoffRefusal('accept', order, boss)?.kind).toBe('forbidden');
+    expect(signoffRefusal('accept', { ...order, acceptedById: tech }, tech)?.kind).toBe('conflict');
+    expect(signoffRefusal('accept', { ...order, technicianId: null }, tech)?.kind).toBe('conflict');
+    expect(signoffRefusal('accept', { ...order, status: 'AWAITING_APPROVAL' }, tech)?.kind).toBe(
+      'conflict',
+    );
+  });
+
+  it('an acceptance by a previous technician does not count', () => {
+    expect(awaitingAcceptance({ ...base, status: 'SCHEDULED', acceptedById: 'u-old' })).toBe(true);
+  });
+
+  it('start and resume wait for acceptance only when someone is assigned', () => {
+    expect(signoffRefusal('start', { ...base, status: 'REQUESTED' }, boss)?.kind).toBe('conflict');
+    expect(signoffRefusal('start', { ...base, status: 'REQUESTED', acceptedById: tech }, boss)).toBeNull();
+    expect(signoffRefusal('start', { ...base, technicianId: null, status: 'REQUESTED' }, boss)).toBeNull();
+    expect(signoffRefusal('resume', { ...base, status: 'ON_HOLD' }, boss)?.kind).toBe('conflict');
+  });
+
+  it('the completer cannot approve or send back; another manager can', () => {
+    const order = { ...base, status: 'AWAITING_APPROVAL', acceptedById: tech, completedById: tech };
+    expect(signoffRefusal('approve', order, tech)?.kind).toBe('forbidden');
+    expect(signoffRefusal('sendBack', order, tech)?.kind).toBe('forbidden');
+    expect(signoffRefusal('approve', order, boss)).toBeNull();
+    expect(signoffRefusal('sendBack', order, boss)).toBeNull();
+    expect(signoffRefusal('approve', { ...order, status: 'IN_PROGRESS' }, boss)?.kind).toBe('conflict');
+  });
+
+  it('offers buttons exactly where the rules allow, and none without manage', () => {
+    const awaiting = { ...base, status: 'AWAITING_APPROVAL', acceptedById: tech, completedById: tech };
+    expect(workOrderActions(awaiting, { id: boss, canManage: true })).toMatchObject({
+      approve: true,
+      sendBack: true,
+      cancel: true,
+      complete: false,
+      accept: false,
+    });
+    expect(workOrderActions(awaiting, { id: tech, canManage: true }).approve).toBe(false);
+    const fresh = { ...base, status: 'SCHEDULED' };
+    expect(workOrderActions(fresh, { id: tech, canManage: true })).toMatchObject({
+      accept: true,
+      start: false,
+    });
+    expect(Object.values(workOrderActions(fresh, { id: tech, canManage: false })).some(Boolean)).toBe(
+      false,
+    );
+    expect(workOrderActions({ ...fresh, status: 'COMPLETED' }, { id: boss, canManage: true }).cancel).toBe(
+      false,
+    );
   });
 });
 

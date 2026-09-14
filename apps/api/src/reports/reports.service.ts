@@ -674,7 +674,10 @@ export class ReportsService {
 
   private async maintenanceCost(actor: AuthUser): Promise<ReportTable> {
     const records = await this.prisma.client.maintenanceRecord.findMany({
-      where: { asset: tenantFilter(actor), serviceCost: { not: null } },
+      // Signed-off work only. Cost is entered at completion; until a manager
+      // approves it the figure is a claim, not spend. (Every costed record
+      // before sign-off existed is COMPLETED, so history is unchanged.)
+      where: { asset: tenantFilter(actor), serviceCost: { not: null }, status: 'COMPLETED' },
       orderBy: { completedAt: 'desc' },
       select: {
         title: true,

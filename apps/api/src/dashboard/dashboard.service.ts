@@ -26,7 +26,16 @@ export interface DashboardTile {
  * is NOT open in.
  */
 export const CLOSED_REQUEST_STATUSES = ['APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED'] as const;
-export const OPEN_MAINTENANCE = ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] as const;
+// Every not-yet-closed status. ON_HOLD was missing (a paused job is still open
+// work, and analytics already counted it); AWAITING_APPROVAL is open until a
+// manager signs it off.
+export const OPEN_MAINTENANCE = [
+  'REQUESTED',
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'ON_HOLD',
+  'AWAITING_APPROVAL',
+] as const;
 const RETIRED_STATUSES = ['DISPOSED', 'DONATED', 'RETIRED'] as const;
 
 /**

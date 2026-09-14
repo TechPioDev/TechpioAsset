@@ -53,8 +53,14 @@ export function verifyDownloadLink(
   const [payload, signature, extra] = token.split('.');
   if (!payload || !signature || extra !== undefined) throw refuse();
 
-  const expected = createHmac('sha256', linkKey(secret, purpose)).update(payload).digest();
-  const given = Buffer.from(signature, 'base64url');
+  // Compared as the exact text, not as decoded bytes. A 32-byte MAC is 43
+  // base64url characters and the last one carries two bits nothing reads, so a
+  // byte comparison accepts four spellings of every signature. Harmless - each
+  // still needs the key - but a link should have exactly one valid form.
+  const expected = Buffer.from(
+    createHmac('sha256', linkKey(secret, purpose)).update(payload).digest('base64url'),
+  );
+  const given = Buffer.from(signature);
   // Same length first: timingSafeEqual throws on a mismatch.
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw refuse();
 

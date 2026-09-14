@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Card, EmptyState, IconBadge } from '../src/components/ui';
+import { Button, Card, EmptyState, IconBadge } from '../src/components/ui';
+import { AddStockSheet, NewStockItemSheet } from '../src/components/stock-entry-sheets';
+import { stockEmptyState, type AddStockForm } from '../src/lib/stock-entry';
 
 interface Level {
   id: string;
@@ -12,24 +15,38 @@ interface Level {
   stockLocation: { id: string; code: string; name: string };
 }
 
-/** Stock by location — on hand, reserved and what is actually free. */
+/**
+ * Stock by location — on hand, reserved and what is actually free. Anyone who
+ * may adjust stock can also create an item and add quantity from here.
+ */
 export default function StockScreen() {
-  const { api } = useSession();
+  const { api, user } = useSession();
   const { c, spacing } = useTheme();
   const [rows, setRows] = useState<Level[]>([]);
+  const [itemCount, setItemCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [locationId, setLocationId] = useState<string | null>(null);
+  const [newItemOpen, setNewItemOpen] = useState(false);
+  const [addPreset, setAddPreset] = useState<Partial<AddStockForm> | null>(null);
+
+  const canAdjust = user?.permissions.includes(PERMISSIONS.INVENTORY_ADJUST) ?? false;
+  const canSetPrice = user?.permissions.includes(PERMISSIONS.ASSETS_COST_READ) ?? false;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       // v2.10 S2: /stock/levels is paginated now, so the payload is enveloped.
-      const page = await api.request<{ data: Level[] }>('/stock/levels?pageSize=50');
+      const [page, items] = await Promise.all([
+        api.request<{ data: Level[] }>('/stock/levels?pageSize=50'),
+        // Only to tell "no items yet" from "items but no stock" in the empty state.
+        canAdjust ? api.request<{ id: string }[]>('/stock/items') : Promise.resolve(null),
+      ]);
       setRows(page?.data ?? []);
+      setItemCount(items?.length ?? 0);
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, canAdjust]);
   useEffect(() => void load(), [load]);
 
   const locations = useMemo(() => {
@@ -39,9 +56,28 @@ export default function StockScreen() {
   }, [rows]);
 
   const visible = locationId ? rows.filter((r) => r.stockLocation.id === locationId) : rows;
+  const empty = stockEmptyState({ canAdjust, itemCount });
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
+      {canAdjust ? (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+          <Button
+            label="New item"
+            icon="add-circle-outline"
+            variant="secondary"
+            onPress={() => setNewItemOpen(true)}
+            style={{ flex: 1, paddingVertical: 10 }}
+          />
+          <Button
+            label="Add stock"
+            icon="add-outline"
+            onPress={() => setAddPreset({})}
+            style={{ flex: 1, paddingVertical: 10 }}
+          />
+        </View>
+      ) : null}
+
       {locations.length > 1 ? (
         <ScrollView
           horizontal
@@ -81,11 +117,14 @@ export default function StockScreen() {
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
         ListEmptyComponent={
           loading ? null : (
-            <EmptyState
-              icon="layers-outline"
-              title="No stock recorded"
-              message="Receive a purchase order into a location, and levels appear here."
-            />
+            <View>
+              <EmptyState icon="layers-outline" title={empty.title} message={empty.message} />
+              {empty.action === 'new-item' ? (
+                <Button label="Create the first item" icon="add-circle-outline" onPress={() => setNewItemOpen(true)} />
+              ) : empty.action === 'add-stock' ? (
+                <Button label="Add stock" icon="add-outline" onPress={() => setAddPreset({})} />
+              ) : null}
+            </View>
           )
         }
         renderItem={({ item }) => {
@@ -116,8 +155,49 @@ export default function StockScreen() {
                   {low ? ' · LOW' : ''}
                 </Text>
               </View>
+              {canAdjust ? (
+                <Pressable
+                  onPress={() =>
+                    setAddPreset({ itemId: item.inventoryItem.id, locationId: item.stockLocation.id })
+                  }
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add stock of ${item.inventoryItem.name} at ${item.stockLocation.name}`}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: c.brand,
+                  }}
+                >
+                  <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>+ Add</Text>
+                </Pressable>
+              ) : null}
             </Card>
           );
+        }}
+      />
+
+      <NewStockItemSheet
+        visible={newItemOpen}
+        canSetPrice={canSetPrice}
+        onClose={() => setNewItemOpen(false)}
+        onCreated={(created) => {
+          setNewItemOpen(false);
+          setItemCount((n) => n + 1);
+          // Straight on to the next thing anyone does with a new item.
+          setAddPreset({ itemId: created.id });
+        }}
+      />
+      <AddStockSheet
+        visible={addPreset !== null}
+        preset={addPreset ?? undefined}
+        onClose={() => setAddPreset(null)}
+        onAdded={() => {
+          setAddPreset(null);
+          void load();
+          Alert.alert('Stock added', 'Recorded in the ledger.');
         }}
       />
     </View>

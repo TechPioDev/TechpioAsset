@@ -74,7 +74,7 @@ export class AnalyticsService {
         }),
         this.prisma.client.maintenanceRecord.count({
           where: {
-            status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD'] },
+            status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_APPROVAL'] },
             asset: { companyId },
           },
         }),
@@ -145,6 +145,8 @@ export class AnalyticsService {
             JOIN "assets" a ON a."id" = m."assetId"
            WHERE a."companyId" = ${companyId}
              AND m."serviceCost" IS NOT NULL
+             -- signed-off work only; cost entered at completion awaits approval
+             AND m."status" = 'COMPLETED'
              AND m."completedAt" >= ${from}
            GROUP BY 1`,
         this.prisma.client.asset.groupBy({
@@ -300,11 +302,13 @@ export class AnalyticsService {
           select: { createdAt: true },
         }),
         this.prisma.client.maintenanceRecord.findMany({
-          where: { ...scope, completedAt: { gte: from, not: null } },
+          // Signed off only: completedAt is stamped when the technician finishes,
+          // so an order still awaiting approval must not count as done.
+          where: { ...scope, status: 'COMPLETED', completedAt: { gte: from, not: null } },
           select: { completedAt: true },
         }),
         this.prisma.client.maintenanceRecord.findMany({
-          where: { ...scope, status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD'] } },
+          where: { ...scope, status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD', 'AWAITING_APPROVAL'] } },
           select: { createdAt: true },
         }),
         this.prisma.client.maintenanceRecord.count({
@@ -314,7 +318,12 @@ export class AnalyticsService {
           where: { ...scope, escalatedAt: { not: null }, createdAt: { gte: from } },
         }),
         this.prisma.client.maintenanceRecord.findMany({
-          where: { ...scope, startedAt: { not: null }, completedAt: { gte: from, not: null } },
+          where: {
+            ...scope,
+            status: 'COMPLETED',
+            startedAt: { not: null },
+            completedAt: { gte: from, not: null },
+          },
           select: { startedAt: true, completedAt: true },
         }),
       ]);

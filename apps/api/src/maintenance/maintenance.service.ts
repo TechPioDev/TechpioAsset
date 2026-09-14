@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import type {
+  ApproveWorkOrderInput,
   AssignWorkOrderInput,
   AuthUser,
   ConsumePartInput,
@@ -10,11 +11,14 @@ import type {
   UpdateMaintenanceScheduleInput,
 } from '@techpioasset/contracts';
 import {
+  PERMISSIONS,
   advanceSchedule,
   assertTransition,
   maintenanceStatusMachine,
   repairRecommendation,
+  signoffRefusal,
   type MaintenanceStatus,
+  type SignoffAction,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { paginate } from '../common/paginate.js';
@@ -62,6 +66,9 @@ export class MaintenanceService {
             completedAt: true,
             replacementRecommended: true,
             technicianId: true,
+            acceptedAt: true,
+            acceptedById: true,
+            completedById: true,
             slaDueAt: true,
             escalatedAt: true,
             createdAt: true,
@@ -94,6 +101,13 @@ export class MaintenanceService {
         replacementRecommended: true,
         recommendationNote: true,
         technicianId: true,
+        acceptedAt: true,
+        acceptedById: true,
+        completedById: true,
+        approvedAt: true,
+        approvedById: true,
+        sendBackReason: true,
+        restoreAssetOnApproval: true,
         slaDueAt: true,
         escalatedAt: true,
         diagnosis: true,
@@ -182,7 +196,15 @@ export class MaintenanceService {
    */
   async start(actor: AuthUser, id: string) {
     const record = await this.loadForWrite(actor, id);
+    if (record.status === 'AWAITING_APPROVAL') {
+      // Reopening finished work is a manager's send-back, with a reason.
+      throw AppError.conflict(
+        'CONFLICT',
+        'This work order is awaiting approval. Send it back to reopen it.',
+      );
+    }
     assertTransition(maintenanceStatusMachine, record.status as MaintenanceStatus, 'IN_PROGRESS');
+    this.assertSignoff('start', record, actor);
 
     await this.prisma.client.$transaction(async (tx) => {
       await tx.maintenanceRecord.update({
@@ -211,6 +233,11 @@ export class MaintenanceService {
     return this.findOne(actor, id);
   }
 
+  /**
+   * The technician finishes: records the outcome and sends the order for
+   * sign-off (AWAITING_APPROVAL). The asset stays under repair until a manager
+   * approves - the restore-to-service choice is kept and applied then.
+   */
   async complete(
     actor: AuthUser,
     id: string,
@@ -225,26 +252,71 @@ export class MaintenanceService {
     },
   ) {
     const record = await this.loadForWrite(actor, id);
+    assertTransition(
+      maintenanceStatusMachine,
+      record.status as MaintenanceStatus,
+      'AWAITING_APPROVAL',
+    );
+
+    await this.prisma.client.maintenanceRecord.update({
+      where: { id },
+      data: {
+        status: 'AWAITING_APPROVAL',
+        // When the work was done - repair-cycle figures measure this, not how
+        // long the sign-off took.
+        completedAt: new Date(),
+        completedById: actor.id,
+        serviceCost: input.serviceCost ? new Prisma.Decimal(input.serviceCost) : null,
+        currency: input.currency ?? null,
+        downtimeHours: input.downtimeHours ? new Prisma.Decimal(input.downtimeHours) : null,
+        resolutionNotes: input.resolutionNotes ?? null,
+        replacementRecommended: input.replacementRecommended,
+        recommendationNote: input.recommendationNote ?? null,
+        restoreAssetOnApproval: input.restoreAsset,
+        updatedById: actor.id,
+      },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'MaintenanceRecord',
+      entityId: id,
+      previousValues: { status: record.status },
+      newValues: { status: 'AWAITING_APPROVAL', serviceCost: input.serviceCost ?? null },
+    });
+
+    await this.notifyApprovers(actor, { id, title: record.title });
+    return this.findOne(actor, id);
+  }
+
+  /**
+   * A manager signs the work off: COMPLETED (shown as "Closed"). The asset goes
+   * back into service here, not at completion, because this is when the repair
+   * is confirmed - a job that gets sent back must not have left a half-fixed
+   * device AVAILABLE in the meantime.
+   */
+  async approve(actor: AuthUser, id: string, input: ApproveWorkOrderInput) {
+    const record = await this.loadForWrite(actor, id);
+    this.assertSignoff('approve', record, actor);
     assertTransition(maintenanceStatusMachine, record.status as MaintenanceStatus, 'COMPLETED');
 
+    const restore = input.restoreAsset ?? record.restoreAssetOnApproval ?? true;
     await this.prisma.client.$transaction(async (tx) => {
       await tx.maintenanceRecord.update({
         where: { id },
         data: {
           status: 'COMPLETED',
-          completedAt: new Date(),
-          serviceCost: input.serviceCost ? new Prisma.Decimal(input.serviceCost) : null,
-          currency: input.currency ?? null,
-          downtimeHours: input.downtimeHours ? new Prisma.Decimal(input.downtimeHours) : null,
-          resolutionNotes: input.resolutionNotes ?? null,
-          replacementRecommended: input.replacementRecommended,
-          recommendationNote: input.recommendationNote ?? null,
+          approvedAt: new Date(),
+          approvedById: actor.id,
           updatedById: actor.id,
         },
       });
 
-      // Restore the asset to AVAILABLE if requested and legal.
-      if (input.restoreAsset) {
+      // Restore the asset to AVAILABLE if requested and legal - the rule
+      // completion used to apply: only an asset that is UNDER_REPAIR.
+      if (restore) {
         const asset = await tx.asset.findUnique({
           where: { id: record.assetId },
           select: { status: true },
@@ -269,18 +341,112 @@ export class MaintenanceService {
       action: AuditAction.ASSET_UPDATED,
       entityType: 'MaintenanceRecord',
       entityId: id,
-      newValues: { status: 'COMPLETED', serviceCost: input.serviceCost ?? null },
+      previousValues: { status: record.status },
+      newValues: { status: 'COMPLETED', approvedById: actor.id, restoreAsset: restore },
+      reason: 'Work order approved',
     });
 
+    await this.notifyDoer(actor, record, {
+      type: 'WORK_ORDER_APPROVED',
+      title: `Work order approved: ${record.title}`,
+      body: 'Your work was signed off and the work order is closed.',
+    });
     return this.findOne(actor, id);
   }
 
-  async cancel(actor: AuthUser, id: string) {
+  /** A manager reopens completed work, with a reason the technician will see. */
+  async sendBack(actor: AuthUser, id: string, reason: string) {
+    const record = await this.loadForWrite(actor, id);
+    this.assertSignoff('sendBack', record, actor);
+    assertTransition(maintenanceStatusMachine, record.status as MaintenanceStatus, 'IN_PROGRESS');
+
+    await this.prisma.client.maintenanceRecord.update({
+      where: { id },
+      data: {
+        status: 'IN_PROGRESS',
+        sendBackReason: reason,
+        // Visible in the order's own history, the way a hold reason is.
+        diagnosis: record.diagnosis
+          ? `${record.diagnosis}\n[Sent back] ${reason}`
+          : `[Sent back] ${reason}`,
+        // The work is not finished after all; the next completion restamps
+        // both (and so decides who may approve that attempt).
+        completedAt: null,
+        completedById: null,
+        updatedById: actor.id,
+      },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'MaintenanceRecord',
+      entityId: id,
+      previousValues: { status: record.status },
+      newValues: { status: 'IN_PROGRESS', sendBackReason: reason },
+      reason,
+    });
+
+    await this.notifyDoer(actor, record, {
+      type: 'WORK_ORDER_SENT_BACK',
+      title: `Work order sent back: ${record.title}`,
+      body: reason,
+    });
+    return this.findOne(actor, id);
+  }
+
+  /**
+   * The assigned technician takes the job on (the phone's "Acknowledge"). Work
+   * cannot start on an assigned job until this is recorded.
+   */
+  async accept(actor: AuthUser, id: string) {
+    const record = await this.loadForWrite(actor, id);
+    this.assertSignoff('accept', record, actor);
+
+    await this.prisma.client.maintenanceRecord.update({
+      where: { id },
+      data: { acceptedAt: new Date(), acceptedById: actor.id, updatedById: actor.id },
+    });
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'MaintenanceRecord',
+      entityId: id,
+      newValues: { acceptedById: actor.id },
+      reason: 'Work order accepted by the technician',
+    });
+    return this.findOne(actor, id);
+  }
+
+  async cancel(actor: AuthUser, id: string, reason?: string | null) {
     const record = await this.loadForWrite(actor, id);
     assertTransition(maintenanceStatusMachine, record.status as MaintenanceStatus, 'CANCELLED');
     await this.prisma.client.maintenanceRecord.update({
       where: { id },
-      data: { status: 'CANCELLED', updatedById: actor.id },
+      data: {
+        status: 'CANCELLED',
+        ...(reason
+          ? {
+              diagnosis: record.diagnosis
+                ? `${record.diagnosis}\n[Cancelled] ${reason}`
+                : `[Cancelled] ${reason}`,
+            }
+          : {}),
+        updatedById: actor.id,
+      },
+    });
+    // Cancelling ends the job, so it is audited like every other transition.
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'MaintenanceRecord',
+      entityId: id,
+      previousValues: { status: record.status },
+      newValues: { status: 'CANCELLED' },
+      ...(reason ? { reason } : {}),
     });
     return this.findOne(actor, id);
   }
@@ -309,6 +475,13 @@ export class MaintenanceService {
     if (['COMPLETED', 'CANCELLED', 'FAILED'].includes(record.status)) {
       throw AppError.conflict('CONFLICT', 'This work order is closed and cannot be reassigned.');
     }
+    if (record.status === 'AWAITING_APPROVAL') {
+      // The work is done; a new technician would have nothing to accept.
+      throw AppError.conflict(
+        'CONFLICT',
+        'This work order is awaiting approval. Send it back before reassigning it.',
+      );
+    }
     const technician = await this.prisma.client.user.findFirst({
       where: { id: input.technicianId, companyId: actor.companyId, deletedAt: null },
       select: { id: true },
@@ -319,6 +492,11 @@ export class MaintenanceService {
       where: { id },
       data: {
         technicianId: input.technicianId,
+        // Acceptance belongs to a person: a different technician must accept
+        // afresh. Re-saving the same technician (say, a new SLA) keeps it.
+        ...(input.technicianId !== record.technicianId
+          ? { acceptedAt: null, acceptedById: null }
+          : {}),
         // A reassignment may bring a new deadline; a fresh SLA also re-arms
         // escalation (the old escalation belonged to the old deadline).
         ...(input.slaDueAt !== undefined
@@ -389,6 +567,8 @@ export class MaintenanceService {
       // Only a held order resumes; starting fresh goes through start().
       throw AppError.conflict('CONFLICT', 'Only a held work order can resume.');
     }
+    // Reassigned while held: the new technician accepts before work restarts.
+    this.assertSignoff('resume', record, actor);
     await this.prisma.client.maintenanceRecord.update({
       where: { id },
       data: { status: 'IN_PROGRESS', updatedById: actor.id },
@@ -500,6 +680,79 @@ export class MaintenanceService {
       spawned += 1;
     }
     return spawned;
+  }
+
+  /** The shared sign-off rules (packages/domain), raised as API errors. */
+  private assertSignoff(
+    action: SignoffAction,
+    record: {
+      status: string;
+      technicianId: string | null;
+      acceptedById: string | null;
+      completedById: string | null;
+    },
+    actor: AuthUser,
+  ) {
+    const refusal = signoffRefusal(action, record, actor.id);
+    if (!refusal) return;
+    throw refusal.kind === 'forbidden'
+      ? AppError.forbidden(refusal.message)
+      : AppError.conflict('CONFLICT', refusal.message);
+  }
+
+  /**
+   * Completion tells whoever can sign it off: the company's active maintenance
+   * managers, minus the person who completed it (they may not approve).
+   */
+  private async notifyApprovers(actor: AuthUser, order: { id: string; title: string }) {
+    const managers = await this.prisma.client.userRole.findMany({
+      where: {
+        role: {
+          companyId: actor.companyId,
+          permissions: { some: { permission: { key: PERMISSIONS.MAINTENANCE_MANAGE } } },
+        },
+        user: { deletedAt: null, status: 'ACTIVE' },
+      },
+      select: { userId: true },
+      distinct: ['userId'],
+      take: 50,
+    });
+    await this.notifications.notifyMany(
+      managers.map((m) => m.userId).filter((userId) => userId !== actor.id),
+      {
+        companyId: actor.companyId,
+        type: 'WORK_ORDER_AWAITING_APPROVAL',
+        title: `Work order awaiting approval: ${order.title}`,
+        body: 'The work is complete. Approve it to close the order, or send it back with a reason.',
+        linkPath: `/maintenance/${order.id}`,
+        entityType: 'MaintenanceRecord',
+        entityId: order.id,
+      },
+    );
+  }
+
+  /** Approval and send-back tell the person who did the work (not the decider). */
+  private async notifyDoer(
+    actor: AuthUser,
+    record: { id: string; completedById: string | null; technicianId: string | null },
+    message: {
+      type: 'WORK_ORDER_APPROVED' | 'WORK_ORDER_SENT_BACK';
+      title: string;
+      body: string;
+    },
+  ) {
+    const recipients = new Set(
+      [record.completedById, record.technicianId].filter(
+        (userId): userId is string => userId !== null && userId !== actor.id,
+      ),
+    );
+    await this.notifications.notifyMany([...recipients], {
+      companyId: actor.companyId,
+      ...message,
+      linkPath: `/maintenance/${record.id}`,
+      entityType: 'MaintenanceRecord',
+      entityId: record.id,
+    });
   }
 
   private async loadForWrite(actor: AuthUser, id: string) {

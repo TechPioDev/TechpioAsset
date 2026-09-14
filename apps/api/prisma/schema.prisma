@@ -283,6 +283,8 @@ enum MaintenanceStatus {
   IN_PROGRESS
   // v2.5 work orders: paused, waiting on a part/user/vendor
   ON_HOLD
+  // work-order sign-off: technician finished, waiting on a manager's approval
+  AWAITING_APPROVAL
   COMPLETED
   CANCELLED
   FAILED
@@ -387,6 +389,10 @@ enum NotificationType {
   VENDOR_PRODUCT_LOW_STOCK
   VENDOR_PRODUCT_OUT_OF_STOCK
   VENDOR_OFFER_SELECTED
+  // work-order sign-off
+  WORK_ORDER_AWAITING_APPROVAL
+  WORK_ORDER_APPROVED
+  WORK_ORDER_SENT_BACK
 }
 
 /// Spec section 10 - individually switchable AI features.
@@ -1585,6 +1591,19 @@ model MaintenanceRecord {
   replacementRecommended Boolean   @default(false)
   recommendationNote     String?
   resolutionNotes        String?
+  // Work-order sign-off. User ids without FKs, like technicianId: the audit
+  // log is the durable who-did-what; these drive the rules and the UI.
+  // Acceptance belongs to one technician and is cleared on reassignment.
+  acceptedAt             DateTime?
+  acceptedById           String?
+  // Who completed it (segregation of duties: they cannot approve it).
+  completedById          String?
+  approvedAt             DateTime?
+  approvedById           String?
+  // The latest send-back reason; the full trail is in diagnosis and audit.
+  sendBackReason         String?
+  // The technician's restore-to-service choice, applied at approval.
+  restoreAssetOnApproval Boolean?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

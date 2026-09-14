@@ -41,6 +41,13 @@
           "cameraPermission": "Scan asset QR codes and barcodes, and capture invoices."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a saved photo of an asset label or a bill.",
+          "cameraPermission": "Scan asset QR codes and barcodes, and capture invoices."
+        }
+      ],
       "expo-local-authentication",
       "expo-notifications",
       "expo-sqlite"

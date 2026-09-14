@@ -6,6 +6,7 @@ import {
   batchListQuerySchema,
   convertToAssetSchema,
   countCorrectionSchema,
+  createInventoryItemSchema,
   createStockLocationSchema,
   issueStockSchema,
   returnStockSchema,
@@ -19,6 +20,7 @@ import {
   type PageQuery,
   type ConvertToAssetInput,
   type CountCorrectionInput,
+  type CreateInventoryItemInput,
   type CreateStockLocationInput,
   type IssueStockInput,
   type ReturnStockInput,
@@ -94,6 +96,22 @@ export class StockController {
   })
   listItems(@CurrentUser() actor: AuthUser, @Query('q') q?: string) {
     return this.stock.listItems(actor, q);
+  }
+
+  @Post('items')
+  @RequirePermissions(PERMISSIONS.INVENTORY_ADJUST)
+  @ApiOperation({
+    summary: 'Add an item to the stock catalogue',
+    description:
+      'Describes the item only - add quantity with POST /stock/adjust (positive delta + reason), ' +
+      'so every unit on a shelf has a ledger row. SKU is unique per company, case-insensitively ' +
+      '(409). unitCost needs the cost permission (403 otherwise).',
+  })
+  createItem(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(createInventoryItemSchema)) body: CreateInventoryItemInput,
+  ) {
+    return this.stock.createItem(actor, body);
   }
 
   @Get('levels')

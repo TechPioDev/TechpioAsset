@@ -7,6 +7,7 @@ import type {
   BatchListQuery,
   ConvertToAssetInput,
   CountCorrectionInput,
+  CreateInventoryItemInput,
   CreateStockLocationInput,
   IssueStockInput,
   ReturnStockInput,
@@ -26,9 +27,18 @@ import {
 import type { PageQuery } from '@techpioasset/contracts';
 import { AppError } from '../common/errors/app-error.js';
 import { paginate } from '../common/paginate.js';
+import { canSeeCost } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+/** The refusal for a SKU that is already taken, naming what holds it. */
+function skuClashMessage(sku: string, holder: { name: string; deletedAt: Date | null } | null) {
+  if (!holder) return `SKU ${sku} is already in use`;
+  return holder.deletedAt
+    ? `SKU ${sku} belonged to "${holder.name}", which was removed - choose a different SKU`
+    : `SKU ${sku} is already used by "${holder.name}"`;
+}
 
 /** How far ahead a lot counts as "about to go off". */
 const EXPIRY_WARN_DAYS = 30;
@@ -129,6 +139,105 @@ export class StockService {
         updatedById: actor.id,
       },
     });
+  }
+
+  // ── catalogue ──────────────────────────────────────────────────────────────
+
+  /**
+   * Add an item to the stock catalogue. Describes the item only: quantity comes
+   * through adjust(), so the ledger stays the single way stock reaches a shelf.
+   *
+   * The SKU arrives upper-cased from the contract, which makes the per-company
+   * unique index case-insensitive for everything created here; the lookup below
+   * is case-insensitive too so an older lower-case SKU is still caught, and it
+   * includes deleted rows because the unique index does.
+   */
+  async createItem(actor: AuthUser, input: CreateInventoryItemInput) {
+    const hasCost = input.unitCost !== undefined && input.unitCost !== null;
+    if (hasCost && !canSeeCost(actor)) {
+      throw AppError.forbidden('Only roles allowed to see purchase costs can enter one - leave the cost blank');
+    }
+
+    const category = await this.prisma.client.category.findFirst({
+      where: { id: input.categoryId, companyId: actor.companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!category) throw AppError.notFound('Category', input.categoryId);
+    if (input.subcategoryId) {
+      const sub = await this.prisma.client.subcategory.findFirst({
+        where: { id: input.subcategoryId, categoryId: category.id },
+        select: { id: true },
+      });
+      if (!sub) throw AppError.notFound('Subcategory', input.subcategoryId);
+    }
+
+    const clash = await this.prisma.client.inventoryItem.findFirst({
+      where: { companyId: actor.companyId, sku: { equals: input.sku, mode: 'insensitive' } },
+      select: { name: true, deletedAt: true },
+    });
+    if (clash) throw AppError.conflict('CONFLICT', skuClashMessage(input.sku, clash));
+
+    let item;
+    try {
+      item = await this.prisma.client.inventoryItem.create({
+        data: {
+          companyId: actor.companyId,
+          sku: input.sku,
+          name: input.name,
+          description: input.description ?? null,
+          categoryId: category.id,
+          subcategoryId: input.subcategoryId ?? null,
+          unit: input.unit,
+          minStock: input.minStock ?? null,
+          reorderLevel: input.reorderLevel ?? null,
+          ...(hasCost
+            ? { unitCost: new Prisma.Decimal(input.unitCost!), currency: input.currency ?? 'INR' }
+            : {}),
+          createdById: actor.id,
+          updatedById: actor.id,
+        },
+        select: {
+          id: true,
+          sku: true,
+          name: true,
+          unit: true,
+          minStock: true,
+          reorderLevel: true,
+          quantityOnHand: true,
+          batchTracked: true,
+          categoryId: true,
+          subcategoryId: true,
+          unitCost: true,
+          currency: true,
+        },
+      });
+    } catch (error) {
+      // Two people creating the same SKU at once: the index decides.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw AppError.conflict('CONFLICT', skuClashMessage(input.sku, null));
+      }
+      throw error;
+    }
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.INVENTORY_ADJUSTED,
+      entityType: 'InventoryItem',
+      entityId: item.id,
+      newValues: {
+        kind: 'ITEM_CREATED',
+        sku: item.sku,
+        name: item.name,
+        unit: item.unit,
+        minStock: input.minStock ?? null,
+        ...(hasCost ? { unitCost: input.unitCost, currency: item.currency } : {}),
+      },
+    });
+
+    // Cost leaves only for the roles that may see it, same as the asset register.
+    const { unitCost, currency, ...rest } = item;
+    return canSeeCost(actor) ? { ...rest, unitCost, currency } : rest;
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────

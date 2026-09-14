@@ -271,6 +271,27 @@ export const NOTIFICATION_CATALOGUE: Readonly<Record<NotificationType, Notificat
     mandatory: true,
     channels: ['IN_APP', 'EMAIL'],
   },
+  // Work-order sign-off. Awaiting approval fans out to every maintenance
+  // manager and any one of them can act, so each may mute it. Sent back is
+  // mandatory - it is the one outcome the technician must act on.
+  WORK_ORDER_AWAITING_APPROVAL: {
+    type: 'WORK_ORDER_AWAITING_APPROVAL',
+    title: 'Work order awaiting approval',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL', 'PUSH'],
+  },
+  WORK_ORDER_APPROVED: {
+    type: 'WORK_ORDER_APPROVED',
+    title: 'Work order approved',
+    mandatory: false,
+    channels: ['IN_APP', 'PUSH'],
+  },
+  WORK_ORDER_SENT_BACK: {
+    type: 'WORK_ORDER_SENT_BACK',
+    title: 'Work order sent back',
+    mandatory: true,
+    channels: ['IN_APP', 'EMAIL', 'PUSH'],
+  },
   // v2.6 scheduled reports - the owner always learns the outcome, especially
   // failure: a report that silently stopped arriving is a lie by omission.
   REPORT_DELIVERED: {

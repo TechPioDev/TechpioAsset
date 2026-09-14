@@ -27,7 +27,7 @@ async function anAsset() {
 }
 
 describe('maintenance lifecycle (spec section 14)', () => {
-  it('runs request → start → complete and returns the asset to service', async () => {
+  it('runs request → start → complete → approve and returns the asset to service', async () => {
     const asset = await anAsset();
 
     const created = await api(app)
@@ -47,9 +47,18 @@ describe('maintenance lifecycle (spec section 14)', () => {
       .post(`/api/v1/maintenance/${id}/complete`)
       .set(auth(s.itAdmin))
       .send({ serviceCost: '149.99', downtimeHours: '48', restoreAsset: true });
-    expect(completed.body.data.status).toBe('COMPLETED');
-    // And came back to service.
-    expect(completed.body.data.asset.status).toBe('AVAILABLE');
+    // Completion goes for sign-off; the asset stays under repair until then.
+    expect(completed.body.data.status).toBe('AWAITING_APPROVAL');
+    expect(completed.body.data.asset.status).toBe('UNDER_REPAIR');
+
+    // A different manager approves: closed, and back in service.
+    const approved = await api(app)
+      .post(`/api/v1/maintenance/${id}/approve`)
+      .set(auth(s.superAdmin))
+      .send({});
+    expect(approved.status, JSON.stringify(approved.body)).toBe(201);
+    expect(approved.body.data.status).toBe('COMPLETED');
+    expect(approved.body.data.asset.status).toBe('AVAILABLE');
   });
 
   it('rejects an illegal transition (complete before start)', async () => {

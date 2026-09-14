@@ -37,7 +37,10 @@ export const completeMaintenanceSchema = z.object({
   resolutionNotes: z.string().trim().max(2000).optional().nullable(),
   replacementRecommended: z.boolean().default(false),
   recommendationNote: z.string().trim().max(1000).optional().nullable(),
-  /** Whether completing this returns the asset to service or leaves it retired. */
+  /**
+   * Whether the asset returns to service. Applied when a manager approves the
+   * work (the sign-off), not at completion - until then it stays under repair.
+   */
   restoreAsset: z.boolean().default(true),
 });
 
@@ -50,7 +53,7 @@ export const maintenanceListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   order: z.enum(['asc', 'desc']).default('desc'),
   status: maintenanceStatusEnum.optional(),
-  /** Requested, scheduled or in progress - what "Open maintenance" counts. */
+  /** Any not-yet-closed status (incl. on hold, awaiting approval) - what "Open maintenance" counts. */
   open: z
     .enum(['true', 'false'])
     .optional()
@@ -80,6 +83,29 @@ export const holdWorkOrderSchema = z.object({
   reason: z.string().trim().max(500).optional().nullable(),
 });
 export type HoldWorkOrderInput = z.infer<typeof holdWorkOrderSchema>;
+
+// ── work-order sign-off ────────────────────────────────────────────────────────
+
+export const approveWorkOrderSchema = z.object({
+  /**
+   * Return the asset to service now the work is signed off. Omitted: whatever
+   * the technician asked for when completing (true when they said nothing).
+   */
+  restoreAsset: z.boolean().optional(),
+});
+export type ApproveWorkOrderInput = z.infer<typeof approveWorkOrderSchema>;
+
+export const sendBackWorkOrderSchema = z.object({
+  /** Required: the technician must be told what is still wrong. */
+  reason: z.string().trim().min(1, 'Say why the work is being sent back').max(500),
+});
+export type SendBackWorkOrderInput = z.infer<typeof sendBackWorkOrderSchema>;
+
+/** Optional so the pre-existing body-less cancel call keeps working. */
+export const cancelMaintenanceSchema = z.object({
+  reason: z.string().trim().max(500).optional().nullable(),
+});
+export type CancelMaintenanceInput = z.infer<typeof cancelMaintenanceSchema>;
 
 export const consumePartSchema = z.object({
   inventoryItemId: z.string().min(1),
