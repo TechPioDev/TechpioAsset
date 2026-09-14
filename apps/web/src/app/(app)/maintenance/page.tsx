@@ -7,7 +7,8 @@ import { AlertTriangle, User } from 'lucide-react';
 import { apiFetchPage } from '@/lib/api-client';
 import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
 import { SchedulesPanel } from '@/components/maintenance/schedules-panel';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/providers/auth-provider';
 
 /**
  * v2.5 H5 — the work-order board. Open work grouped by status with SLA
@@ -72,10 +73,17 @@ function MaintenanceBoard() {
   // without reading it the count and the destination disagreed.
   const params = useSearchParams();
   const [openOnly] = useState(params.get('open') === 'true');
+  // "Mine" - the phone's technician filter: work orders assigned to me. Read
+  // from the URL on every render so the choice survives a reload and a link.
+  const { user } = useAuth();
+  const mine = params.get('mine') === '1';
   const { data, isPending, isError, error } = useQuery({
-    queryKey: ['maintenance', openOnly],
+    queryKey: ['maintenance', openOnly, mine ? (user?.id ?? null) : null],
+    enabled: !mine || Boolean(user),
     queryFn: () =>
-      apiFetchPage<MaintenanceRow>(`/maintenance?pageSize=100${openOnly ? '&open=true' : ''}`),
+      apiFetchPage<MaintenanceRow>(
+        `/maintenance?pageSize=100${openOnly ? '&open=true' : ''}${mine ? `&technicianId=${encodeURIComponent(user!.id)}` : ''}`,
+      ),
   });
 
   if (view === 'schedules') {
@@ -101,14 +109,33 @@ function MaintenanceBoard() {
   }
 
   const open = data.data.filter((row) => !CLOSED.has(row.status));
+  if (mine) {
+    // As on the phone: the jobs on my plate, SLA-overdue first, then the
+    // soonest deadline. The shared "All open" board keeps the API's order.
+    open.sort((a, b) => {
+      const overdue = Number(isSlaOverdue(b)) - Number(isSlaOverdue(a));
+      if (overdue !== 0) return overdue;
+      const dueA = a.slaDueAt ? new Date(a.slaDueAt).getTime() : Infinity;
+      const dueB = b.slaDueAt ? new Date(b.slaDueAt).getTime() : Infinity;
+      return dueA - dueB;
+    });
+  }
   const closed = data.data.filter((row) => CLOSED.has(row.status)).slice(0, 15);
 
   return (
     <div className="grid gap-4">
       <MaintenanceHeader view={view} setView={setView} />
+      <ScopeFilter mine={mine} />
 
       {open.length === 0 ? (
-        <EmptyState title="No open work orders" description="Repairs and inspections appear here." />
+        <EmptyState
+          title={mine ? 'No open work orders assigned to you' : 'No open work orders'}
+          description={
+            mine
+              ? 'Work orders assigned to you appear here. Switch to All open to see the whole queue.'
+              : 'Repairs and inspections appear here.'
+          }
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {COLUMNS.map((column) => {
@@ -220,6 +247,53 @@ function MaintenanceBoard() {
           </div>
         </Card>
       ) : null}
+    </div>
+  );
+}
+
+function isSlaOverdue(row: MaintenanceRow): boolean {
+  return row.slaDueAt != null && new Date(row.slaDueAt).getTime() < Date.now() && !CLOSED.has(row.status);
+}
+
+/**
+ * Mine / All open (?mine=1), the same two scopes as the phone's work-order
+ * list. Other query parameters - the dashboard tile's ?open=true - ride along.
+ */
+function ScopeFilter({ mine }: { mine: boolean }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  function choose(next: boolean) {
+    const query = new URLSearchParams(params.toString());
+    if (next) query.set('mine', '1');
+    else query.delete('mine');
+    const qs = query.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
+  return (
+    <div role="group" aria-label="Which work orders" className="flex gap-1.5">
+      {(
+        [
+          [true, 'Mine'],
+          [false, 'All open'],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={label}
+          type="button"
+          aria-pressed={mine === value}
+          onClick={() => choose(value)}
+          className={
+            mine === value
+              ? 'rounded-full border border-[var(--color-brand)] bg-[var(--color-brand)] px-3 py-1 text-sm font-semibold text-[var(--color-brand-contrast)]'
+              : 'rounded-full border border-[var(--color-border-strong)] px-3 py-1 text-sm font-medium text-[var(--color-content-muted)] hover:bg-[var(--color-surface-sunken)]'
+          }
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

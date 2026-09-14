@@ -5,6 +5,10 @@ import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { Alert } from 'react-native';
 import { Button, Card, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import type { AuthUser } from '@techpioasset/contracts';
+import { ChangePasswordCard } from '../../src/components/security/change-password-card';
+import { PasswordGate } from '../../src/components/security/password-gate';
+import { TwoFactorCard } from '../../src/components/security/two-factor-card';
 
 /**
  * Where you are signed in, and how you got there.
@@ -14,6 +18,11 @@ import { Button, Card, Screen, SectionTitle, StatusPill } from '../../src/compon
  * (identifySession), so the caller's own session is excluded rather than caught
  * in the sweep. Before that it would have signed you out of the phone you were
  * holding.
+ *
+ * Password change and two-factor set-up / turn off live here too now, behind
+ * the web page's "Confirm it's you" password gate (src/components/security).
+ * The unlock is held in this screen's memory only - leaving the screen locks it
+ * again. Sessions and sign-in history stay visible without it, as before.
  */
 
 interface Session {
@@ -56,6 +65,20 @@ export default function SecuritySettingsScreen() {
   const [history, setHistory] = useState<LoginEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+  // The session's user is read once at sign-in, so it goes stale the moment
+  // two-factor is switched here. Track the server's answer locally.
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
+  useEffect(() => setMfaEnabled(Boolean(user?.mfaEnabled)), [user?.mfaEnabled]);
+
+  const reloadAccount = useCallback(async () => {
+    try {
+      const me = await api.request<AuthUser>('/auth/me');
+      setMfaEnabled(Boolean(me?.mfaEnabled));
+    } catch {
+      // Keep what is shown; pull to refresh tries again.
+    }
+  }, [api]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +94,9 @@ export default function SecuritySettingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+    // Refresh the two-factor status too, in case it was changed on the web.
+    await reloadAccount();
+  }, [api, reloadAccount]);
 
   async function revokeOthers() {
     setRevoking(true);
@@ -103,11 +128,21 @@ export default function SecuritySettingsScreen() {
         <Row label="Signed in as" value={user?.email ?? '—'} />
         <Row
           label="Two-factor"
-          value={user?.mfaEnabled ? 'On' : 'Off'}
-          tone={user?.mfaEnabled ? 'good' : 'warn'}
+          value={mfaEnabled ? 'On' : 'Off'}
+          tone={mfaEnabled ? 'good' : 'warn'}
           last
         />
       </Card>
+
+      <SectionTitle>Password and two-factor</SectionTitle>
+      {unlocked ? (
+        <>
+          <TwoFactorCard enabled={mfaEnabled} onChanged={reloadAccount} />
+          <ChangePasswordCard />
+        </>
+      ) : (
+        <PasswordGate onConfirmed={() => setUnlocked(true)} />
+      )}
 
       <SectionTitle>{`Signed in on${sessions.length ? ` (${sessions.length})` : ''}`}</SectionTitle>
       {sessions.length === 0 ? (
@@ -213,10 +248,6 @@ export default function SecuritySettingsScreen() {
           style={{ marginBottom: spacing.lg }}
         />
       ) : null}
-
-      <Text style={{ color: c.subtle, fontSize: 12, lineHeight: 18 }}>
-        Changing your password and setting up two-factor are in the web app.
-      </Text>
     </Screen>
   );
 }

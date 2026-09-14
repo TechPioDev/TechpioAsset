@@ -20,6 +20,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     // below, so before this the menu opened onto little but Profile.
     title: 'Yours',
     items: [
+      { icon: 'notifications-outline', label: 'Notifications', href: '/notifications' },
       // Permissioned: "yours" assumes the reader is a colleague with kit. A
       // supplier holds neither, and offering the pages anyway was a dead end.
       {
@@ -104,6 +105,12 @@ const GROUPS: { title: string; items: Item[] }[] = [
         perm: PERMISSIONS.MAINTENANCE_READ,
       },
       { icon: 'people-outline', label: 'People', href: '/people', perm: PERMISSIONS.USERS_READ },
+      {
+        icon: 'mail-unread-outline',
+        label: 'Pending invitations',
+        href: '/people-invitations',
+        perm: PERMISSIONS.USERS_MANAGE,
+      },
       {
         icon: 'stats-chart-outline',
         label: 'Analytics',

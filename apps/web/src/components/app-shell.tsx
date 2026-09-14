@@ -36,7 +36,7 @@ import { Sparkles,
   X,
   Store,
 } from 'lucide-react';
-import { Wallet } from 'lucide-react';
+import { Award, Wallet } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useAuth } from '@/providers/auth-provider';
 import { cn } from '@/lib/cn';
@@ -94,6 +94,14 @@ const NAV_GROUPS: NavGroup[] = [
       // with kit and requests. A supplier holds neither, and offering the pages
       // anyway led to two dead ends that only said "you do not have permission".
       { href: '/my-assets', label: 'My assets', Icon: Package, permission: PERMISSIONS.ASSETS_READ },
+      // Gated as the phone gates its "My licenses" entry. The endpoint itself
+      // needs no permission - it only returns the caller's own seats.
+      {
+        href: '/my-licenses',
+        label: 'My licences',
+        Icon: Award,
+        permission: PERMISSIONS.LICENSES_READ,
+      },
       {
         href: '/requests',
         label: 'Requests',

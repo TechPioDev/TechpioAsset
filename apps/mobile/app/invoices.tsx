@@ -1,9 +1,10 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, RefreshControl, Text, View } from 'react-native';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { formatMoney } from '../src/lib/format';
-import { Card, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { Card, Chevron, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
 
 interface InvoiceRow {
   id: string;
@@ -19,6 +20,7 @@ interface InvoiceRow {
 export default function InvoicesScreen() {
   const { api } = useSession();
   const { c, spacing } = useTheme();
+  const router = useRouter();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +51,10 @@ export default function InvoicesScreen() {
         )
       }
       renderItem={({ item }) => (
-        <Card style={{ marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <Card
+          onPress={() => router.push(`/invoice/${item.id}`)}
+          style={{ marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+        >
           <IconBadge icon="document-attach-outline" />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
@@ -66,6 +71,7 @@ export default function InvoicesScreen() {
             ) : null}
             <StatusPill label={item.paymentStatus} bg={c.brandSoft} fg={c.brand} />
           </View>
+          <Chevron />
         </Card>
       )}
     />

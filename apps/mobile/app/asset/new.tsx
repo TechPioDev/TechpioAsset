@@ -3,7 +3,9 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, Text, View } from 'react-native';
-import { ASSET_TYPES_BY_KEY, type AssetTypeDef } from '@techpioasset/domain';
+import { ASSET_TYPES_BY_KEY, PERMISSIONS, type AssetTypeDef } from '@techpioasset/domain';
+import { ChipPicker } from '../../src/components/chip-picker';
+import { buildCreateExtras, dateError, priceError, problemMessage } from '../../src/lib/asset-admin';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { Button, Card, Field, Screen, SectionTitle } from '../../src/components/ui';
@@ -81,7 +83,7 @@ function Chips<T extends { id?: string; key?: string; name: string }>({
 }
 
 export default function NewAssetScreen() {
-  const { api } = useSession();
+  const { api, user } = useSession();
   const { c, spacing } = useTheme();
   const router = useRouter();
 
@@ -97,6 +99,15 @@ export default function NewAssetScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanningFor, setScanningFor] = useState<string | null>(null);
+  const [offices, setOffices] = useState<{ id: string; name: string }[]>([]);
+  const [officeId, setOfficeId] = useState('');
+  const [purchaseDate, setPurchaseDate] = useState('');
+  const [warrantyEndDate, setWarrantyEndDate] = useState('');
+  const [purchaseCost, setPurchaseCost] = useState('');
+
+  // Price is a Finance / Super Admin field - the permission the web form checks
+  // and the API enforces. Everyone else never sees the box; Finance prices it later.
+  const canSetPrice = user?.permissions.includes(PERMISSIONS.ASSETS_COST_READ) ?? false;
 
   useEffect(() => {
     void (async () => {
@@ -106,6 +117,11 @@ export default function NewAssetScreen() {
         setError('Could not load categories. Pull back and try again.');
       }
     })();
+    // Offices are optional on the form, so a failure here only hides the picker.
+    void api
+      .request<{ id: string; name: string }[]>('/offices')
+      .then((rows) => setOffices(rows ?? []))
+      .catch(() => setOffices([]));
   }, [api]);
 
   const category = categories.find((x) => x.id === categoryId) ?? null;
@@ -130,6 +146,14 @@ export default function NewAssetScreen() {
   );
 
   async function submit() {
+    const problem =
+      dateError(purchaseDate, 'Purchased on') ??
+      dateError(warrantyEndDate, 'Warranty ends') ??
+      (canSetPrice ? priceError(purchaseCost) : null);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
@@ -147,16 +171,13 @@ export default function NewAssetScreen() {
           macAddress: identity.macAddress?.trim() || undefined,
           imei: identity.imei?.trim() || undefined,
           specs: Object.keys(specs).length ? specs : undefined,
+          ...buildCreateExtras({ officeId, purchaseDate, warrantyEndDate, purchaseCost }, canSetPrice),
         },
       });
       // Straight to the asset, where it can be handed to someone immediately.
       router.replace(`/asset/${created.id}`);
     } catch (e) {
-      setError(
-        e instanceof Error && e.message
-          ? e.message
-          : 'Could not save that. Check the fields and try again.',
-      );
+      setError(problemMessage(e, 'Could not save that. Check the fields and try again.'));
     } finally {
       setBusy(false);
     }
@@ -281,6 +302,51 @@ export default function NewAssetScreen() {
               />
             ),
           )}
+        </>
+      ) : null}
+
+      <SectionTitle>Location and purchase</SectionTitle>
+      {offices.length ? (
+        <>
+          <Text style={{ color: c.text, fontSize: 13, fontWeight: '600', marginBottom: 6 }}>Office</Text>
+          <ChipPicker
+            label="Office"
+            options={offices}
+            value={officeId}
+            onChange={setOfficeId}
+            allowNone
+          />
+          <View style={{ height: spacing.lg }} />
+        </>
+      ) : null}
+      <Field
+        label="Purchased on (YYYY-MM-DD)"
+        placeholder="2026-04-01"
+        keyboardType="numbers-and-punctuation"
+        maxLength={10}
+        value={purchaseDate}
+        onChangeText={setPurchaseDate}
+      />
+      <Field
+        label="Warranty ends (YYYY-MM-DD)"
+        placeholder="2029-04-01"
+        keyboardType="numbers-and-punctuation"
+        maxLength={10}
+        value={warrantyEndDate}
+        onChangeText={setWarrantyEndDate}
+      />
+      {canSetPrice ? (
+        <>
+          <Field
+            label="Purchase price"
+            placeholder="45000.00"
+            keyboardType="decimal-pad"
+            value={purchaseCost}
+            onChangeText={setPurchaseCost}
+          />
+          <Text style={{ color: c.muted, fontSize: 12, marginTop: -spacing.sm, marginBottom: spacing.md }}>
+            The price is recorded once and locks after saving.
+          </Text>
         </>
       ) : null}
 

@@ -105,7 +105,14 @@ export class InvoiceUploadService implements OnModuleInit {
         invoiceNumber: meta.invoiceNumber ?? `UPLOAD-${ulid()}`,
         vendorId: await this.resolveVendor(actor, meta.vendorId),
         invoiceDate: new Date(),
-        currency: 'USD',
+        // A placeholder until extraction or a reviewer says otherwise - so it is
+        // the company's own currency, not dollars for everybody.
+        currency: (
+          await this.prisma.client.company.findUniqueOrThrow({
+            where: { id: actor.companyId },
+            select: { baseCurrency: true },
+          })
+        ).baseCurrency,
         verificationStatus: 'UPLOADED',
         createdById: actor.id,
         documents: {

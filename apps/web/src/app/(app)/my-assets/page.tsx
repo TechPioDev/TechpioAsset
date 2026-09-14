@@ -35,6 +35,15 @@ interface AssetRow {
   }[];
 }
 
+/** Shape returned by /stock/held-by/:userId - the item is flattened onto the row. */
+interface HeldConsumable {
+  inventoryItemId: string;
+  name: string;
+  sku: string;
+  unit: string | null;
+  quantity: number;
+}
+
 export default function MyAssetsPage() {
   // useSearchParams needs a Suspense boundary during prerender.
   return (
@@ -69,6 +78,15 @@ function MyAssetsList() {
       apiFetchPage<AssetRow>(
         `/assets?assignedUserId=${user!.id}&pageSize=100${q ? `&q=${encodeURIComponent(q)}` : ''}`,
       ),
+  });
+
+  // v2.21 - cables, mice and headsets are stock, not serialised assets, so the
+  // list above never shows them. The ledger says what this person holds; the
+  // phone's My equipment reads the same endpoint.
+  const consumables = useQuery({
+    queryKey: ['held-consumables', user?.id],
+    enabled: Boolean(user) && !q,
+    queryFn: () => apiFetch<HeldConsumable[]>(`/stock/held-by/${user!.id}`),
   });
 
   return (
@@ -237,6 +255,50 @@ function MyAssetsList() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Not while searching: the search matches assets, and a consumables
+          list under "matching X" would read as part of the results. */}
+      {q ? null : (
+        <section aria-labelledby="my-consumables" className="grid gap-2">
+          <h2 id="my-consumables" className="text-base font-semibold">
+            Consumables
+          </h2>
+          {consumables.isPending ? (
+            <Skeleton className="h-16" />
+          ) : consumables.isError ? (
+            <ErrorState
+              title="Could not load your consumables"
+              detail={(consumables.error as Error).message}
+            />
+          ) : consumables.data.length === 0 ? (
+            <Card className="px-4 py-3">
+              <p className="text-sm text-[var(--color-content-muted)]">
+                Nothing issued from stock — cables, mice and headsets would show here.
+              </p>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <ul className="divide-y divide-[var(--color-border)]">
+                {consumables.data.map((item) => (
+                  <li
+                    key={item.inventoryItemId}
+                    className="flex items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{item.name}</p>
+                      <p className="text-xs text-[var(--color-content-subtle)]">{item.sku}</p>
+                    </div>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {item.quantity}
+                      {item.unit ? ` ${item.unit}` : ''}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </section>
       )}
     </div>
   );

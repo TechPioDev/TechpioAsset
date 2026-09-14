@@ -352,7 +352,18 @@ export class ProcurementService {
           unitPrice: l.estimatedUnitPrice ?? new Prisma.Decimal(0),
           lineTotal: new Prisma.Decimal((Number(l.estimatedUnitPrice ?? 0) * Number(l.quantity)).toFixed(2)),
         }));
-    const currency = awarded?.currency ?? input.currency ?? pr.currency ?? 'USD';
+    // Last resort is the company's own currency: a request raised without one
+    // used to become a dollar order.
+    const currency =
+      awarded?.currency ??
+      input.currency ??
+      pr.currency ??
+      (
+        await this.prisma.client.company.findUniqueOrThrow({
+          where: { id: actor.companyId },
+          select: { baseCurrency: true },
+        })
+      ).baseCurrency;
 
     // v2.47 - name the catalogue listing each line is buying, where it can be
     // known for certain rather than guessed.

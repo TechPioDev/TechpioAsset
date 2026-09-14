@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { type ComponentProps, useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { type ComponentProps, useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import type {
   AssetCondition,
@@ -15,6 +15,9 @@ import { useSession } from '../../src/providers/session';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { ConditionPhotoSheet, type PhotoStage } from '../../src/components/condition-photo-sheet';
 import { ConditionPhotoStrip } from '../../src/components/condition-photo-strip';
+import { DisposalCard, type DisposalRecord } from '../../src/components/assets/disposal-card';
+import { PriceCard } from '../../src/components/assets/price-card';
+import { TransferCard, type OpenTransfer } from '../../src/components/assets/transfer-card';
 import { useTheme } from '../../src/theme';
 import { Button, Card, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 
@@ -31,6 +34,16 @@ interface AssetDetail {
   lifecycleState: LifecycleState | null;
   availabilityState: AvailabilityState | null;
   ownershipType: OwnershipType | null;
+  office?: { id: string; name: string } | null;
+  purchaseDate?: string | null;
+  warrantyEndDate?: string | null;
+  notes?: string | null;
+  /** Sent only to holders of assets:cost:read - the API omits it for everyone else. */
+  purchaseCost?: string | null;
+  currency?: string | null;
+  /** The open office transfer, if the asset is on the road. */
+  transfers?: OpenTransfer[];
+  disposal?: DisposalRecord | null;
   /** v2.53 - the catalogue listing this unit came from, when it came through procurement. */
   vendorProduct?: { id: string; name: string } | null;
   assignments: {
@@ -70,9 +83,12 @@ export default function AssetDetailScreen() {
     setAsset(data);
   }, [api, id]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Reloaded on focus, not just mount, so coming back from Edit shows the save.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const openAssignment = asset?.assignments.find((a) => a.returnedAt === null);
   const holderName = openAssignment?.user
@@ -85,6 +101,7 @@ export default function AssetDetailScreen() {
   const can = (permission: string) => user?.permissions.includes(permission) ?? false;
   const mayAssign = can(PERMISSIONS.ASSETS_ASSIGN);
   const mayReturn = can(PERMISSIONS.ASSETS_RETURN);
+  const mayEdit = can(PERMISSIONS.ASSETS_UPDATE);
   const [handover, setHandover] = useState<HandoverMode | null>(null);
   /**
    * Set the moment a handover or return completes, which opens the camera.
@@ -145,6 +162,27 @@ export default function AssetDetailScreen() {
             <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>{asset.name}</Text>
             <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>{asset.assetTag}</Text>
           </View>
+          {mayEdit ? (
+            <Pressable
+              onPress={() => router.push(`/asset/edit?id=${asset.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel="Edit asset"
+              hitSlop={8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: c.border,
+              }}
+            >
+              <Ionicons name="create-outline" size={15} color={c.brand} />
+              <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>Edit</Text>
+            </Pressable>
+          ) : null}
         </View>
         <View
           style={{ marginTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
@@ -195,8 +233,37 @@ export default function AssetDetailScreen() {
                   : {})}
               />
             ) : null}
+            {asset.office ? <DetailRow label="Office" value={asset.office.name} /> : null}
+            {asset.purchaseDate ? <DetailRow label="Purchased" value={fmt(asset.purchaseDate)} /> : null}
+            {asset.warrantyEndDate ? (
+              <DetailRow label="Warranty ends" value={fmt(asset.warrantyEndDate)} />
+            ) : null}
             <DetailRow label="Condition" value={asset.condition} last />
           </Card>
+
+          {asset.notes ? (
+            <Card style={{ marginTop: -spacing.md, marginBottom: spacing.xl }}>
+              <Text style={{ color: c.muted, fontSize: 13, lineHeight: 19 }}>{asset.notes}</Text>
+            </Card>
+          ) : null}
+
+          {/* Renders nothing without assets:cost:read. */}
+          <PriceCard
+            assetId={asset.id}
+            purchaseCost={asset.purchaseCost}
+            currency={asset.currency}
+            onRecorded={() => void load()}
+          />
+
+          <TransferCard
+            assetId={asset.id}
+            assetName={asset.name}
+            status={asset.status}
+            officeId={asset.office?.id ?? null}
+            holderId={openAssignment?.id ?? null}
+            openTransfer={asset.transfers?.[0] ?? null}
+            onChanged={() => void load()}
+          />
 
           {/* Offered for as long as the asset is out, not just before receipt
               is confirmed: a mouse or a monitor gets damaged months later, and
@@ -271,6 +338,17 @@ export default function AssetDetailScreen() {
             variant="danger"
             onPress={reportDamage}
             disabled={busy}
+          />
+
+          {/* End of life: the record once it exists, or the action for
+              assets:dispose holders when the state machine allows it. */}
+          <View style={{ height: spacing.lg }} />
+          <DisposalCard
+            assetId={asset.id}
+            assetName={asset.name}
+            status={asset.status}
+            disposal={asset.disposal ?? null}
+            onChanged={() => void load()}
           />
 
           <HandoverSheet

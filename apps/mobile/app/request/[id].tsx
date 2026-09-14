@@ -12,6 +12,9 @@ import { useTheme, type Scheme } from '../../src/theme';
 import { personName, formatMoney } from '../../src/lib/format';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { PERMISSIONS } from '@techpioasset/domain';
+import { ProcurementAssessment } from '../../src/components/requests/procurement-assessment';
+import { RequestConversation, type RequestComment } from '../../src/components/requests/request-conversation';
+import { RequestAttachments, type RequestAttachment } from '../../src/components/requests/request-attachments';
 
 interface ApprovalStep {
   id: string;
@@ -39,10 +42,12 @@ interface RequestDetail {
   estimatedCost: string | null;
   currency: string;
   requester: {
+    id: string;
     email: string;
     profile: { firstName: string | null; lastName: string | null } | null;
   } | null;
   beneficiary: {
+    id: string;
     email: string;
     profile: { firstName: string | null; lastName: string | null } | null;
   } | null;
@@ -51,6 +56,9 @@ interface RequestDetail {
   canDecide: boolean;
   /** Whether this step is the viewer's to stop - a different right to approving. */
   canDecline: boolean;
+  /** Internal notes are only returned to holders of requests:approve. */
+  comments: RequestComment[];
+  attachments: RequestAttachment[];
 }
 
 /** Request detail with approve / reject (spec section 12). */
@@ -96,9 +104,9 @@ export default function RequestDetailScreen() {
    * be done away from a desk, standing in the stockroom looking at a shelf,
    * was the one step a phone could not finish.
    *
-   * Only the yes/no lives here. Pricing wants a vendor, tax and shipping, and
-   * that form belongs on a bigger screen; the cost stage says so rather than
-   * pretending otherwise.
+   * The quick yes/no stays here for the stock stage. Every other stage shows
+   * the full procurement assessment (v2.56) to holders of requests:assess, as
+   * the web page does.
    */
   async function answerStock(purchaseRequired: boolean) {
     if (!request) return;
@@ -264,40 +272,36 @@ export default function RequestDetailScreen() {
           the server refuses it, and a button that always fails is worse than no
           button. Declining still applies - somebody has to be able to stop a
           request that should not go ahead. */}
-      {currentStep && currentStep.kind !== 'APPROVAL' && canAssess ? (
-        <Card>
+      {currentStep && currentStep.kind === 'INVENTORY_CHECK' && canAssess ? (
+        <Card style={{ marginBottom: spacing.xl }}>
           <Text style={{ color: c.text, fontWeight: '700', marginBottom: spacing.xs }}>
-            {currentStep.kind === 'INVENTORY_CHECK' ? 'Is this available in stock?' : 'Cost assessment'}
+            Is this available in stock?
           </Text>
-          {currentStep.kind === 'INVENTORY_CHECK' ? (
-            <>
-              <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
-                Answering completes the step. Filling from stock closes the request without
-                finance approval; needing a purchase sends it on to be costed.
-              </Text>
-              <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                <Button
-                  label="Yes — fill from stock"
-                  variant="secondary"
-                  onPress={() => void answerStock(false)}
-                  disabled={busy}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  label="No — must be bought"
-                  onPress={() => void answerStock(true)}
-                  loading={busy}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </>
-          ) : (
-            <Text style={{ color: c.muted, fontSize: 12 }}>
-              The price, vendor and tax are recorded in the web app — that form does not fit a
-              phone, and the figure decides whether finance approval applies.
-            </Text>
-          )}
+          <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
+            Answering completes the step. Filling from stock closes the request without
+            finance approval; needing a purchase sends it on to be costed.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <Button
+              label="Yes — fill from stock"
+              variant="secondary"
+              onPress={() => void answerStock(false)}
+              disabled={busy}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label="No — must be bought"
+              onPress={() => void answerStock(true)}
+              loading={busy}
+              style={{ flex: 1 }}
+            />
+          </View>
         </Card>
+      ) : canAssess ? (
+        // Same gate as the web page: requests:assess, and never on your own
+        // request. The full commercial form - product, prices, tax, shipping,
+        // discount, note - with the total computed by the server.
+        <ProcurementAssessment requestId={request.id} currency={request.currency} onSaved={() => void load()} />
       ) : null}
 
       {/*
@@ -307,7 +311,7 @@ export default function RequestDetailScreen() {
         and without "Mark as under review", whose endpoint they cannot call.
       */}
       {request.canDecide || request.canDecline ? (
-        <Card>
+        <Card style={{ marginBottom: spacing.xl }}>
           {request.canDecide &&
           !request.approvals.some((a) => a.decision === 'PENDING' && a.reviewStartedAt) ? (
             <Button
@@ -340,6 +344,16 @@ export default function RequestDetailScreen() {
           </View>
         </Card>
       ) : null}
+
+      <RequestAttachments requestId={request.id} attachments={request.attachments ?? []} onChanged={load} />
+
+      <RequestConversation
+        requestId={request.id}
+        comments={request.comments ?? []}
+        canInternal={!!user?.permissions.includes(PERMISSIONS.REQUESTS_APPROVE)}
+        isOwnRequest={request.requester?.id === user?.id || request.beneficiary?.id === user?.id}
+        onPosted={load}
+      />
     </Screen>
   );
 }

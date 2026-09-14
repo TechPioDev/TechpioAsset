@@ -4,7 +4,7 @@ import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, ExternalLink, TicketPlus, ChevronDown, Printer, Lock, Pencil, RefreshCw, Sparkles } from 'lucide-react';
+import { ShieldCheck, ExternalLink, TicketPlus, ChevronDown, Printer, Lock, Pencil, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react';
 import {
   ASSET_STATUS_TOKENS,
   CONDITION_TOKENS,
@@ -199,6 +199,32 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
     },
   });
 
+  /**
+   * One-click "Report damage" - the phone's button, same call. It goes through
+   * the status endpoint, which applies the transition rules and custody check
+   * the edit form's status change does, and lets a holder without
+   * assets:update report only DAMAGED on a device they hold.
+   */
+  const reportDamage = useMutation({
+    mutationFn: () =>
+      apiFetch(`/assets/${id}/status`, {
+        method: 'POST',
+        body: { status: 'DAMAGED', reason: 'Reported damaged from web' },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['asset', id] });
+      void queryClient.invalidateQueries({ queryKey: ['my-assets'] });
+      toast.success('Reported. IT has been notified this asset is damaged.');
+    },
+    onError: (caught) => {
+      toast.error(
+        caught instanceof ApiError
+          ? (caught.problem.detail ?? caught.problem.title)
+          : 'Could not report. You may not have permission to change this asset.',
+      );
+    },
+  });
+
   // Moving from a laptop to a headset with "Hardware" open would leave the page
   // on a tab that no longer exists, showing nothing at all. This sits above the
   // loading and error returns: a hook after an early return runs on some
@@ -318,6 +344,21 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
               <Pencil aria-hidden="true" className="size-4" />
               Edit
             </Link>
+          ) : null}
+          {/* Offered to whoever the API lets report it - a fleet manager, or
+              the person holding the device - and not once it already is. */}
+          {data.status !== 'DAMAGED' &&
+          (can(PERMISSIONS.ASSETS_UPDATE) || (user && data.assignedUser?.id === user.id)) ? (
+            <Button
+              variant="danger"
+              size="sm"
+              className="h-9"
+              loading={reportDamage.isPending}
+              onClick={() => reportDamage.mutate()}
+            >
+              <TriangleAlert aria-hidden="true" className="size-4" />
+              Report damage
+            </Button>
           ) : null}
         </div>
         <p className="mt-1 text-sm text-[var(--color-content-subtle)]">

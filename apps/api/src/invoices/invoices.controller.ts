@@ -7,12 +7,13 @@ import {
   ParseFilePipe,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Express } from 'express';
+import type { Express, Response } from 'express';
 import 'multer';
 import {
   createInvoiceSchema,
@@ -26,9 +27,11 @@ import {
 import { PERMISSIONS } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
-import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
+import { CurrentUser, Public, RequirePermissions } from '../auth/decorators.js';
+import { safeDownloadName } from '../common/signed-download-link.js';
 import { InvoicesService } from './invoices.service.js';
 import { InvoiceUploadService } from './invoice-upload.service.js';
+import { InvoiceDocumentLinksService } from './invoice-document-links.service.js';
 
 @ApiTags('Invoices')
 @Controller('invoices')
@@ -36,6 +39,7 @@ export class InvoicesController {
   constructor(
     private readonly invoices: InvoicesService,
     private readonly uploads: InvoiceUploadService,
+    private readonly documentLinks: InvoiceDocumentLinksService,
   ) {}
 
   @Get()
@@ -53,6 +57,39 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Read an invoice with its documents, extraction and verification' })
   findOne(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.invoices.findOne(actor, id);
+  }
+
+  @Post(':id/documents/:documentId/link')
+  @RequirePermissions(PERMISSIONS.INVOICES_READ)
+  @ApiOperation({
+    summary: 'A two-minute download link for one invoice document',
+    description:
+      'For the phone app, which can open a link in the system browser but cannot attach a ' +
+      'sign-in header to it. Access is checked here, when the link is made; the link names ' +
+      'only that document and stops working after two minutes.',
+  })
+  documentLink(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.documentLinks.createLink(actor, id, documentId);
+  }
+
+  // Public on purpose, and only this one route: the signature is the credential.
+  @Get('document-links/:token')
+  @Public()
+  @ApiOperation({ summary: 'Download an invoice document through a signed link' })
+  async readDocumentLink(@Param('token') token: string, @Res() res: Response) {
+    const document = await this.documentLinks.readByLink(token);
+    res.setHeader('Content-Type', document.mimeType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeDownloadName(document.originalName)}"`,
+    );
+    // Never cached: a link is meant to stop working, and a cache would not.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(document.data);
   }
 
   @Post()

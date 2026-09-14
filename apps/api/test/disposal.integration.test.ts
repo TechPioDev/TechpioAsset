@@ -82,6 +82,30 @@ describe('POST /assets/:id/dispose', () => {
     ).toBe(true);
   });
 
+  it("records proceeds sent without a currency in the company's own, not dollars", async () => {
+    // Neither app sends a currency with proceeds. This used to fall back to
+    // USD, so an Indian company's scrap sale was stored as dollars.
+    // The test company is USD, which would pass with the old fallback too.
+    const company = await api(app).get('/api/v1/company').set(auth(s.superAdmin));
+    const original = company.body.data.baseCurrency as string;
+    const switched = await api(app)
+      .patch('/api/v1/company')
+      .set(auth(s.superAdmin))
+      .send({ baseCurrency: 'INR' });
+    expect(switched.status).toBeLessThan(300);
+    try {
+      const asset = await freshAsset(uniq());
+      const res = await api(app)
+        .post(`/api/v1/assets/${asset.id}/dispose`)
+        .set(auth(s.finance))
+        .send(disposeBody({ method: 'SOLD', proceeds: '4500.00', recipient: 'Local recycler' }));
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(res.body.data.disposal.currency).toBe('INR');
+    } finally {
+      await api(app).patch('/api/v1/company').set(auth(s.superAdmin)).send({ baseCurrency: original });
+    }
+  });
+
   it('a donation lands in DONATED, not DISPOSED', async () => {
     const asset = await freshAsset(uniq());
 

@@ -5,6 +5,7 @@ import type { ComponentProps } from 'react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
+import { NotificationBadge } from '../../src/components/notification-badge';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const icon =
@@ -57,7 +58,15 @@ export default function TabsLayout() {
         sceneStyle: { backgroundColor: c.background },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: icon('home-outline') }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: icon('home-outline'),
+          // The web's bell, on the phone: count of unread, opens the inbox.
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
       <Tabs.Screen
         name="assets"
         options={{

@@ -1453,6 +1453,19 @@ export class AssetsService {
       throw new AppError('VALIDATION_FAILED', 'The disposal date cannot be in the future');
     }
 
+    // Proceeds with no currency are in the company's own. This defaulted to
+    // USD, so an Indian company's scrap sale was recorded as dollars from both
+    // apps, neither of which sends a currency.
+    const currency = input.proceeds
+      ? (input.currency ??
+        (
+          await this.prisma.client.company.findUniqueOrThrow({
+            where: { id: actor.companyId },
+            select: { baseCurrency: true },
+          })
+        ).baseCurrency)
+      : null;
+
     await this.prisma.client.$transaction(async (tx) => {
       await tx.disposalRecord.create({
         data: {
@@ -1460,7 +1473,7 @@ export class AssetsService {
           method: input.method,
           disposedAt: input.disposedAt,
           proceeds: input.proceeds ?? null,
-          currency: input.proceeds ? (input.currency ?? 'USD') : null,
+          currency,
           recipient: input.recipient ?? null,
           reason: input.reason,
           approvedById: actor.id,

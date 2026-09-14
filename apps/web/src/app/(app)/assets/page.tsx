@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FileSpreadsheet, Plus, X } from 'lucide-react';
+import { Download, FileSpreadsheet, Plus, QrCode, X } from 'lucide-react';
 import {
   ASSET_STATUS_TOKENS,
   CONDITION_TOKENS,
@@ -405,6 +405,14 @@ function AssetsTable() {
             <Download aria-hidden="true" className="size-4" />
             Export
           </button>
+          {/* Camera scan of a printed label - the phone app's scanner, in the browser. */}
+          <Link
+            href="/assets/scan"
+            className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]"
+          >
+            <QrCode aria-hidden="true" className="size-4" />
+            Scan QR
+          </Link>
           {can(PERMISSIONS.ASSETS_IMPORT) ? (
             <Link
               href="/assets/import"

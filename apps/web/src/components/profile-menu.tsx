@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
+  Award,
   Bell,
   ClipboardList,
   LogOut,
@@ -13,6 +14,7 @@ import {
   UserCircle2,
 } from 'lucide-react';
 import type { AuthUser } from '@techpioasset/contracts';
+import { PERMISSIONS } from '@techpioasset/domain';
 import { useAuth } from '@/providers/auth-provider';
 import { AuthAvatar } from '@/components/auth-avatar';
 import { cn } from '@/lib/cn';
@@ -25,17 +27,19 @@ function initials(user: AuthUser): string {
   return derived || user.email[0]?.toUpperCase() || '?';
 }
 
-const ITEMS = [
+const ITEMS: { href: string; label: string; Icon: typeof User; permission?: string }[] = [
   { href: '/profile', label: 'View profile', Icon: User },
   { href: '/my-assets', label: 'My assets', Icon: Package },
+  // Gated as the sidebar and the phone gate it.
+  { href: '/my-licenses', label: 'My licences', Icon: Award, permission: PERMISSIONS.LICENSES_READ },
   { href: '/my-requests', label: 'My requests', Icon: ClipboardList },
   { href: '/settings/notifications', label: 'Notification settings', Icon: Bell },
   { href: '/settings/appearance', label: 'Appearance settings', Icon: Palette },
   { href: '/settings/security', label: 'Security settings', Icon: ShieldCheck },
-] as const;
+];
 
 export function ProfileMenu() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -121,7 +125,7 @@ export function ProfileMenu() {
           </div>
 
           <nav className="py-1">
-            {ITEMS.map(({ href, label, Icon }) => (
+            {ITEMS.filter((item) => !item.permission || can(item.permission)).map(({ href, label, Icon }) => (
               <Link
                 key={href}
                 href={href}

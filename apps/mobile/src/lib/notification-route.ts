@@ -25,6 +25,13 @@ const ROUTES: Readonly<Record<string, readonly [string, string | null]>> = {
   maintenance: ['/maintenance', '/work-order'],
   inventory: ['/(tabs)/inventory', null],
   procurement: ['/purchase-orders', '/purchase-order'],
+  invoices: ['/invoices', '/invoice'],
+};
+
+/** Whole web paths with their own phone screen that the table above cannot express. */
+const EXACT: Readonly<Record<string, string>> = {
+  '/people/invitations': '/people-invitations',
+  '/settings/security': '/settings/security',
 };
 
 /** Ids look like cuids; anything with a dot or a nested segment is not one. */
@@ -37,6 +44,8 @@ export function notificationRoute(linkPath: unknown): string | null {
   // filters, and carrying them across would pass parameters nothing reads.
   const path = linkPath.split(/[?#]/)[0]!.trim();
   if (!path.startsWith('/')) return null;
+  const exact = EXACT[path.replace(/\/+$/, '')];
+  if (exact) return exact;
 
   const [collection, id, ...rest] = path.slice(1).split('/').filter(Boolean);
   if (!collection) return null;

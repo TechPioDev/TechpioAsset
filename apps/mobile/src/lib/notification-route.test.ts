@@ -8,6 +8,13 @@ describe('where tapping a notification takes you', () => {
     expect(notificationRoute('/assets/cmt789')).toBe('/asset/cmt789');
     expect(notificationRoute('/licenses/lic1')).toBe('/license/lic1');
     expect(notificationRoute('/people/usr1')).toBe('/person/usr1');
+    expect(notificationRoute('/invoices/inv1')).toBe('/invoice/inv1');
+  });
+
+  it('knows the phone screens that exist for a few whole web pages', () => {
+    expect(notificationRoute('/settings/security')).toBe('/settings/security');
+    expect(notificationRoute('/people/invitations')).toBe('/people-invitations');
+    expect(notificationRoute('/people/invitations?status=pending')).toBe('/people-invitations');
   });
 
   it('sends a bare collection link to the list', () => {

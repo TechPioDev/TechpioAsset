@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Award,
   BookOpen,
   CircleHelp,
   FileText,
@@ -46,6 +47,13 @@ const YOURS: Shortcut[] = [
     label: 'My equipment',
     detail: 'Everything issued to you, with serial numbers and who signed it out.',
     Icon: UserRound,
+  },
+  {
+    href: '/my-licenses',
+    label: 'My licences',
+    detail: 'The software seats issued to you, and when each one expires.',
+    Icon: Award,
+    permission: PERMISSIONS.LICENSES_READ,
   },
   {
     href: '/my-requests',
@@ -134,7 +142,7 @@ export default function HelpPage() {
 
       <Card className="p-5">
         <h2 className="mb-1 text-sm font-semibold">Your things</h2>
-        <ShortcutList items={YOURS} />
+        <ShortcutList items={YOURS.filter((item) => !item.permission || can(item.permission))} />
       </Card>
 
       <Card className="p-5">

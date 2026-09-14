@@ -43,6 +43,13 @@ function RootShell() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="asset/[id]" options={{ headerShown: true, title: 'Asset' }} />
           <Stack.Screen name="asset/new" options={{ headerShown: true, title: 'Register asset' }} />
+          <Stack.Screen name="asset/edit" options={{ headerShown: true, title: 'Edit asset' }} />
+          <Stack.Screen name="invoice/[id]" options={{ headerShown: true, title: 'Invoice' }} />
+          <Stack.Screen name="notifications" options={{ headerShown: true, title: 'Notifications' }} />
+          <Stack.Screen
+            name="people-invitations"
+            options={{ headerShown: true, title: 'Pending invitations' }}
+          />
           <Stack.Screen name="person/[id]" options={{ headerShown: true, title: 'Person' }} />
           <Stack.Screen name="my-equipment" options={{ headerShown: true, title: 'My equipment' }} />
           <Stack.Screen name="help" options={{ headerShown: true, title: 'Help' }} />

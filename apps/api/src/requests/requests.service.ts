@@ -12,6 +12,7 @@ import {
   type RequestCreationPolicy,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
+import { signDownloadLink, verifyDownloadLink } from '../common/signed-download-link.js';
 import { AssetsService } from '../assets/assets.service.js';
 import { awaitingMeFilter } from './awaiting-me.js';
 import { CLOSED_REQUEST_STATUSES } from '../dashboard/dashboard.service.js';
@@ -2204,6 +2205,54 @@ export class RequestsService {
 
     const data = await this.storage.get(attachment.storageKey);
     return { data, ...attachment };
+  }
+
+  /**
+   * A two-minute link to one attachment that works without a sign-in header
+   * (v2.56), for the phone - it can open a link in the system browser but not
+   * attach an Authorization header to it. Same construction as the vendor
+   * document links. Access is decided HERE, through the same scope gate the
+   * authenticated download uses; the link then names only this attachment.
+   */
+  async createAttachmentLink(actor: AuthUser, id: string, attachmentId: string) {
+    await this.findOne(actor, id); // scope gate first - a foreign request 404s
+    const attachment = await this.prisma.client.attachment.findFirst({
+      where: { id: attachmentId, assetRequestId: id, companyId: actor.companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!attachment) throw AppError.notFound('Attachment', attachmentId);
+
+    const { token, expiresAt } = signDownloadLink(
+      this.config.get('JWT_ACCESS_SECRET') as string,
+      'request-attachment-link',
+      { fileId: attachment.id, companyId: actor.companyId },
+    );
+    return { path: `/requests/attachment-links/${token}`, expiresAt };
+  }
+
+  /**
+   * The bytes behind a signed attachment link, for a request with no session.
+   * The company is filtered on explicitly: with no session no tenant is set,
+   * and row-level security is permissive when none is.
+   */
+  async readAttachmentByLink(token: string) {
+    const claims = verifyDownloadLink(
+      this.config.get('JWT_ACCESS_SECRET') as string,
+      'request-attachment-link',
+      token,
+      'Attachment',
+    );
+    const attachment = await this.prisma.client.attachment.findFirst({
+      where: {
+        id: claims.fileId,
+        companyId: claims.companyId,
+        assetRequestId: { not: null },
+        deletedAt: null,
+      },
+      select: { storageKey: true, originalName: true, mimeType: true },
+    });
+    if (!attachment) throw AppError.notFound('Attachment', 'link');
+    return { ...attachment, data: await this.storage.get(attachment.storageKey) };
   }
 
   /** The requester may remove an attachment they added while the request is theirs. */

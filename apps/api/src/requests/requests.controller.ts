@@ -40,7 +40,8 @@ import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { AssessmentsService } from './assessments.service.js';
 import { toCsv } from '../common/csv.js';
 import { AppError } from '../common/errors/app-error.js';
-import { CurrentUser, RequireAnyPermission, RequirePermissions } from '../auth/decorators.js';
+import { CurrentUser, Public, RequireAnyPermission, RequirePermissions } from '../auth/decorators.js';
+import { safeDownloadName } from '../common/signed-download-link.js';
 import { RequestsService } from './requests.service.js';
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -329,6 +330,36 @@ export class RequestsController {
       'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(att.data);
+  }
+
+  @Post(':id/attachments/:attachmentId/link')
+  @RequirePermissions(PERMISSIONS.REQUESTS_READ)
+  @ApiOperation({
+    summary: 'A two-minute download link for one request attachment',
+    description:
+      'For the phone app, which can open a link in the system browser but cannot attach a ' +
+      'sign-in header to it. Access is checked here, through the same scope gate as the ' +
+      'download; the link names only that attachment and stops working after two minutes.',
+  })
+  attachmentLink(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.requests.createAttachmentLink(actor, id, attachmentId);
+  }
+
+  // Public on purpose, and only this one route: the signature is the credential.
+  @Get('attachment-links/:token')
+  @Public()
+  @ApiOperation({ summary: 'Download a request attachment through a signed link' })
+  async readAttachmentLink(@Param('token') token: string, @Res() res: Response) {
+    const att = await this.requests.readAttachmentByLink(token);
+    res.setHeader('Content-Type', att.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeDownloadName(att.originalName)}"`);
+    // Never cached: a link is meant to stop working, and a cache would not.
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(att.data);
   }
 
   @Delete(':id/attachments/:attachmentId')
