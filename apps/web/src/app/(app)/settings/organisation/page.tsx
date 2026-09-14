@@ -44,6 +44,20 @@ const CURRENCIES: [string, string][] = [
   ['SGD', 'SGD — Singapore Dollar'],
 ];
 
+/** The zones this product's customers are in, first; any other stored zone is kept as an extra option. */
+const TIMEZONES: [string, string][] = [
+  ['Asia/Kolkata', 'India (Asia/Kolkata)'],
+  ['UTC', 'UTC'],
+  ['Asia/Dubai', 'UAE (Asia/Dubai)'],
+  ['Asia/Singapore', 'Singapore (Asia/Singapore)'],
+  ['Europe/London', 'UK (Europe/London)'],
+  ['Europe/Berlin', 'Central Europe (Europe/Berlin)'],
+  ['America/New_York', 'US Eastern (America/New_York)'],
+  ['America/Los_Angeles', 'US Pacific (America/Los_Angeles)'],
+  ['Australia/Sydney', 'Australia Eastern (Australia/Sydney)'],
+  ['America/Toronto', 'Canada Eastern (America/Toronto)'],
+];
+
 const selectCls =
   'h-10 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 text-sm';
 
@@ -59,6 +73,7 @@ export default function OrganisationSettingsPage() {
   const [form, setForm] = useState<{
     name: string;
     baseCurrency: string;
+    timezone: string;
     requestPolicy: RequestCreationPolicy;
     vendorOfferPolicy: VendorOfferPolicy;
   } | null>(null);
@@ -66,6 +81,7 @@ export default function OrganisationSettingsPage() {
   const draft = form ?? {
     name: current?.name ?? '',
     baseCurrency: current?.baseCurrency ?? 'USD',
+    timezone: current?.timezone ?? 'UTC',
     requestPolicy: current?.requestPolicy ?? 'EVERYONE',
     vendorOfferPolicy: current?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY,
   };
@@ -78,6 +94,7 @@ export default function OrganisationSettingsPage() {
         body: {
           name: draft.name.trim(),
           baseCurrency: draft.baseCurrency,
+          timezone: draft.timezone,
           requestPolicy: draft.requestPolicy,
           vendorOfferPolicy: draft.vendorOfferPolicy,
         },
@@ -147,6 +164,28 @@ export default function OrganisationSettingsPage() {
             Labels new estimates and prices. Existing figures keep the currency they were recorded
             in — nothing is converted.
           </p>
+        </div>
+
+        {/* Editable on mobile for a long time and loaded here, but never shown:
+            a web admin had no way to change it. */}
+        <div className="max-w-sm">
+          <Field label="Timezone" htmlFor="otz">
+            <select
+              id="otz"
+              value={draft.timezone}
+              onChange={(e) => set({ timezone: e.target.value })}
+              className={selectCls}
+            >
+              {TIMEZONES.map(([zone, label]) => (
+                <option key={zone} value={zone}>
+                  {label}
+                </option>
+              ))}
+              {TIMEZONES.every(([zone]) => zone !== draft.timezone) ? (
+                <option value={draft.timezone}>{draft.timezone}</option>
+              ) : null}
+            </select>
+          </Field>
         </div>
 
         {/* v2.22 - the company-wide half of "who may raise a request". The

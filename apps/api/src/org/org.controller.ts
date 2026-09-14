@@ -27,12 +27,34 @@ import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
 import { OrgService } from './org.service.js';
 
+/**
+ * A region/city zone name the runtime knows, or UTC. The runtime alone is too
+ * forgiving: it takes "IST", "+05:30" and lower case, and quietly turns "EST"
+ * into America/Panama. Mobile offers free text, so the shape is checked first.
+ */
+function isKnownTimeZone(zone: string): boolean {
+  if (zone !== 'UTC' && !/^[A-Z][A-Za-z_]+(\/[A-Z][A-Za-z0-9_+-]*)+$/.test(zone)) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Currency is a label, not a conversion - three letters, upper-cased. */
 const updateCompanySchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
     baseCurrency: z.string().trim().length(3).toUpperCase().optional(),
-    timezone: z.string().trim().max(64).optional(),
+    // A real IANA zone, checked by the runtime's own zone database. Mobile
+    // offers free text, and "IST" or "India" would otherwise be saved as-is.
+    timezone: z
+      .string()
+      .trim()
+      .max(64)
+      .refine(isKnownTimeZone, { message: 'Use a timezone name such as Asia/Kolkata or UTC' })
+      .optional(),
     /** v2.22 - who may raise a request across the whole tenant. */
     requestPolicy: z.enum(REQUEST_CREATION_POLICIES).optional(),
     vendorOfferPolicy: z.enum(VENDOR_OFFER_POLICIES).optional(),

@@ -92,7 +92,7 @@ export default function HelpScreen() {
     {
       icon: 'person-circle-outline',
       label: 'Profile and security',
-      detail: 'Biometric unlock, notifications, signing out.',
+      detail: 'Your details, notifications, signing out.',
       onPress: () => router.push('/(tabs)/profile'),
     },
   ];
