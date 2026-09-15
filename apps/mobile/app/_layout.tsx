@@ -44,6 +44,7 @@ function RootShell() {
           <Stack.Screen name="asset/[id]" options={{ headerShown: true, title: 'Asset' }} />
           <Stack.Screen name="asset/new" options={{ headerShown: true, title: 'Register asset' }} />
           <Stack.Screen name="asset/edit" options={{ headerShown: true, title: 'Edit asset' }} />
+          <Stack.Screen name="asset/receipt" options={{ headerShown: true, title: 'Handover receipt' }} />
           <Stack.Screen name="invoice/new" options={{ headerShown: true, title: 'Add invoice' }} />
           <Stack.Screen name="invoice/[id]" options={{ headerShown: true, title: 'Invoice' }} />
           <Stack.Screen name="notifications" options={{ headerShown: true, title: 'Notifications' }} />

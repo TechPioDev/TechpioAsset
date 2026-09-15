@@ -3,21 +3,23 @@ import { deviceLifecycle, type DetailAssignment, type DetailConditionLog, type L
 import { useTheme } from '../../theme';
 import { Card, SectionTitle } from '../ui';
 import { InfoRow, useToneColor } from './detail-parts';
+import { QrLabelCard } from './qr-label-card';
 
 /**
  * Device lifecycle on the phone (web: the asset page's Lifecycle tab). The
  * chips, events, their order and every word come from `deviceLifecycle` in the
  * domain package, the function the web tab renders.
  *
- * The web's QR label card is not here: the page draws the code locally with a
- * library this app does not ship, and the API serves no image of it. Printing
- * a label is a desk job anyway - the phone's side of the QR is scanning it.
+ * The QR label card sits between the two, where the web puts it, drawn from
+ * the same `qrcode` package the web page uses (see qr-label-card.tsx).
  */
 export function LifecycleTab({
   data,
   formatDate,
 }: {
   data: {
+    assetTag: string;
+    qrToken?: string | null;
     purchaseDate: string | null;
     warrantyStartDate?: string | null;
     warrantyEndDate: string | null;
@@ -43,6 +45,8 @@ export function LifecycleTab({
         This device has been assigned {timesAssigned} time{timesAssigned === 1 ? '' : 's'}. Previous holders are not
         shown.
       </Text>
+
+      <QrLabelCard assetTag={data.assetTag} qrToken={data.qrToken} />
 
       <SectionTitle>Timeline</SectionTitle>
       <Card>

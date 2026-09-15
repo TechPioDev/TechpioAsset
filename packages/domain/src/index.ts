@@ -42,3 +42,4 @@ export * from './vendor-comparison';
 export * from './quality-check';
 export * from './spec-proposals';
 export * from './asset-detail';
+export * from './asset-receipt';

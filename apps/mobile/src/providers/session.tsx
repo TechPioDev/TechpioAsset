@@ -45,6 +45,12 @@ export const apiUrl =
   (Constants.expoConfig?.extra?.apiUrl as string) ??
   'http://localhost:3001';
 
+// The web app's origin, for addresses that belong to the web rather than the
+// API - the asset QR label encodes `<web origin>/assets/scan/<token>`. In every
+// deployed build the web and the API share one host (pioassets.com), so the API
+// host is the default; EXPO_PUBLIC_WEB_URL covers a split dev setup.
+export const webOrigin = process.env.EXPO_PUBLIC_WEB_URL ?? apiUrl;
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<SessionState['status']>('loading');

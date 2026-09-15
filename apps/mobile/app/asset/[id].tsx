@@ -60,6 +60,8 @@ interface AssetDetail {
   macAddress?: string | null;
   imei?: string | null;
   specs?: Record<string, string> | null;
+  /** What the QR label encodes (as a scan address); null only on records that predate labels. */
+  qrToken?: string | null;
   status: AssetStatus;
   condition: AssetCondition;
   // v2.1 Workstream A — nullable until backfilled / dual-written.
@@ -264,6 +266,29 @@ export default function AssetDetailScreen() {
               {asset.serialNumber ? ` · SN ${asset.serialNumber}` : ''}
             </Text>
           </View>
+          {/* Printable handover receipt - offered whenever a holder exists, as
+              on the web; an employee can only ever reach their own device. */}
+          {asset.assignedUser ? (
+            <Pressable
+              onPress={() => router.push(`/asset/receipt?id=${asset.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel="Handover receipt"
+              hitSlop={8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: c.border,
+              }}
+            >
+              <Ionicons name="print-outline" size={15} color={c.brand} />
+              <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>Receipt</Text>
+            </Pressable>
+          ) : null}
           {mayEdit ? (
             <Pressable
               onPress={() => router.push(`/asset/edit?id=${asset.id}`)}
