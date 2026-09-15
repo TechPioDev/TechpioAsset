@@ -6,6 +6,23 @@ import { useSession } from '../providers/session';
 import { notificationRoute } from '../lib/notification-route';
 import { registerForPush } from '../lib/push';
 
+// Show a push that arrives while the app is open (v2.57).
+//
+// Without a handler, expo-notifications hands a foreground notification to JS
+// to decide, gets no answer, and drops it - the phone received it and showed
+// nothing. With the app in the background the library draws it itself, which
+// is why only the open-app case was silent. Set at module load so it is in
+// place before the first message, not after this component mounts.
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
 /**
  * Follows the link in a push notification when it is tapped (v2.55).
  *

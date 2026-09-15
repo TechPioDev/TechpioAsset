@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, Text, View, type ViewStyle } from 'react-native';
+import { AppState, Platform, Pressable, Text, View, type ViewStyle } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { badgeLabel, UNREAD_POLL_MS } from '../lib/notification-inbox';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
@@ -50,9 +51,13 @@ export function useUnreadNotificationCount(): { count: number; refresh: () => Pr
 
     if (AppState.currentState === 'active' || AppState.currentState == null) start();
     const sub = AppState.addEventListener('change', (next) => (next === 'active' ? start() : stop()));
+    // A push arriving is news the count has changed; don't wait for the poll.
+    const received =
+      Platform.OS === 'web' ? null : Notifications.addNotificationReceivedListener(() => void refresh());
     return () => {
       stop();
       sub.remove();
+      received?.remove();
     };
   }, [signedIn, refresh]);
 
