@@ -23,6 +23,7 @@ import {
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BrandLockup } from '@/components/brand';
 import { LoginShowcase } from '@/components/marketing/login-showcase';
+import { AndroidAppVersion } from '@/components/android-app-version';
 import { leaveForApp } from '@/components/support-chat';
 
 /**
@@ -280,6 +281,11 @@ export default function LoginPage() {
               <Smartphone aria-hidden="true" className="size-3.5" />
               Download the Android app
             </a>
+            {/* Which build that link serves, so an installed phone can be checked
+                against it without downloading anything. */}
+            <p className="mt-1 text-center text-[11px] text-[var(--color-content-subtle)]">
+              <AndroidAppVersion />
+            </p>
           </div>
         </main>
 

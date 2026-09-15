@@ -18,6 +18,7 @@ import {
 import { PERMISSIONS } from '@techpioasset/domain';
 import { Card } from '@/components/ui';
 import { useAuth } from '@/providers/auth-provider';
+import { AndroidAppVersion } from '@/components/android-app-version';
 import { apiFetch } from '@/lib/api-client';
 
 /**
@@ -230,6 +231,7 @@ export default function HelpPage() {
                 <span className="text-xs text-[var(--color-content-subtle)]">
                   Scan asset QR codes and answer requests from your phone.
                 </span>
+                <AndroidAppVersion className="text-xs font-medium text-[var(--color-content-muted)]" />
               </span>
             </a>
           </li>

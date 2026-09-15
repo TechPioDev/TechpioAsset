@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
@@ -145,6 +146,19 @@ export default function MoreScreen() {
         <Ionicons name="log-out-outline" size={18} color={c.danger} />
         <Text style={{ color: c.danger, fontWeight: '700', fontSize: 15 }}>Sign out</Text>
       </Pressable>
+
+      {/* The build on this phone, to compare with the version shown beside the
+          download link on the web login page. */}
+      <Text style={{ color: c.subtle, fontSize: 12, textAlign: 'center', marginTop: spacing.md }}>
+        {installedVersionLabel()}
+      </Text>
     </Screen>
   );
 }
+
+function installedVersionLabel(): string {
+  const config = Constants.expoConfig;
+  const code = config?.android?.versionCode;
+  return `PioAssets ${config?.version ?? ''}${code ? ` (build ${code})` : ''}`.trim();
+}
+

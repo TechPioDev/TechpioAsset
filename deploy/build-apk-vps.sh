@@ -119,4 +119,18 @@ mkdir -p "$(dirname "$PUBLISH_TO")"
 cp "$APK" "$PUBLISH_TO"
 chmod 644 "$PUBLISH_TO"
 echo "done: $APK -> $PUBLISH_TO ($(du -h "$PUBLISH_TO" | cut -f1))"
+
+# What is published, for the login and help pages to show next to the download
+# link. Written after the APK, from this build's own values, so the page can
+# never name a version other than the file that is actually there. Written to a
+# temp name and moved, so a reader never sees half a file.
+MANIFEST="${PUBLISH_TO%.apk}.json"
+node -e "
+const fs=require('fs');
+const out={version:'$VERSION_NAME',versionCode:$NEXT_CODE,publishedAt:new Date().toISOString(),sizeBytes:fs.statSync('$PUBLISH_TO').size};
+fs.writeFileSync('$MANIFEST.tmp', JSON.stringify(out)+'\n');
+"
+mv "$MANIFEST.tmp" "$MANIFEST"
+chmod 644 "$MANIFEST"
+echo "manifest: $MANIFEST"
 echo "published $VERSION_NAME (versionCode $NEXT_CODE, push: $USE_FIREBASE)"
