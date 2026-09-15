@@ -3,10 +3,11 @@ import { PERMISSIONS } from '@techpioasset/domain';
 import { MENU_GROUPS, findMenuGroup, searchMenu, visibleMenu } from './menu';
 
 const ALL = Object.values(PERMISSIONS);
+const SUPER = ['SUPER_ADMIN'];
 
 describe('the phone menu', () => {
   it('offers a Super Admin every category, and every destination once', () => {
-    const groups = visibleMenu(ALL);
+    const groups = visibleMenu(ALL, SUPER);
     expect(groups.map((g) => g.id)).toEqual(MENU_GROUPS.map((g) => g.id));
     const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
     expect(new Set(hrefs).size).toBe(hrefs.length);
@@ -14,7 +15,7 @@ describe('the phone menu', () => {
 
   it('keeps everything the old More list linked to', () => {
     // The redesign must not lose a screen someone reached from More.
-    const hrefs = visibleMenu(ALL).flatMap((g) => g.items.map((i) => i.href));
+    const hrefs = visibleMenu(ALL, SUPER).flatMap((g) => g.items.map((i) => i.href));
     for (const href of [
       '/notifications',
       '/my-equipment',
@@ -36,6 +37,7 @@ describe('the phone menu', () => {
       '/reports',
       '/audit',
       '/(tabs)/profile',
+      '/expenses',
     ]) {
       expect(hrefs).toContain(href);
     }
@@ -78,5 +80,27 @@ describe('the phone menu', () => {
     // Nothing the user cannot open is ever suggested.
     expect(searchMenu('audit', [])).toEqual([]);
     expect(searchMenu('   ', ALL)).toEqual([]);
+  });
+
+  it('offers Expenses only to a Super Admin, whatever permissions others hold', () => {
+    const labels = (roles: string[]) =>
+      (findMenuGroup('insights', ALL, roles)?.items ?? []).map((i) => i.label);
+    expect(labels(SUPER)).toContain('Expenses');
+    // Finance holds every cost permission and still must not see it.
+    expect(labels(['FINANCE'])).not.toContain('Expenses');
+    expect(labels([])).not.toContain('Expenses');
+    // Leaving roles out hides it rather than showing it.
+    expect(visibleMenu(ALL).flatMap((g) => g.items.map((i) => i.href))).not.toContain('/expenses');
+  });
+
+  it('finds Expenses in search for a Super Admin only', () => {
+    expect(searchMenu('spend by month', ALL, SUPER).map((r) => r.item.href)).toEqual(['/expenses']);
+    expect(searchMenu('expenses', ALL, ['IT_MANAGER'])).toEqual([]);
+    expect(searchMenu('insights', ALL, SUPER)).toHaveLength(4);
+  });
+
+  it('a Super Admin role alone, without permissions, still cannot open a permission-gated item', () => {
+    const insights = findMenuGroup('insights', [], SUPER)!;
+    expect(insights.items.map((i) => i.label)).toEqual(['Expenses']);
   });
 });

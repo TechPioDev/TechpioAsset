@@ -72,6 +72,9 @@ export class OrgService {
         locale: true,
         requestPolicy: true,
         vendorOfferPolicy: true,
+        contactPhone: true,
+        contactEmail: true,
+        address: true,
       },
     });
   }
@@ -84,6 +87,10 @@ export class OrgService {
       timezone?: string;
       requestPolicy?: 'EVERYONE' | 'ADMINS_ONLY';
       vendorOfferPolicy?: VendorOfferPolicy;
+      /** v2.59 - null clears; undefined leaves the stored value alone. */
+      contactPhone?: string | null;
+      contactEmail?: string | null;
+      address?: string | null;
     },
   ) {
     const before = await this.companySettings(actor);
@@ -95,6 +102,10 @@ export class OrgService {
         ...(input.timezone ? { timezone: input.timezone } : {}),
         ...(input.requestPolicy ? { requestPolicy: input.requestPolicy } : {}),
         ...(input.vendorOfferPolicy ? { vendorOfferPolicy: input.vendorOfferPolicy } : {}),
+        // `!== undefined`, not truthiness: null is a real instruction to clear.
+        ...(input.contactPhone !== undefined ? { contactPhone: input.contactPhone } : {}),
+        ...(input.contactEmail !== undefined ? { contactEmail: input.contactEmail } : {}),
+        ...(input.address !== undefined ? { address: input.address } : {}),
       },
       select: {
         name: true,
@@ -104,6 +115,9 @@ export class OrgService {
         locale: true,
         requestPolicy: true,
         vendorOfferPolicy: true,
+        contactPhone: true,
+        contactEmail: true,
+        address: true,
       },
     });
     // Switching review off leaves anything already submitted waiting on a queue
@@ -161,12 +175,18 @@ export class OrgService {
         baseCurrency: before.baseCurrency,
         timezone: before.timezone,
         vendorOfferPolicy: before.vendorOfferPolicy,
+        contactPhone: before.contactPhone,
+        contactEmail: before.contactEmail,
+        address: before.address,
       },
       newValues: {
         name: after.name,
         baseCurrency: after.baseCurrency,
         timezone: after.timezone,
         vendorOfferPolicy: after.vendorOfferPolicy,
+        contactPhone: after.contactPhone,
+        contactEmail: after.contactEmail,
+        address: after.address,
       },
     });
     return after;
@@ -526,7 +546,10 @@ export class OrgService {
     return this.prisma.client.vendor.findMany({
       where: { ...tenantFilter(actor), deletedAt: null },
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      select: { ...OrgService.VENDOR_FIELDS, _count: { select: { invoices: true, purchaseOrders: true } } },
+      select: {
+        ...OrgService.VENDOR_FIELDS,
+        _count: { select: { invoices: true, purchaseOrders: true } },
+      },
     });
   }
 

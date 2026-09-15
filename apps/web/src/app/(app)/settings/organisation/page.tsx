@@ -12,7 +12,7 @@ import {
 } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useToast } from '@/providers/toast-provider';
-import { Button, Card, ErrorState, Field, Input, Skeleton } from '@/components/ui';
+import { Button, Card, ErrorState, Field, Input, Skeleton, controlCls } from '@/components/ui';
 
 /**
  * Organisation settings (v2.15). Born from a single circled screenshot: every
@@ -31,6 +31,10 @@ interface CompanySettings {
   requestPolicy: RequestCreationPolicy;
   /** v2.46 - whether a supplier's offer waits for an internal decision. */
   vendorOfferPolicy: VendorOfferPolicy;
+  /** v2.59 - the letterhead on exported reports. */
+  contactPhone: string | null;
+  contactEmail: string | null;
+  address: string | null;
 }
 
 const CURRENCIES: [string, string][] = [
@@ -76,6 +80,9 @@ export default function OrganisationSettingsPage() {
     timezone: string;
     requestPolicy: RequestCreationPolicy;
     vendorOfferPolicy: VendorOfferPolicy;
+    contactPhone: string;
+    contactEmail: string;
+    address: string;
   } | null>(null);
   const current = settings.data;
   const draft = form ?? {
@@ -84,6 +91,9 @@ export default function OrganisationSettingsPage() {
     timezone: current?.timezone ?? 'UTC',
     requestPolicy: current?.requestPolicy ?? 'EVERYONE',
     vendorOfferPolicy: current?.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY,
+    contactPhone: current?.contactPhone ?? '',
+    contactEmail: current?.contactEmail ?? '',
+    address: current?.address ?? '',
   };
   const set = (patch: Partial<typeof draft>) => setForm({ ...draft, ...patch });
 
@@ -97,6 +107,10 @@ export default function OrganisationSettingsPage() {
           timezone: draft.timezone,
           requestPolicy: draft.requestPolicy,
           vendorOfferPolicy: draft.vendorOfferPolicy,
+          // Sent as typed; an empty box clears the stored value on the server.
+          contactPhone: draft.contactPhone.trim(),
+          contactEmail: draft.contactEmail.trim(),
+          address: draft.address.trim(),
         },
       }),
     onSuccess: () => {
@@ -233,6 +247,54 @@ export default function OrganisationSettingsPage() {
               ? 'Nothing reaches your buyers until somebody here has looked at it. Choose this when the catalogue is a price list people quote from.'
               : 'Suppliers post what they sell and your team picks what it needs. An offer still needs a picture and its required specifications before a supplier can send it — that gate protects the buyer, not the reviewer. Anything already waiting for approval goes live when you save.'}
           </p>
+        </div>
+
+        {/* v2.59 - printed under the logo on exported reports (expenses and the
+            like), so a circulated file says how to reach the company. */}
+        <div className="grid gap-4 border-t border-[var(--color-border)] pt-4">
+          <div>
+            <h2 className="text-sm font-semibold">Contact details (shown on reports)</h2>
+            <p className="mt-0.5 text-xs text-[var(--color-content-subtle)]">
+              Printed on exported reports. Leave a box empty to leave it off.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Phone" htmlFor="ocp">
+              <Input
+                id="ocp"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={20}
+                placeholder="+91 98765 43210"
+                value={draft.contactPhone}
+                onChange={(e) => set({ contactPhone: e.target.value })}
+              />
+            </Field>
+            <Field label="Email" htmlFor="oce">
+              <Input
+                id="oce"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                maxLength={254}
+                placeholder="accounts@example.com"
+                value={draft.contactEmail}
+                onChange={(e) => set({ contactEmail: e.target.value })}
+              />
+            </Field>
+          </div>
+          <Field label="Address" htmlFor="oca" hint="Up to 500 characters; line breaks are kept.">
+            <textarea
+              id="oca"
+              rows={3}
+              maxLength={500}
+              autoComplete="street-address"
+              value={draft.address}
+              onChange={(e) => set({ address: e.target.value })}
+              className={`${controlCls} h-auto py-2`}
+            />
+          </Field>
         </div>
 
         <div>

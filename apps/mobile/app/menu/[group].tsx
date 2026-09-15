@@ -10,7 +10,7 @@ import { findMenuGroup, type MenuGroup } from '../../src/lib/menu';
 export default function MenuGroupScreen() {
   const { group: id } = useLocalSearchParams<{ group: string }>();
   const { user } = useSession();
-  const group = findMenuGroup(String(id), user?.permissions ?? []);
+  const group = findMenuGroup(String(id), user?.permissions ?? [], user?.roles ?? []);
 
   if (!group) {
     return (

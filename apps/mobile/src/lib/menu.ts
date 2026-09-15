@@ -23,6 +23,13 @@ export interface MenuItem {
   href: string;
   /** Visible when the user holds ANY of these. Absent = everyone. */
   anyOf?: readonly string[];
+  /**
+   * Visible only to a user holding ANY of these ROLES (v2.59). For the few
+   * screens gated on a role rather than a permission - the expense report is
+   * Super Admin only because no permission is exclusive to Super Admin.
+   * Checked in addition to anyOf.
+   */
+  roles?: readonly string[];
 }
 
 export interface MenuGroup {
@@ -244,6 +251,15 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
         href: '/reports',
         anyOf: [P.REPORTS_READ],
       },
+      // Money for the whole company, so Super Admin only - the API refuses
+      // everyone else on the role, and the menu never offers it to them.
+      {
+        icon: 'cash-outline',
+        label: 'Expenses',
+        description: 'Spend by month and type',
+        href: '/expenses',
+        roles: ['SUPER_ADMIN'],
+      },
       {
         icon: 'time-outline',
         label: 'Audit log',
@@ -316,19 +332,35 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
   },
 ];
 
-export function canSee(item: MenuItem, permissions: readonly string[]): boolean {
-  return !item.anyOf || item.anyOf.some((p) => permissions.includes(p));
-}
-
-/** Categories with at least one item this user may open, each trimmed to those items. */
-export function visibleMenu(permissions: readonly string[]): MenuGroup[] {
-  return MENU_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => canSee(i, permissions)) })).filter(
-    (g) => g.items.length > 0,
+export function canSee(
+  item: MenuItem,
+  permissions: readonly string[],
+  roles: readonly string[] = [],
+): boolean {
+  return (
+    (!item.anyOf || item.anyOf.some((p) => permissions.includes(p))) &&
+    (!item.roles || item.roles.some((r) => roles.includes(r)))
   );
 }
 
-export function findMenuGroup(id: string, permissions: readonly string[]): MenuGroup | null {
-  return visibleMenu(permissions).find((g) => g.id === id) ?? null;
+/**
+ * Categories with at least one item this user may open, each trimmed to those items.
+ * `roles` defaults to none, so a caller that forgets it hides role-gated items
+ * rather than showing them.
+ */
+export function visibleMenu(permissions: readonly string[], roles: readonly string[] = []): MenuGroup[] {
+  return MENU_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => canSee(i, permissions, roles)),
+  })).filter((g) => g.items.length > 0);
+}
+
+export function findMenuGroup(
+  id: string,
+  permissions: readonly string[],
+  roles: readonly string[] = [],
+): MenuGroup | null {
+  return visibleMenu(permissions, roles).find((g) => g.id === id) ?? null;
 }
 
 /**
@@ -338,12 +370,13 @@ export function findMenuGroup(id: string, permissions: readonly string[]): MenuG
 export function searchMenu(
   query: string,
   permissions: readonly string[],
+  roles: readonly string[] = [],
 ): { item: MenuItem; group: MenuGroup }[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
   const seen = new Set<string>();
   const out: { item: MenuItem; group: MenuGroup }[] = [];
-  for (const group of visibleMenu(permissions)) {
+  for (const group of visibleMenu(permissions, roles)) {
     for (const item of group.items) {
       const haystack = `${item.label} ${item.description} ${group.title}`.toLowerCase();
       if (haystack.includes(q) && !seen.has(item.href)) {

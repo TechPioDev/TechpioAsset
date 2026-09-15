@@ -27,3 +27,4 @@ export * from './org';
 export * from './marketing';
 export * from './vendor-products';
 export * from './spec-templates';
+export * from './expenses';

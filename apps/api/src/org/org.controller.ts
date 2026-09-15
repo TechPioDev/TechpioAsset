@@ -42,6 +42,47 @@ function isKnownTimeZone(zone: string): boolean {
   }
 }
 
+/**
+ * Letterhead contact details (v2.59). An empty string clears the value, so each
+ * field is "trimmed text, or null" after parsing - never an empty string saved.
+ */
+const blankToNull = (v: string) => (v === '' ? null : v);
+
+/** Digits, spaces, hyphens, parentheses and a leading-or-anywhere plus - how a
+ * number is actually written ("+91 98765 43210", "(0172) 500-1234"). */
+const PHONE_SHAPE = /^[+\d\s()-]+$/;
+
+const contactPhone = z
+  .string()
+  .trim()
+  .refine((v) => v === '' || (v.length >= 6 && v.length <= 20), {
+    message: 'Phone must be 6 to 20 characters',
+  })
+  .refine((v) => v === '' || PHONE_SHAPE.test(v), {
+    message: 'Phone may contain only digits, spaces, +, - and brackets',
+  })
+  .refine((v) => v === '' || (v.match(/\d/g)?.length ?? 0) >= 6, {
+    message: 'Phone must contain at least 6 digits',
+  })
+  .transform(blankToNull);
+
+const contactEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .refine((v) => v === '' || v.length <= 254, { message: 'Email must be 254 characters or fewer' })
+  .refine((v) => v === '' || z.string().email().safeParse(v).success, {
+    message: 'Enter a valid email address, such as accounts@example.com',
+  })
+  .transform(blankToNull);
+
+const contactAddress = z
+  .string()
+  .trim()
+  .max(500, { message: 'Address must be 500 characters or fewer' })
+  // Line endings normalised so a Windows paste does not store CRLF.
+  .transform((v) => blankToNull(v.replace(/\r\n?/g, '\n')));
+
 /** Currency is a label, not a conversion - three letters, upper-cased. */
 const updateCompanySchema = z
   .object({
@@ -58,6 +99,10 @@ const updateCompanySchema = z
     /** v2.22 - who may raise a request across the whole tenant. */
     requestPolicy: z.enum(REQUEST_CREATION_POLICIES).optional(),
     vendorOfferPolicy: z.enum(VENDOR_OFFER_POLICIES).optional(),
+    /** v2.59 - shown on exported reports. "" clears. */
+    contactPhone: contactPhone.optional(),
+    contactEmail: contactEmail.optional(),
+    address: contactAddress.optional(),
   })
   .strict();
 type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;

@@ -543,6 +543,10 @@ model Company {
   locale              String                @default("en-US")
   timezone            String                @default("UTC")
   logoKey             String?
+  /// v2.59 - the letterhead on exported reports (expense PDF/Excel).
+  contactPhone        String?
+  contactEmail        String?
+  address             String?
   isActive            Boolean               @default(true)
   /// v2.12 - Teams/Slack incoming-webhook for high-signal operational alerts.
   teamAlertWebhookUrl String?

@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Eye,
   FileBarChart,
+  IndianRupee,
   Building2,
   Package,
   Plus,
@@ -333,6 +334,8 @@ const QUICK_ACTIONS: {
   icon: ReactNode;
   tone: string;
   perm?: Permission;
+  /** Shown only to this role - for the Super Admin-only expense report. */
+  role?: string;
 }[] = [
   {
     href: '/assets',
@@ -376,6 +379,13 @@ const QUICK_ACTIONS: {
     tone: 'danger',
     perm: PERMISSIONS.REPORTS_READ,
   },
+  {
+    href: '/expenses',
+    label: 'Expenses',
+    icon: <IndianRupee className="size-[18px]" />,
+    tone: 'info',
+    role: 'SUPER_ADMIN',
+  },
 ];
 
 interface SpendReport {
@@ -410,7 +420,11 @@ export default function DashboardPage() {
   const isVendor = Boolean(user?.roles?.includes('VENDOR'));
   const quickActions = (
     isVendor ? VENDOR_QUICK_ACTIONS : user?.scope === 'OWN' ? EMPLOYEE_QUICK_ACTIONS : QUICK_ACTIONS
-  ).filter((a) => !a.perm || can(a.perm));
+  ).filter(
+    (a) =>
+      (!a.perm || can(a.perm)) &&
+      (!('role' in a) || typeof a.role !== 'string' || Boolean(user?.roles?.includes(a.role))),
+  );
 
   // A supplier's own offers and the tenant's publishing policy. Both are cheap
   // and neither is fetched for anyone else.

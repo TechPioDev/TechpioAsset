@@ -25,8 +25,12 @@ export default function MoreScreen() {
   const [accountOpen, setAccountOpen] = useState(false);
 
   const permissions = useMemo(() => user?.permissions ?? [], [user]);
-  const groups = useMemo(() => visibleMenu(permissions), [permissions]);
-  const results = useMemo(() => searchMenu(query, permissions), [query, permissions]);
+  const roles = useMemo(() => user?.roles ?? [], [user]);
+  const groups = useMemo(() => visibleMenu(permissions, roles), [permissions, roles]);
+  const results = useMemo(
+    () => searchMenu(query, permissions, roles),
+    [query, permissions, roles],
+  );
 
   if (!user) return null;
   const name = user.displayName ?? user.email;

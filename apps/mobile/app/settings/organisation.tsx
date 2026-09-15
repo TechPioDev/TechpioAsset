@@ -29,6 +29,10 @@ interface Company {
   requestPolicy: RequestPolicy;
   /** v2.46 - whether a supplier's offer waits for an internal decision. */
   vendorOfferPolicy: VendorOfferPolicy;
+  /** v2.59 - the letterhead on exported reports. */
+  contactPhone: string | null;
+  contactEmail: string | null;
+  address: string | null;
 }
 
 interface Choice<T extends string> {
@@ -126,6 +130,9 @@ export default function OrganisationSettingsScreen() {
   const [timezone, setTimezone] = useState('');
   const [policy, setPolicy] = useState<RequestPolicy>('EVERYONE');
   const [offerPolicy, setOfferPolicy] = useState<VendorOfferPolicy>(DEFAULT_VENDOR_OFFER_POLICY);
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -141,6 +148,9 @@ export default function OrganisationSettingsScreen() {
       setTimezone(data.timezone);
       setPolicy(data.requestPolicy);
       setOfferPolicy(data.vendorOfferPolicy ?? DEFAULT_VENDOR_OFFER_POLICY);
+      setPhone(data.contactPhone ?? '');
+      setEmail(data.contactEmail ?? '');
+      setAddress(data.address ?? '');
     } catch {
       setError('Could not load company settings.');
     } finally {
@@ -156,7 +166,10 @@ export default function OrganisationSettingsScreen() {
       currency !== company.baseCurrency ||
       timezone !== company.timezone ||
       policy !== company.requestPolicy ||
-      offerPolicy !== company.vendorOfferPolicy);
+      offerPolicy !== company.vendorOfferPolicy ||
+      phone !== (company.contactPhone ?? '') ||
+      email !== (company.contactEmail ?? '') ||
+      address !== (company.address ?? ''));
 
   async function save() {
     setBusy(true);
@@ -171,6 +184,10 @@ export default function OrganisationSettingsScreen() {
           timezone: timezone.trim(),
           requestPolicy: policy,
           vendorOfferPolicy: offerPolicy,
+          // An empty box clears the stored value on the server.
+          contactPhone: phone.trim(),
+          contactEmail: email.trim(),
+          address: address.trim(),
         },
       });
       setSaved(true);
@@ -207,6 +224,31 @@ export default function OrganisationSettingsScreen() {
       </View>
       <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.xl, lineHeight: 18 }}>
         Currency labels money going forward. Figures already recorded are not converted.
+      </Text>
+
+      <SectionTitle>Contact details (shown on reports)</SectionTitle>
+      <Field
+        label="Phone"
+        value={phone}
+        onChangeText={setPhone}
+        keyboardType="phone-pad"
+        autoComplete="tel"
+        maxLength={20}
+        placeholder="+91 98765 43210"
+      />
+      <Field
+        label="Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+        maxLength={254}
+        placeholder="accounts@example.com"
+      />
+      <Field label="Address" value={address} onChangeText={setAddress} multiline maxLength={500} />
+      <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.xl, lineHeight: 18 }}>
+        Printed on exported reports. Leave a box empty to leave it off.
       </Text>
 
       <SectionTitle>Who can raise a request</SectionTitle>

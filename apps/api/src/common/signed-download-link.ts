@@ -18,7 +18,13 @@ import { AppError } from './errors/app-error.js';
 
 export const DOWNLOAD_LINK_TTL_SECONDS = 120;
 
-export type DownloadLinkPurpose = 'request-attachment-link' | 'invoice-document-link';
+/**
+ * v2.59 adds 'expense-report-link': the "file" is a generated expense report,
+ * so its fileId carries the validated report query and the minting user as
+ * JSON rather than a row id. It signs with its own key like every other kind.
+ */
+export type DownloadLinkPurpose =
+  'request-attachment-link' | 'invoice-document-link' | 'expense-report-link';
 
 function linkKey(secret: string, purpose: DownloadLinkPurpose): Buffer {
   return createHash('sha256').update(`${purpose}:${secret}`).digest();
@@ -34,7 +40,9 @@ export function signDownloadLink(
   const payload = Buffer.from(
     JSON.stringify({ d: claims.fileId, c: claims.companyId, e: expiresAt }),
   ).toString('base64url');
-  const signature = createHmac('sha256', linkKey(secret, purpose)).update(payload).digest('base64url');
+  const signature = createHmac('sha256', linkKey(secret, purpose))
+    .update(payload)
+    .digest('base64url');
   return { token: `${payload}.${signature}`, expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 
@@ -70,7 +78,11 @@ export function verifyDownloadLink(
   } catch {
     throw refuse();
   }
-  if (typeof claims.d !== 'string' || typeof claims.c !== 'string' || typeof claims.e !== 'number') {
+  if (
+    typeof claims.d !== 'string' ||
+    typeof claims.c !== 'string' ||
+    typeof claims.e !== 'number'
+  ) {
     throw refuse();
   }
   if (claims.e < Math.floor(Date.now() / 1000)) {

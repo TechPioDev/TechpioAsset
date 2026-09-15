@@ -29,6 +29,7 @@ import { StorageHttpModule } from './storage/storage-http.module.js';
 import { MobileModule } from './mobile/mobile.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { ReportsModule } from './reports/reports.module.js';
+import { ExpensesModule } from './expenses/expenses.module.js';
 import { ScheduledModule } from './scheduled/scheduled.module.js';
 import { MailModule } from './providers/mail/mail.module.js';
 import { QueueModule } from './providers/queue/queue.module.js';
@@ -110,6 +111,7 @@ import { TenantThrottlerGuard } from './common/guards/tenant-throttler.guard.js'
     IntegrationsModule,
     PlatformModule,
     ReportsModule,
+    ExpensesModule,
     ScheduledModule,
   ],
   providers: [

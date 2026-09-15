@@ -59,6 +59,30 @@ const MUTED = 'FF6B7A88';
 const RULE = 'FFD3DDE4';
 const ZEBRA = 'FFF6F9FB';
 
+/** The house colours, shared with the expense workbook (v2.59) so the two read as one family. */
+export const WORKBOOK_COLOURS = { BRAND, INK, MUTED, RULE, ZEBRA } as const;
+
+/**
+ * Float the logo over the top-left of a sheet. The product logo unless a
+ * company logo (PNG/JPEG bytes) is given. `height` caps the drawn height and
+ * the width follows the image's own proportions when they are known.
+ */
+export function placeWorkbookLogo(
+  wb: ExcelJS.Workbook,
+  ws: ExcelJS.Worksheet,
+  logo?: { buffer: Buffer; extension: 'png' | 'jpeg'; width: number; height: number } | null,
+): void {
+  const id = logo
+    ? wb.addImage({ buffer: logo.buffer as unknown as ExcelJS.Buffer, extension: logo.extension })
+    : wb.addImage({ base64: BRAND_LOGO_BASE64, extension: 'png' });
+  ws.addImage(id, {
+    tl: { col: 0.25, row: 0.3 },
+    ext: logo
+      ? { width: logo.width, height: logo.height }
+      : { width: BRAND_LOGO_WIDTH, height: BRAND_LOGO_HEIGHT },
+  });
+}
+
 /** Everything the letterhead needs that is not the table itself. */
 export interface WorkbookHeader {
   /** The tenant, not the product - this is their document. */
@@ -155,11 +179,7 @@ export async function buildWorkbook(
 
   // The logo floats over rows 1-3 rather than living in a cell, so it never
   // stretches a column that the table below has to size for its own data.
-  const logoId = wb.addImage({ base64: BRAND_LOGO_BASE64, extension: 'png' });
-  ws.addImage(logoId, {
-    tl: { col: 0.25, row: 0.3 },
-    ext: { width: BRAND_LOGO_WIDTH, height: BRAND_LOGO_HEIGHT },
-  });
+  placeWorkbookLogo(wb, ws);
   for (let r = 1; r <= 3; r += 1) ws.getRow(r).height = 17;
 
   const lastCol = columns.length;

@@ -44,6 +44,10 @@ const RULES: GuardRule[] = [
     allow: (_u, can) => can(P.ASSETS_CREATE),
   },
   {
+    matches: (p) => p === '/assets/price-sheet',
+    allow: (_u, can) => can(P.ASSETS_COST_READ) && (can(P.ASSETS_IMPORT) || can(P.ASSETS_UPDATE)),
+  },
+  {
     matches: startsWith('/procurement'),
     allow: (u, can) => u.scope !== 'OWN' && can(P.PROCUREMENT_PR_READ),
   },
@@ -56,6 +60,9 @@ const RULES: GuardRule[] = [
   { matches: startsWith('/discovery'), allow: (_u, can) => can(P.DISCOVERY_READ) },
   { matches: startsWith('/analytics'), allow: (_u, can) => can(P.ANALYTICS_READ) },
   { matches: startsWith('/reports'), allow: (_u, can) => can(P.REPORTS_READ) },
+  // Role, not permission: the expense report is Super Admin only, and Finance
+  // holds every cost permission (the API enforces the same on the role).
+  { matches: startsWith('/expenses'), allow: (u) => Boolean(u.roles?.includes('SUPER_ADMIN')) },
   { matches: startsWith('/audit'), allow: (_u, can) => can(P.AUDIT_READ) },
   { matches: startsWith('/people'), allow: (_u, can) => can(P.EMPLOYEES_READ) },
   { matches: startsWith('/settings/offices'), allow: (_u, can) => can(P.SETTINGS_MANAGE) },
@@ -67,11 +74,7 @@ const RULES: GuardRule[] = [
 ];
 
 /** Returns true when the user may view the path (no matching rule = allowed). */
-export function canViewRoute(
-  path: string,
-  user: AuthUser,
-  can: (p: string) => boolean,
-): boolean {
+export function canViewRoute(path: string, user: AuthUser, can: (p: string) => boolean): boolean {
   const rule = RULES.find((r) => r.matches(path));
   return rule ? rule.allow(user, can) : true;
 }

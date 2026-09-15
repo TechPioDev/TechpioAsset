@@ -114,6 +114,8 @@ const AUDITED_FIELDS = [
   'purchaseCost',
   'currentValue',
   'warrantyEndDate',
+  // v2.59 - a purchase date edit was written to the asset and to no trail.
+  'purchaseDate',
 ] as const;
 
 @Injectable()

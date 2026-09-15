@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FileSpreadsheet, Plus, QrCode, X } from 'lucide-react';
+import { Download, FileSpreadsheet, IndianRupee, Plus, QrCode, X } from 'lucide-react';
 import {
   ASSET_STATUS_TOKENS,
   CONDITION_TOKENS,
@@ -438,6 +438,18 @@ function AssetsTable() {
               Import Excel
             </Link>
           ) : null}
+          {/* v2.59 - prices and purchase dates for existing assets, by Excel.
+              Same gate as the endpoint: money visibility plus a write right. */}
+          {can(PERMISSIONS.ASSETS_COST_READ) &&
+          (can(PERMISSIONS.ASSETS_IMPORT) || can(PERMISSIONS.ASSETS_UPDATE)) ? (
+            <Link
+              href="/assets/price-sheet"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]"
+            >
+              <IndianRupee aria-hidden="true" className="size-4" />
+              Price sheet
+            </Link>
+          ) : null}
           {can(PERMISSIONS.ASSETS_CREATE) ? (
             <Link
               href="/assets/new"
@@ -529,11 +541,41 @@ function AssetsTable() {
                       />
                     </th>
                   ) : null}
-                  <SortableHeader label="Asset" field="name" sort={sort} order={order} onSort={toggleSort} />
-                  <SortableHeader label="Category" field="category" sort={sort} order={order} onSort={toggleSort} />
-                  <SortableHeader label="Status" field="status" sort={sort} order={order} onSort={toggleSort} />
-                  <SortableHeader label="Condition" field="condition" sort={sort} order={order} onSort={toggleSort} />
-                  <SortableHeader label="Assigned to" field="assignedUser" sort={sort} order={order} onSort={toggleSort} />
+                  <SortableHeader
+                    label="Asset"
+                    field="name"
+                    sort={sort}
+                    order={order}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Category"
+                    field="category"
+                    sort={sort}
+                    order={order}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Status"
+                    field="status"
+                    sort={sort}
+                    order={order}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Condition"
+                    field="condition"
+                    sort={sort}
+                    order={order}
+                    onSort={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Assigned to"
+                    field="assignedUser"
+                    sort={sort}
+                    order={order}
+                    onSort={toggleSort}
+                  />
                   {/* Only offered to those who can read the figures. Ordering by
                       a hidden column would still reveal which kit is dearest. */}
                   {showCost ? (

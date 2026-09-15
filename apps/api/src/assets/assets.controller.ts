@@ -52,9 +52,10 @@ import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { AppError } from '../common/errors/app-error.js';
 import { AssetPhotosService } from './asset-photos.service.js';
 import { assertSpreadsheet } from '../providers/storage/file-validation.js';
-import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
+import { CurrentUser, RequireAnyPermission, RequirePermissions } from '../auth/decorators.js';
 import { AssetsService } from './assets.service.js';
 import { AssetImportService } from './asset-import.service.js';
+import { AssetPriceSheetService } from './asset-price-sheet.service.js';
 import { LenovoWarrantyService } from './lenovo-warranty.service.js';
 import { AssetHealthService } from '../asset-health/asset-health.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -77,6 +78,7 @@ export class AssetsController {
     private readonly health: AssetHealthService,
     private readonly audit: AuditService,
     private readonly lenovoWarranty: LenovoWarrantyService,
+    private readonly priceSheet: AssetPriceSheetService,
   ) {}
 
   @Post('import')
@@ -104,6 +106,66 @@ export class AssetsController {
     assertSpreadsheet(file.buffer);
     const rows = await this.imports.parseWorkbook(file.buffer);
     return this.imports.importRows(actor, rows);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Price sheet (v2.59) - purchase price and date for existing assets, by Excel.
+  // Money needs cost visibility; writing to assets needs import OR update.
+  // Declared before ':id' so the static path wins the route match.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  @Get('price-sheet')
+  @RequirePermissions(PERMISSIONS.ASSETS_COST_READ)
+  @RequireAnyPermission(PERMISSIONS.ASSETS_IMPORT, PERMISSIONS.ASSETS_UPDATE)
+  @ApiOperation({
+    summary: 'Download the price sheet (.xlsx)',
+    description:
+      'Every asset in scope with its current purchase price and date, and two columns to fill ' +
+      'in. Needs assets:cost:read and either assets:import or assets:update.',
+  })
+  async downloadPriceSheet(
+    @CurrentUser() actor: AuthUser,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { file, filename } = await this.priceSheet.download(actor);
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(file);
+  }
+
+  @Post('price-sheet')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.ASSETS_COST_READ)
+  @RequireAnyPermission(PERMISSIONS.ASSETS_IMPORT, PERMISSIONS.ASSETS_UPDATE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Check or apply a filled price sheet',
+    description:
+      'dryRun=true (the default) reports what each row would do and changes nothing; ' +
+      'dryRun=false applies it. A recorded price or date is never overwritten.',
+  })
+  async uploadPriceSheet(
+    @CurrentUser() actor: AuthUser,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [new MaxFileSizeValidator({ maxSize: 15 * 1024 * 1024 })],
+        fileIsRequired: true,
+      }),
+    )
+    file: Express.Multer.File,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    if (!file?.buffer) throw new AppError('FILE_REJECTED', 'No file was received');
+    if (dryRun !== undefined && dryRun !== 'true' && dryRun !== 'false') {
+      throw new AppError('VALIDATION_FAILED', 'dryRun must be true or false');
+    }
+    assertSpreadsheet(file.buffer);
+    // Anything but an explicit false is a preview: applying must be deliberate.
+    return this.priceSheet.upload(actor, file.buffer, dryRun !== 'false');
   }
 
   @Get()

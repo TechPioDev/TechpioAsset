@@ -36,7 +36,7 @@ import { Sparkles,
   X,
   Store,
 } from 'lucide-react';
-import { Award, Wallet } from 'lucide-react';
+import { Award, IndianRupee, Wallet } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useAuth } from '@/providers/auth-provider';
 import { cn } from '@/lib/cn';
@@ -58,6 +58,10 @@ interface NavItem {
    * their personal view, and least privilege says they should not be shown
    * company-shaped modules at all. The API stays scoped regardless. */
   ownScopeHidden?: boolean;
+  /** Hidden unless the user holds ANY of these roles (v2.59). For the rare page
+   * gated on a role because no permission is exclusive to it - the expense
+   * report is Super Admin only, and Finance holds every cost permission. */
+  roles?: readonly string[];
 }
 
 interface NavGroup {
@@ -164,6 +168,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/analytics', label: 'Analytics', Icon: LineChart, permission: PERMISSIONS.ANALYTICS_READ },
       { href: '/reports', label: 'Reports', Icon: BarChart3, permission: PERMISSIONS.REPORTS_READ },
+      { href: '/expenses', label: 'Expenses', Icon: IndianRupee, roles: ['SUPER_ADMIN'] },
       { href: '/audit', label: 'Audit log', Icon: ScrollText, permission: PERMISSIONS.AUDIT_READ },
     ],
   },
@@ -319,7 +324,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       (i) =>
         (!i.permission || can(i.permission)) &&
         (!i.platformOnly || user?.platformAdmin) &&
-        (!i.ownScopeHidden || user?.scope !== 'OWN'),
+        (!i.ownScopeHidden || user?.scope !== 'OWN') &&
+        (!i.roles || i.roles.some((r) => user?.roles?.includes(r))),
     );
 
   // A group with nothing the user may see is not a group with an empty drawer —
