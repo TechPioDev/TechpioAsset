@@ -1,227 +1,150 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, type Href } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Card, Screen, SectionTitle } from '../../src/components/ui';
-import type { IconName } from '../../src/components/ui';
+import { Avatar, Screen } from '../../src/components/ui';
+import { CategoryCard, ResultRow, TileGrid } from '../../src/components/menu-tiles';
+import { searchMenu, visibleMenu } from '../../src/lib/menu';
 
-interface Item {
-  icon: IconName;
-  label: string;
-  href: Href;
-  perm?: string;
-}
-
-const GROUPS: { title: string; items: Item[] }[] = [
-  {
-    // First, and permission-free: an employee holds none of the permissions
-    // below, so before this the menu opened onto little but Profile.
-    title: 'Yours',
-    items: [
-      { icon: 'notifications-outline', label: 'Notifications', href: '/notifications' },
-      // Permissioned: "yours" assumes the reader is a colleague with kit. A
-      // supplier holds neither, and offering the pages anyway was a dead end.
-      {
-        icon: 'cube-outline',
-        label: 'My equipment',
-        href: '/my-equipment',
-        perm: PERMISSIONS.ASSETS_READ,
-      },
-      {
-        icon: 'ribbon-outline',
-        label: 'My licenses',
-        href: '/my-licenses',
-        perm: PERMISSIONS.LICENSES_READ,
-      },
-      // A supplier's own contact details. The web has had this since v2.45 and
-      // the phone had nowhere to reach it, which is the wrong way round: a
-      // supplier is usually out, and a phone number is what goes stale.
-      {
-        icon: 'business-outline',
-        label: 'Your company details',
-        href: '/vendor-company',
-        perm: PERMISSIONS.VENDOR_PORTAL_ACCESS,
-      },
-      { icon: 'help-circle-outline', label: 'Help', href: '/help' },
-    ],
-  },
-  {
-    title: 'Capture',
-    items: [
-      {
-        icon: 'scan-outline',
-        label: 'Scan a code',
-        href: '/(tabs)/scan',
-        perm: PERMISSIONS.ASSETS_READ,
-      },
-      {
-        icon: 'receipt-outline',
-        label: 'Capture bill',
-        href: '/(tabs)/capture',
-        perm: PERMISSIONS.INVOICES_UPLOAD,
-      },
-      {
-        icon: 'clipboard-outline',
-        label: 'Inventory count',
-        href: '/(tabs)/inventory',
-        perm: PERMISSIONS.INVENTORY_ADJUST,
-      },
-    ],
-  },
-  {
-    title: 'Records',
-    items: [
-      {
-        icon: 'cube-outline',
-        label: 'Receive orders',
-        href: '/purchase-orders',
-        perm: PERMISSIONS.PROCUREMENT_RECEIVE,
-      },
-      { icon: 'layers-outline', label: 'Stock', href: '/stock', perm: PERMISSIONS.INVENTORY_READ },
-      {
-        icon: 'key-outline',
-        label: 'Licenses',
-        href: '/licenses',
-        perm: PERMISSIONS.LICENSES_READ,
-      },
-      {
-        icon: 'document-attach-outline',
-        label: 'Invoices',
-        href: '/invoices',
-        perm: PERMISSIONS.INVOICES_READ,
-      },
-      {
-        icon: 'build-outline',
-        label: 'My work orders',
-        href: '/work-orders',
-        perm: PERMISSIONS.MAINTENANCE_MANAGE,
-      },
-      {
-        icon: 'construct-outline',
-        label: 'Maintenance',
-        href: '/maintenance',
-        perm: PERMISSIONS.MAINTENANCE_READ,
-      },
-      { icon: 'people-outline', label: 'People', href: '/people', perm: PERMISSIONS.USERS_READ },
-      {
-        icon: 'mail-unread-outline',
-        label: 'Pending invitations',
-        href: '/people-invitations',
-        perm: PERMISSIONS.USERS_MANAGE,
-      },
-      {
-        icon: 'stats-chart-outline',
-        label: 'Analytics',
-        href: '/analytics',
-        perm: PERMISSIONS.ANALYTICS_READ,
-      },
-      {
-        icon: 'bar-chart-outline',
-        label: 'Reports',
-        href: '/reports',
-        perm: PERMISSIONS.REPORTS_READ,
-      },
-      { icon: 'time-outline', label: 'Audit log', href: '/audit', perm: PERMISSIONS.AUDIT_READ },
-    ],
-  },
-  {
-    title: 'Account',
-    items: [
-      // The hub itself is permission-free: Appearance and Security are on it for
-      // everyone, and the company rows inside are gated individually.
-      { icon: 'settings-outline', label: 'Settings', href: '/settings' },
-      { icon: 'person-circle-outline', label: 'Profile', href: '/(tabs)/profile' },
-    ],
-  },
-];
-
+/**
+ * The menu, as category cards (v2.58).
+ *
+ * Replaces one long list under four loose headings. Categories open onto a grid
+ * of their own options; the search box finds any option directly, because
+ * someone who knows what they want should not have to guess its category.
+ * Both only ever show what this user's permissions allow.
+ */
 export default function MoreScreen() {
   const { user, logout } = useSession();
   const router = useRouter();
-  const { c, spacing } = useTheme();
+  const { c, spacing, radius } = useTheme();
+  const [query, setQuery] = useState('');
 
-  const can = (perm?: string) => !perm || !!user?.permissions.includes(perm);
+  const permissions = useMemo(() => user?.permissions ?? [], [user]);
+  const groups = useMemo(() => visibleMenu(permissions), [permissions]);
+  const results = useMemo(() => searchMenu(query, permissions), [query, permissions]);
+
+  if (!user) return null;
+  const name = user.displayName ?? user.email;
+  const searching = query.trim().length > 0;
 
   return (
     <Screen scroll>
-      {GROUPS.map((group) => {
-        const items = group.items.filter((i) => can(i.perm));
-        if (items.length === 0) return null;
-        return (
-          <View key={group.title} style={{ marginBottom: spacing.xl }}>
-            <SectionTitle>{group.title}</SectionTitle>
-            <Card style={{ padding: 0 }}>
-              {items.map((item, i) => (
-                <Row
-                  key={item.label}
-                  icon={item.icon}
-                  label={item.label}
-                  last={i === items.length - 1}
-                  onPress={() => router.push(item.href)}
-                />
-              ))}
-            </Card>
-          </View>
-        );
-      })}
+      {/* Who is signed in, and a way to their profile. */}
+      <Pressable
+        onPress={() => router.push('/(tabs)/profile')}
+        accessibilityRole="button"
+        accessibilityLabel="Open your profile"
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+          padding: spacing.lg,
+          borderRadius: radius.lg,
+          backgroundColor: c.brand,
+          marginBottom: spacing.lg,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Avatar name={name} size={48} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: c.brandText, fontSize: 17, fontWeight: '700' }} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={{ color: c.brandText, opacity: 0.85, fontSize: 13 }} numberOfLines={1}>
+            {user.roleNames.join(', ') || user.email}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={c.brandText} />
+      </Pressable>
 
-      <Card
-        style={{ borderColor: c.danger, alignItems: 'center' }}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: c.border,
+          backgroundColor: c.surface,
+          marginBottom: spacing.lg,
+        }}
+      >
+        <Ionicons name="search-outline" size={18} color={c.subtle} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search the menu"
+          placeholderTextColor={c.subtle}
+          autoCorrect={false}
+          accessibilityLabel="Search the menu"
+          style={{ flex: 1, color: c.text, fontSize: 15, paddingVertical: 12 }}
+        />
+        {searching ? (
+          <Pressable onPress={() => setQuery('')} accessibilityLabel="Clear search" hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={c.subtle} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      {searching ? (
+        results.length === 0 ? (
+          <Text style={{ color: c.muted, textAlign: 'center', marginVertical: spacing.xl }}>
+            Nothing in the menu matches “{query.trim()}”.
+          </Text>
+        ) : (
+          results.map(({ item, group }) => (
+            <ResultRow
+              key={item.href}
+              label={item.label}
+              group={group.title}
+              icon={item.icon}
+              tone={group.tone}
+              onPress={() => router.push(item.href as never)}
+            />
+          ))
+        )
+      ) : (
+        <TileGrid>
+          {groups.map((group) => (
+            <CategoryCard
+              key={group.id}
+              title={group.title}
+              description={group.description}
+              icon={group.icon}
+              tone={group.tone}
+              count={group.items.length}
+              onPress={() => router.push(`/menu/${group.id}` as never)}
+            />
+          ))}
+        </TileGrid>
+      )}
+
+      <Pressable
         onPress={() => {
           void logout().then(() => router.replace('/login'));
         }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Ionicons name="log-out-outline" size={18} color={c.danger} />
-          <Text style={{ color: c.danger, fontWeight: '700', fontSize: 15 }}>Sign out</Text>
-        </View>
-      </Card>
-    </Screen>
-  );
-}
-
-function Row({
-  icon,
-  label,
-  onPress,
-  last,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  last: boolean;
-}) {
-  const { c } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 15,
-        borderBottomWidth: last ? 0 : 1,
-        borderBottomColor: c.border,
-        opacity: pressed ? 0.6 : 1,
-      })}
-    >
-      <View
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: 10,
-          backgroundColor: c.brandSoft,
+        accessibilityRole="button"
+        style={({ pressed }) => ({
+          flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-        }}
+          gap: 8,
+          marginTop: spacing.xl,
+          padding: spacing.lg,
+          borderRadius: radius.lg,
+          borderWidth: 1,
+          borderColor: c.danger,
+          backgroundColor: c.dangerSoft,
+          opacity: pressed ? 0.7 : 1,
+        })}
       >
-        <Ionicons name={icon} size={18} color={c.brand} />
-      </View>
-      <Text style={{ color: c.text, fontSize: 15, fontWeight: '500', flex: 1 }}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color={c.subtle} />
-    </Pressable>
+        <Ionicons name="log-out-outline" size={18} color={c.danger} />
+        <Text style={{ color: c.danger, fontWeight: '700', fontSize: 15 }}>Sign out</Text>
+      </Pressable>
+    </Screen>
   );
 }

@@ -114,7 +114,7 @@ export default function TabsLayout() {
           href: gate(PERMISSIONS.VENDOR_PRODUCTS_READ),
         }}
       />
-      <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: icon('grid-outline') }} />
+      <Tabs.Screen name="more" options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
 
       {/* Reached from the More menu — hidden from the bar. */}
       <Tabs.Screen name="capture" options={{ title: 'Capture bill', href: null }} />

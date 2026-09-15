@@ -48,6 +48,7 @@ function RootShell() {
           <Stack.Screen name="invoice/new" options={{ headerShown: true, title: 'Add invoice' }} />
           <Stack.Screen name="invoice/[id]" options={{ headerShown: true, title: 'Invoice' }} />
           <Stack.Screen name="notifications" options={{ headerShown: true, title: 'Notifications' }} />
+          <Stack.Screen name="menu/[group]" options={{ headerShown: true, title: 'Menu' }} />
           <Stack.Screen
             name="people-invitations"
             options={{ headerShown: true, title: 'Pending invitations' }}
