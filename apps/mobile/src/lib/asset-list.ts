@@ -67,6 +67,16 @@ export function assetTypeOptions(categories: readonly Category[]): ChipOption[] 
   return out;
 }
 
+/**
+ * The one-tap type chips above the list: every type, in the catalogue's own
+ * order, using the same filter ids as the sheet so both stay in step. Category
+ * "All <x>" rows are left to the sheet - on the list they would crowd out the
+ * types people actually tap.
+ */
+export function quickTypeChips(categories: readonly Category[]): ChipOption[] {
+  return categories.flatMap((c) => c.subcategories.map((sub) => ({ id: `sub:${sub.id}`, name: sub.name })));
+}
+
 export const STATUS_OPTIONS: ChipOption[] = ASSET_STATUSES.map((v) => ({
   id: v,
   name: ASSET_STATUS_TOKENS[v].label,

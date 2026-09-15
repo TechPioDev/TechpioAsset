@@ -22,6 +22,7 @@ export default function MoreScreen() {
   const router = useRouter();
   const { c, spacing, radius } = useTheme();
   const [query, setQuery] = useState('');
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const permissions = useMemo(() => user?.permissions ?? [], [user]);
   const groups = useMemo(() => visibleMenu(permissions), [permissions]);
@@ -33,19 +34,23 @@ export default function MoreScreen() {
 
   return (
     <Screen scroll>
-      {/* Who is signed in, and a way to their profile. */}
+      {/* Who is signed in. Tapping opens the account menu - profile,
+          security, sign out - the way a user menu works on the web. */}
       <Pressable
-        onPress={() => router.push('/(tabs)/profile')}
+        onPress={() => setAccountOpen((open) => !open)}
         accessibilityRole="button"
-        accessibilityLabel="Open your profile"
+        accessibilityLabel="Account menu"
+        accessibilityState={{ expanded: accountOpen }}
         style={({ pressed }) => ({
           flexDirection: 'row',
           alignItems: 'center',
           gap: spacing.md,
           padding: spacing.lg,
           borderRadius: radius.lg,
+          borderBottomLeftRadius: accountOpen ? 0 : radius.lg,
+          borderBottomRightRadius: accountOpen ? 0 : radius.lg,
           backgroundColor: c.brand,
-          marginBottom: spacing.lg,
+          marginBottom: accountOpen ? 0 : spacing.lg,
           opacity: pressed ? 0.85 : 1,
         })}
       >
@@ -58,8 +63,70 @@ export default function MoreScreen() {
             {user.roleNames.join(', ') || user.email}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={c.brandText} />
+        <Ionicons name={accountOpen ? 'chevron-up' : 'chevron-down'} size={20} color={c.brandText} />
       </Pressable>
+      {accountOpen ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderTopWidth: 0,
+            borderColor: c.border,
+            borderBottomLeftRadius: radius.lg,
+            borderBottomRightRadius: radius.lg,
+            backgroundColor: c.card,
+            marginBottom: spacing.lg,
+            overflow: 'hidden',
+          }}
+        >
+          {(
+            [
+              ['person-circle-outline', 'My profile', () => router.push('/(tabs)/profile')],
+              ['shield-checkmark-outline', 'Security', () => router.push('/settings/security')],
+            ] as const
+          ).map(([icon, label, go]) => (
+            <Pressable
+              key={label}
+              onPress={() => {
+                setAccountOpen(false);
+                go();
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+                paddingHorizontal: spacing.lg,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: c.border,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Ionicons name={icon} size={20} color={c.muted} />
+              <Text style={{ flex: 1, color: c.text, fontSize: 15, fontWeight: '500' }}>{label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={c.subtle} />
+            </Pressable>
+          ))}
+          <Pressable
+            onPress={() => {
+              setAccountOpen(false);
+              void logout().then(() => router.replace('/login'));
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+              paddingHorizontal: spacing.lg,
+              paddingVertical: 14,
+              backgroundColor: pressed ? c.dangerSoft : 'transparent',
+            })}
+          >
+            <Ionicons name="log-out-outline" size={20} color={c.danger} />
+            <Text style={{ flex: 1, color: c.danger, fontSize: 15, fontWeight: '700' }}>Sign out</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View
         style={{
@@ -124,32 +191,10 @@ export default function MoreScreen() {
         </TileGrid>
       )}
 
-      <Pressable
-        onPress={() => {
-          void logout().then(() => router.replace('/login'));
-        }}
-        accessibilityRole="button"
-        style={({ pressed }) => ({
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          marginTop: spacing.xl,
-          padding: spacing.lg,
-          borderRadius: radius.lg,
-          borderWidth: 1,
-          borderColor: c.danger,
-          backgroundColor: c.dangerSoft,
-          opacity: pressed ? 0.7 : 1,
-        })}
-      >
-        <Ionicons name="log-out-outline" size={18} color={c.danger} />
-        <Text style={{ color: c.danger, fontWeight: '700', fontSize: 15 }}>Sign out</Text>
-      </Pressable>
 
       {/* The build on this phone, to compare with the version shown beside the
           download link on the web login page. */}
-      <Text style={{ color: c.subtle, fontSize: 12, textAlign: 'center', marginTop: spacing.md }}>
+      <Text style={{ color: c.subtle, fontSize: 12, textAlign: 'center', marginTop: spacing.xl }}>
         {installedVersionLabel()}
       </Text>
     </Screen>

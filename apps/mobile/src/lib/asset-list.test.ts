@@ -9,6 +9,7 @@ import {
   assetTypeOptions,
   hasMorePages,
   mergePage,
+  quickTypeChips,
   sortSummary,
 } from './asset-list';
 
@@ -89,3 +90,22 @@ describe('sorting and paging', () => {
     ]);
   });
 });
+
+describe('one-tap type chips', () => {
+  it('offers every type in catalogue order, with the same ids the filter sheet uses', () => {
+    const catalogue = [
+      { id: 'it', name: 'IT Assets', subcategories: [{ id: 'l', name: 'Laptop' }, { id: 'm', name: 'Mouse' }] },
+      { id: 'f', name: 'Furniture', subcategories: [] },
+      { id: 'o', name: 'Office', subcategories: [{ id: 'p', name: 'Printer' }] },
+    ];
+    const chips = quickTypeChips(catalogue);
+    expect(chips).toEqual([
+      { id: 'sub:l', name: 'Laptop' },
+      { id: 'sub:m', name: 'Mouse' },
+      { id: 'sub:p', name: 'Printer' },
+    ]);
+    const sheetIds = assetTypeOptions(catalogue).map((o) => o.id);
+    for (const chip of chips) expect(sheetIds).toContain(chip.id);
+  });
+});
+

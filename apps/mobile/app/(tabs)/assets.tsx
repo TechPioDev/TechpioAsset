@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -49,6 +49,7 @@ import {
   assetTypeOptions,
   hasMorePages,
   mergePage,
+  quickTypeChips,
   sortSummary,
   type Category,
   type SheetFilters,
@@ -243,6 +244,7 @@ export default function AssetsScreen() {
   };
 
   const active = activeFilterLabels(filters, categories);
+  const quickTypes = useMemo(() => quickTypeChips(categories), [categories]);
   const sortFields = assetListSortFields(canSeeCost);
   const empty = assetListEmptyState({ q, status: filters.status });
 
@@ -320,6 +322,45 @@ export default function AssetsScreen() {
         {smallButton('swap-vertical-outline', sortSummary(sort, order), openSheet)}
         {smallButton('qr-code-outline', 'Scan QR', () => router.push('/(tabs)/scan'))}
       </View>
+      {/* One tap to a type. The filter sheet has them too, but "show me the
+          mice" should not take three taps and a scroll. */}
+      {quickTypes.length ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={{ marginTop: spacing.md, marginHorizontal: -spacing.lg }}
+          contentContainerStyle={{ gap: spacing.sm, paddingHorizontal: spacing.lg }}
+        >
+          {[{ id: '', name: 'All types' }, ...quickTypes].map((t) => {
+            const chosen = filters.type === t.id;
+            return (
+              <Pressable
+                key={t.id || 'all'}
+                onPress={() => {
+                  typeChosen.current = true;
+                  setFilters((f) => ({ ...f, type: t.id }));
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: chosen }}
+                accessibilityLabel={`Show ${t.name}`}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: chosen ? c.brand : c.border,
+                  backgroundColor: chosen ? c.brand : c.surface,
+                }}
+              >
+                <Text style={{ color: chosen ? c.brandText : c.text, fontSize: 13, fontWeight: '600' }}>
+                  {t.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
       {active.length ? (
         <View
           style={{
@@ -472,7 +513,10 @@ export default function AssetsScreen() {
               backgroundColor: c.background,
               borderTopLeftRadius: 22,
               borderTopRightRadius: 22,
-              maxHeight: '92%',
+              // A fixed height, not a maximum: with only a cap, the scrolling
+              // body has no size to fill and can collapse, leaving the title and
+              // buttons with no options between them.
+              height: '85%',
               paddingBottom: spacing.xl,
             }}
           >
@@ -492,6 +536,7 @@ export default function AssetsScreen() {
             </View>
 
             <ScrollView
+              style={{ flex: 1 }}
               contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}
               keyboardShouldPersistTaps="handled"
             >
