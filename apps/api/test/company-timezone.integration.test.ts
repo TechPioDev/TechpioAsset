@@ -61,3 +61,36 @@ describe('saving the company timezone', () => {
     expect(read.body.data.timezone).toBe('Asia/Kolkata');
   });
 });
+
+describe('scheduled reports run on the company clock', () => {
+  it('arms a 09:00 schedule at 09:00 company time, and re-arms it when the zone changes', async () => {
+    expect((await save('Asia/Kolkata')).status).toBeLessThan(300);
+
+    const created = await api(app)
+      .post('/api/v1/scheduled/reports')
+      .set(auth(s.superAdmin))
+      .send({
+        name: `TZ-${Date.now()} daily inventory`,
+        type: 'ASSET_INVENTORY',
+        format: 'CSV',
+        cron: '0 9 * * *',
+        recipients: ['tz-check@techpioasset.dev'],
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const id = created.body.data.id as string;
+    try {
+      // 09:00 in India is 03:30 UTC. Read in the server's zone it was 09:00Z.
+      expect(new Date(created.body.data.nextRunAt).toISOString()).toMatch(/T03:30:00\.000Z$/);
+
+      expect((await save('UTC')).status).toBeLessThan(300);
+      const rearmed = await prisma.client.scheduledReport.findUniqueOrThrow({
+        where: { id },
+        select: { nextRunAt: true },
+      });
+      expect(rearmed.nextRunAt?.toISOString()).toMatch(/T09:00:00\.000Z$/);
+    } finally {
+      await prisma.client.scheduledReport.delete({ where: { id } });
+    }
+  });
+});
+

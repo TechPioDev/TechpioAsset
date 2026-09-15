@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AppConfig } from '../config/config.module.js';
 import { CacheProvider } from '../providers/cache/cache.provider.js';
+import { nextCronRun } from '../scheduled/cron.js';
 
 /**
  * Organisation structure and catalogue reads.
@@ -129,6 +130,22 @@ export class OrgService {
           entityId: actor.companyId,
           newValues: { publishedOnPolicyChange: stranded.count, status: 'APPROVED' },
           reason: 'Supplier offers no longer wait for approval',
+        });
+      }
+    }
+
+    // Schedules are read in the company's zone, and their next run was worked out
+    // in the old one. Left alone, each would fire once more at the old offset.
+    if (input.timezone && input.timezone !== before.timezone) {
+      const schedules = await this.prisma.client.scheduledReport.findMany({
+        where: { companyId: actor.companyId, isActive: true, deletedAt: null },
+        select: { id: true, cron: true },
+      });
+      const now = new Date();
+      for (const schedule of schedules) {
+        await this.prisma.client.scheduledReport.update({
+          where: { id: schedule.id },
+          data: { nextRunAt: nextCronRun(schedule.cron, now, after.timezone) },
         });
       }
     }

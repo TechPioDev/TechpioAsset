@@ -28,8 +28,8 @@ export class ScheduledController {
   @Get('reports')
   @RequirePermissions(PERMISSIONS.REPORTS_READ)
   @ApiOperation({ summary: 'List scheduled reports' })
-  listReports(@CurrentUser() actor: AuthUser) {
-    return this.prisma.client.scheduledReport.findMany({
+  async listReports(@CurrentUser() actor: AuthUser) {
+    const rows = await this.prisma.client.scheduledReport.findMany({
       where: { ...tenantFilter(actor), deletedAt: null },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -43,8 +43,12 @@ export class ScheduledController {
         lastRunAt: true,
         lastRunStatus: true,
         nextRunAt: true,
+        company: { select: { timezone: true } },
       },
     });
+    // The zone the cron is read in, so a list can say what "08:00" means.
+    // Reading it from /company needs settings access most report users lack.
+    return rows.map(({ company, ...row }) => ({ ...row, timezone: company.timezone }));
   }
 
   @Patch('reports/:id')
@@ -57,7 +61,7 @@ export class ScheduledController {
   ) {
     const schedule = await this.prisma.client.scheduledReport.findFirst({
       where: { id, ...tenantFilter(actor), deletedAt: null },
-      select: { id: true, cron: true },
+      select: { id: true, cron: true, company: { select: { timezone: true } } },
     });
     if (!schedule) throw AppError.notFound('Scheduled report', id);
     return this.prisma.client.scheduledReport.update({
@@ -65,7 +69,9 @@ export class ScheduledController {
       data: {
         isActive: body.isActive,
         // Re-arming computes a fresh due date; a paused backlog must not fire.
-        ...(body.isActive ? { nextRunAt: nextCronRun(schedule.cron, new Date()) } : {}),
+        ...(body.isActive
+          ? { nextRunAt: nextCronRun(schedule.cron, new Date(), schedule.company.timezone) }
+          : {}),
       },
       select: { id: true, isActive: true, nextRunAt: true },
     });
@@ -93,7 +99,12 @@ export class ScheduledController {
     @Body(zodBody(createScheduledReportSchema))
     body: { name: string; type: string; format: string; cron: string; recipients: string[] },
   ) {
-    const nextRunAt = nextCronRun(body.cron, new Date());
+    // Read in the company's zone: "every day at 09:00" means 09:00 where they are.
+    const { timezone } = await this.prisma.client.company.findUniqueOrThrow({
+      where: { id: actor.companyId },
+      select: { timezone: true },
+    });
+    const nextRunAt = nextCronRun(body.cron, new Date(), timezone);
     return this.prisma.client.scheduledReport.create({
       data: {
         companyId: actor.companyId,

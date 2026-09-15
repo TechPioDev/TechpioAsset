@@ -26,6 +26,8 @@ interface ScheduleRow {
   lastRunAt: string | null;
   lastRunStatus: string | null;
   nextRunAt: string | null;
+  /** The company zone the schedule's times are read in. */
+  timezone: string;
 }
 
 const REPORTS = [
@@ -177,6 +179,11 @@ export default function SchedulesPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+                {data?.[0]?.timezone
+                  ? `Times are in the company timezone, ${data[0].timezone}.`
+                  : 'Times are in the company timezone, set under Settings › Organisation.'}
+              </p>
             </Field>
           </div>
           <Field label="Recipients (comma-separated emails)" htmlFor="sch-rcpt">

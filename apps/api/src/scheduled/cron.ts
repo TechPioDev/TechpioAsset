@@ -54,31 +54,76 @@ export function parseCron(expression: string): CronFields | null {
   };
 }
 
+/** Wall-clock parts of an instant in a zone. One formatter per zone, reused. */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const WEEKDAYS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function wallClock(instant: Date, timeZone: string) {
+  let formatter = formatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      weekday: 'short',
+    });
+    formatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(instant);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return {
+    minute: Number(get('minute')),
+    hour: Number(get('hour')),
+    day: Number(get('day')),
+    month: Number(get('month')),
+    weekday: WEEKDAYS[get('weekday')] ?? -1,
+  };
+}
+
 /**
- * Next time at or after `from` that the expression fires. Scans minute by minute
- * up to a year ahead; returns null for an invalid expression or if nothing
- * matches within the horizon.
+ * Next time after `from` that the expression fires, with the fields read as the
+ * wall clock in `timeZone` (an IANA name; the company's). Returns null for an
+ * invalid expression, an unknown zone, or nothing within a year.
+ *
+ * The fields were read in the server's own zone before, which in the container
+ * is UTC - so "09:00" for an Indian company went out at 14:30 there, while the
+ * contract said "evaluated in the company timezone".
+ *
+ * Walks forward in real minutes, jumping to the next hour when the date or hour
+ * cannot match. Every zone's offset is a whole number of minutes, so a jump of
+ * the minutes left in the local hour lands exactly on its boundary, and
+ * daylight-saving shifts move whole hours. On a spring-forward day a local time
+ * that does not exist never fires; on a fall-back day the first of the two
+ * occurrences does.
  */
-export function nextCronRun(expression: string, from: Date): Date | null {
+export function nextCronRun(expression: string, from: Date, timeZone = 'UTC'): Date | null {
   const fields = parseCron(expression);
   if (!fields) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+  } catch {
+    return null;
+  }
 
   const candidate = new Date(from);
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(candidate.getMinutes() + 1);
+  candidate.setUTCSeconds(0, 0);
+  candidate.setTime(candidate.getTime() + 60_000);
 
-  const limit = new Date(from.getTime() + 366 * 86_400_000);
-  while (candidate <= limit) {
-    if (
-      fields.minute(candidate.getMinutes()) &&
-      fields.hour(candidate.getHours()) &&
-      fields.dayOfMonth(candidate.getDate()) &&
-      fields.month(candidate.getMonth() + 1) &&
-      fields.dayOfWeek(candidate.getDay())
-    ) {
-      return new Date(candidate);
+  const limit = from.getTime() + 366 * 86_400_000;
+  while (candidate.getTime() <= limit) {
+    const local = wallClock(candidate, timeZone);
+    const dateMatches =
+      fields.dayOfMonth(local.day) && fields.month(local.month) && fields.dayOfWeek(local.weekday);
+    if (!dateMatches || !fields.hour(local.hour)) {
+      candidate.setTime(candidate.getTime() + (60 - local.minute) * 60_000);
+      continue;
     }
-    candidate.setMinutes(candidate.getMinutes() + 1);
+    if (fields.minute(local.minute)) return new Date(candidate);
+    candidate.setTime(candidate.getTime() + 60_000);
   }
   return null;
 }

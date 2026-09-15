@@ -57,13 +57,14 @@ export class ReportRunnerService implements OnModuleInit {
     const due = await this.prisma.client.scheduledReport.findMany({
       where: { isActive: true, deletedAt: null, nextRunAt: { lte: now } },
       orderBy: { nextRunAt: 'asc' },
+      include: { company: { select: { timezone: true } } },
     });
 
     const summary: RunnerSummary = { due: due.length, succeeded: 0, failed: 0 };
     for (const schedule of due) {
       // Claim: advance nextRunAt only if nobody else has. Zero rows means a
       // concurrent tick took it — skip without double-running.
-      const nextRunAt = this.safeNextRun(schedule.cron, now);
+      const nextRunAt = this.safeNextRun(schedule.cron, now, schedule.company.timezone);
       const claimed = await this.prisma.client.scheduledReport.updateMany({
         where: { id: schedule.id, nextRunAt: schedule.nextRunAt },
         data: { nextRunAt },
@@ -174,9 +175,9 @@ export class ReportRunnerService implements OnModuleInit {
   }
 
   /** A broken cron must not wedge the schedule forever: park it a day out. */
-  private safeNextRun(cron: string, now: Date): Date {
+  private safeNextRun(cron: string, now: Date, timeZone: string): Date {
     try {
-      return nextCronRun(cron, now) ?? new Date(now.getTime() + 86_400_000);
+      return nextCronRun(cron, now, timeZone) ?? new Date(now.getTime() + 86_400_000);
     } catch {
       return new Date(now.getTime() + 86_400_000);
     }
