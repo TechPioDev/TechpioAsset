@@ -20,6 +20,7 @@ import {
 } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
+import { useToast } from '@/providers/toast-provider';
 import { Button, Card, controlCls as inputCls } from '@/components/ui';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -202,6 +203,7 @@ function NewRequestKeyedForm() {
 
 function NewRequestForm() {
   const router = useRouter();
+  const toast = useToast();
   const params = useSearchParams();
   const { can } = useAuth();
   // Quick actions and per-asset buttons land here with the intent pre-filled:
@@ -394,8 +396,12 @@ function NewRequestForm() {
       await apiFetch(`/requests/${created.id}/submit`, { method: 'POST' });
       return created;
     },
-    onSuccess: (created) => router.push(`/requests/${created.id}`),
+    onSuccess: (created) => {
+      toast.success('Request submitted for approval');
+      router.push(`/requests/${created.id}`);
+    },
     onError: (caught) => {
+      toast.error('The request was not submitted');
       // Surface server-side field errors on the matching RHF fields.
       if (caught instanceof ApiError) {
         for (const [path, message] of Object.entries(caught.fieldErrors)) {
@@ -510,7 +516,19 @@ function NewRequestForm() {
       <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <Form {...form}>
           <form
-            onSubmit={form.handleSubmit((values) => submit.mutate(values))}
+            onSubmit={form.handleSubmit(
+              (values) => submit.mutate(values),
+              // A refused submit used to show only a small line under the
+              // field, often above the fold: the button looked dead. Say so,
+              // and bring the first problem into view.
+              (errors) => {
+                const first = Object.keys(errors)[0];
+                toast.error('Not submitted yet — fill in the highlighted field');
+                document
+                  .querySelector<HTMLElement>(first ? `[name="${first}"], [data-field="${first}"]` : 'form')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              },
+            )}
             className="grid content-start gap-4"
             noValidate
           >
@@ -662,7 +680,7 @@ function NewRequestForm() {
                               control={form.control}
                               name="requestedSpec"
                               render={({ field }) => (
-                                <FormItem>
+                                <FormItem data-field="requestedSpec">
                                   <FormLabel>
                                     Requested {upgradeType === 'RAM' ? 'RAM' : 'storage'}{' '}
                                     <span style={{ color: 'var(--tone-critical-fg)' }}>*</span>
@@ -671,7 +689,9 @@ function NewRequestForm() {
                                     <FormControl>
                                       <SelectTrigger>
                                         <SelectValue
-                                          placeholder={currentSpec ? `Current: ${currentSpec}` : 'Choose'}
+                                          placeholder={
+                                            currentSpec ? `Choose new size (now ${currentSpec})` : 'Choose new size'
+                                          }
                                         />
                                       </SelectTrigger>
                                     </FormControl>
