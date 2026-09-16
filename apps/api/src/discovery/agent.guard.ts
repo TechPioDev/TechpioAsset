@@ -1,11 +1,10 @@
-import { createHash } from 'node:crypto';
 import {
   CanActivate,
   ExecutionContext,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service.js';
+import { AgentEnrolmentService } from './agent-enrolment.service.js';
 
 /**
  * The identity an enrolled laptop reports under. Deliberately NOT an AuthUser:
@@ -31,32 +30,41 @@ export interface AgentPrincipal {
  *
  * Revocation is a column, not a deletion: unenrolling a laptop leaves the row
  * (and its history) while the credential stops working immediately.
+ *
+ * Guards run after body parsing but BEFORE validation pipes, so a bad
+ * credential is always a 401 (agents re-enrol only on 401), and the raw body
+ * is available to attribute the refusal to a laptop.
  */
 @Injectable()
 export class AgentGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly enrolment: AgentEnrolmentService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context
-      .switchToHttp()
-      .getRequest<{ headers: Record<string, string | undefined>; agent?: AgentPrincipal }>();
-    const header = request.headers['authorization'] ?? '';
-    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    const request = context.switchToHttp().getRequest<{
+      headers: Record<string, string | string[] | undefined>;
+      body?: unknown;
+      agent?: AgentPrincipal;
+    }>();
+    const header = request.headers['authorization'];
+    const raw = typeof header === 'string' ? header : '';
+    const token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : '';
     if (!token) throw new UnauthorizedException('The agent must present its device credential');
 
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    const device = await this.prisma.client.deviceAgent.findUnique({
-      where: { tokenHash },
-      select: { id: true, companyId: true, machineId: true, revokedAt: true },
-    });
+    const device = await this.enrolment.authenticateDevice(token);
     // One message for "unknown" and "revoked" alike: a revoked agent must not
     // learn that its credential was ever valid.
-    if (!device || device.revokedAt) throw new UnauthorizedException('Unknown device credential');
-
-    await this.prisma.client.deviceAgent.update({
-      where: { id: device.id },
-      data: { lastSeenAt: new Date() },
-    });
+    if (!device) {
+      const body = (request.body && typeof request.body === 'object' ? request.body : {}) as Record<
+        string,
+        unknown
+      >;
+      const headerMachineId = request.headers['x-agent-machine-id'];
+      await this.enrolment.recordRejection({
+        machineId: body.machineId ?? (typeof headerMachineId === 'string' ? headerMachineId : undefined),
+        serialNumber: body.serialNumber,
+      });
+      throw new UnauthorizedException('Unknown device credential');
+    }
 
     request.agent = {
       companyId: device.companyId,

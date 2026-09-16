@@ -104,6 +104,14 @@ export type AgentEnrolInput = z.infer<typeof agentEnrolSchema>;
  */
 export const agentReportSchema = z
   .object({
+    /**
+     * Optional, and NEVER used for identity or authorisation - that still comes
+     * from the credential. It exists only so a REFUSED report can be recorded
+     * against its laptop ("credential rejected - reinstall") instead of looking
+     * like a machine that is switched off. Agents may also send it as the
+     * x-agent-machine-id header, which older servers ignore.
+     */
+    machineId: z.string().trim().min(8).max(200).optional().nullable(),
     hostname: z.string().trim().max(200).optional().nullable(),
     serialNumber: z.string().trim().max(120).optional().nullable(),
     agentVersion: z.string().trim().max(40).optional().nullable(),
@@ -124,3 +132,35 @@ export const agentReportSchema = z
   })
   .strict();
 export type AgentReportInput = z.infer<typeof agentReportSchema>;
+
+/**
+ * Replacing the company enrolment token. The previous token keeps enrolling
+ * new laptops for `graceDays` so installers already handed out do not break the
+ * moment someone replaces it; 0 retires it immediately.
+ */
+export const enrolmentTokenReplaceSchema = z
+  .object({
+    graceDays: z.coerce.number().int().min(0).max(30).default(7),
+  })
+  .strict();
+export type EnrolmentTokenReplaceInput = z.infer<typeof enrolmentTokenReplaceSchema>;
+
+/** Why an existing enrolment token cannot be shown again. */
+export type EnrolmentTokenUnrevealableReason = 'LEGACY_HASH_ONLY' | 'ENCRYPTION_NOT_CONFIGURED' | 'KEY_CHANGED';
+
+export interface EnrolmentTokenStatus {
+  exists: boolean;
+  createdAt: string | null;
+  createdBy: { id: string; name: string } | null;
+  lastUsedAt: string | null;
+  revealable: boolean;
+  unrevealableReason: EnrolmentTokenUnrevealableReason | null;
+  /** Plain-language explanation to show when `revealable` is false. */
+  unrevealableMessage: string | null;
+  graceToken: { expiresAt: string } | null;
+}
+
+export interface EnrolmentTokenSecret {
+  token: string;
+  installCommand: string;
+}

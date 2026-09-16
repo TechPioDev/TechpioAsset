@@ -1,8 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditAction, DiscoveryMatchState, DiscoverySource, Prisma } from '@prisma/client';
 import type {
-  AgentEnrolInput,
   AgentReportInput,
   AuthUser,
   DiscoveredDeviceInput,
@@ -115,121 +113,8 @@ export class DiscoveryService {
     return summary;
   }
 
-  // ── agent enrolment (v2.13) ────────────────────────────────────────────────
-
-  /**
-   * Mints (or rotates) the company's enrolment token. Returned once, stored
-   * only as a hash: rotating invalidates every installer carrying the old one,
-   * which is the point.
-   */
-  async mintEnrolmentToken(actor: AuthUser) {
-    const token = `tae_${randomBytes(32).toString('base64url')}`;
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    await this.prisma.client.agentEnrolmentToken.upsert({
-      where: { companyId: actor.companyId },
-      update: { tokenHash, createdById: actor.id, createdAt: new Date(), lastUsedAt: null },
-      create: { companyId: actor.companyId, tokenHash, createdById: actor.id },
-    });
-    await this.audit.record({
-      companyId: actor.companyId,
-      actorId: actor.id,
-      action: AuditAction.SETTING_CHANGED,
-      entityType: 'AgentEnrolmentToken',
-      entityId: actor.companyId,
-      newValues: { rotated: true },
-    });
-    return { token };
-  }
-
-  async revokeEnrolmentToken(actor: AuthUser): Promise<void> {
-    await this.prisma.client.agentEnrolmentToken.deleteMany({
-      where: { companyId: actor.companyId },
-    });
-  }
-
-  /** Enrolled laptops, for the admin view. Never exposes a credential. */
-  async listAgents(actor: AuthUser) {
-    const rows = await this.prisma.client.deviceAgent.findMany({
-      where: { companyId: actor.companyId },
-      orderBy: [{ revokedAt: 'asc' }, { lastSeenAt: 'desc' }],
-      take: 500,
-      select: {
-        id: true,
-        machineId: true,
-        hostname: true,
-        serialNumber: true,
-        platform: true,
-        agentVersion: true,
-        enrolledAt: true,
-        lastSeenAt: true,
-        revokedAt: true,
-      },
-    });
-    return rows;
-  }
-
-  async revokeAgent(actor: AuthUser, id: string): Promise<void> {
-    const agent = await this.prisma.client.deviceAgent.findFirst({
-      where: { id, companyId: actor.companyId },
-      select: { id: true },
-    });
-    if (!agent) throw AppError.notFound('Device agent', id);
-    // Revoked, not deleted: the enrolment history stays readable.
-    await this.prisma.client.deviceAgent.update({
-      where: { id },
-      data: { revokedAt: new Date() },
-    });
-  }
-
-  /**
-   * Exchanges the company enrolment token for a device-scoped credential.
-   *
-   * Re-enrolling the same machineId rotates that machine's credential rather
-   * than creating a duplicate row - reinstalling the agent on a laptop is a
-   * normal event, not a new device.
-   */
-  async enrolAgent(enrolmentToken: string, input: AgentEnrolInput) {
-    const tokenHash = createHash('sha256').update(enrolmentToken).digest('hex');
-    const enrolment = await this.prisma.client.agentEnrolmentToken.findFirst({
-      where: { tokenHash },
-      select: { companyId: true, id: true },
-    });
-    if (!enrolment) throw new AppError('UNAUTHENTICATED', 'Invalid enrolment token');
-
-    const deviceToken = `tad_${randomBytes(32).toString('base64url')}`;
-    const deviceHash = createHash('sha256').update(deviceToken).digest('hex');
-
-    await this.prisma.client.deviceAgent.upsert({
-      where: {
-        companyId_machineId: { companyId: enrolment.companyId, machineId: input.machineId },
-      },
-      update: {
-        tokenHash: deviceHash,
-        hostname: input.hostname ?? null,
-        serialNumber: input.serialNumber ?? null,
-        platform: input.platform ?? null,
-        agentVersion: input.agentVersion ?? null,
-        revokedAt: null,
-        lastSeenAt: new Date(),
-      },
-      create: {
-        companyId: enrolment.companyId,
-        machineId: input.machineId,
-        tokenHash: deviceHash,
-        hostname: input.hostname ?? null,
-        serialNumber: input.serialNumber ?? null,
-        platform: input.platform ?? null,
-        agentVersion: input.agentVersion ?? null,
-      },
-    });
-
-    await this.prisma.client.agentEnrolmentToken.update({
-      where: { id: enrolment.id },
-      data: { lastUsedAt: new Date() },
-    });
-
-    return { deviceToken };
-  }
+  // ── agent reporting (v2.13) ────────────────────────────────────────────────
+  // Enrolment tokens and device credentials live in AgentEnrolmentService.
 
   /**
    * An enrolled laptop reporting its own inventory.

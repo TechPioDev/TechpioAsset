@@ -3768,9 +3768,18 @@ model AgentEnrolmentToken {
   companyId String @unique
 
   tokenHash   String
+  /// AES-256-GCM ciphertext of the token (LICENSE_KEY_SECRET, licence-key
+  /// layout) so an admin can show it again. Null = hash-only: created before
+  /// tokens were revealable, or while no key was configured.
+  tokenCiphertext String?
   createdAt   DateTime  @default(now())
   createdById String?
   lastUsedAt  DateTime?
+  /// The token this one replaced. It keeps ENROLLING (never anything else)
+  /// until graceExpiresAt, so installers already handed out do not break the
+  /// moment someone replaces the token.
+  graceTokenHash String?
+  graceExpiresAt DateTime?
 
   @@map("agent_enrolment_tokens")
 }
@@ -3796,10 +3805,22 @@ model DeviceAgent {
   lastSeenAt DateTime?
   revokedAt  DateTime?
 
+  /// The credential a re-enrolment replaced. Still accepted until the new one
+  /// is used once (or it ages out), so a laptop that failed to save its new
+  /// credential is not locked out.
+  previousTokenHash      String?
+  /// When the credential that superseded previousTokenHash was issued; the
+  /// previous one is refused after a maximum age from this moment.
+  previousTokenRotatedAt DateTime?
+  /// Last refused report attributed to this laptop (rate-limited writes).
+  lastRejectedAt DateTime?
+  rejectCount    Int       @default(0)
+
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, machineId])
   @@index([companyId, revokedAt])
+  @@index([previousTokenHash])
   @@map("device_agents")
 }
 

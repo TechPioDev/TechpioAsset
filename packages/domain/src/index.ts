@@ -44,3 +44,4 @@ export * from './spec-proposals';
 export * from './asset-detail';
 export * from './asset-receipt';
 export * from './expenses';
+export * from './device-agent';

@@ -17,7 +17,9 @@ import {
   agentReportSchema,
   confirmMatchSchema,
   discoveryListQuerySchema,
+  enrolmentTokenReplaceSchema,
   ingestSchema,
+  type EnrolmentTokenReplaceInput,
   type AuthUser,
   type ConfirmMatchInput,
   type DiscoveryListQuery,
@@ -30,6 +32,7 @@ import { CurrentUser, Public, RequirePermissions } from '../auth/decorators.js';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { DiscoveryService } from './discovery.service.js';
 import { AgentGuard, type AgentPrincipal } from './agent.guard.js';
+import { AgentEnrolmentService } from './agent-enrolment.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import { Throttle } from '@nestjs/throttler';
 
@@ -41,7 +44,10 @@ import { Throttle } from '@nestjs/throttler';
 @ApiTags('discovery')
 @Controller('discovery')
 export class DiscoveryController {
-  constructor(private readonly discovery: DiscoveryService) {}
+  constructor(
+    private readonly discovery: DiscoveryService,
+    private readonly enrolment: AgentEnrolmentService,
+  ) {}
 
   @Post('ingest')
   @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
@@ -97,7 +103,7 @@ export class DiscoveryController {
   @ApiOperation({
     summary: 'Exchange the company enrolment token for a device credential',
     description:
-      'Called once per laptop by the agent installer. Re-enrolling the same machine rotates its credential rather than duplicating it.',
+      'Called once per laptop by the agent installer. Re-enrolling the same machine rotates its credential rather than duplicating it; the replaced credential keeps working until the new one is used. Accepts the current enrolment token or an unexpired grace token.',
   })
   enrolAgent(
     @Headers('x-enrolment-token') enrolmentToken: string | undefined,
@@ -106,7 +112,7 @@ export class DiscoveryController {
     if (!enrolmentToken) {
       throw new AppError('UNAUTHENTICATED', 'Missing enrolment token');
     }
-    return this.discovery.enrolAgent(enrolmentToken.trim(), body);
+    return this.enrolment.enrolAgent(enrolmentToken.trim(), body);
   }
 
   @Post('agents/report')
@@ -127,30 +133,60 @@ export class DiscoveryController {
 
   // ── agent administration (humans) ─────────────────────────────────────────
 
+  @Get('agents/enrolment-token')
+  @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
+  @ApiOperation({ summary: 'Whether an enrolment token exists, and whether it can be shown (no secret)' })
+  enrolmentTokenStatus(@CurrentUser() actor: AuthUser) {
+    return this.enrolment.getStatus(actor);
+  }
+
   @Post('agents/enrolment-token')
   @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Mint or rotate the enrolment token',
-    description: 'Shown once. Rotating invalidates every installer carrying the old one.',
+    summary: 'Create the enrolment token (only if none exists)',
+    description: '409 when a token already exists - use reveal, or replace.',
   })
-  mintEnrolmentToken(@CurrentUser() actor: AuthUser) {
-    return this.discovery.mintEnrolmentToken(actor);
+  createEnrolmentToken(@CurrentUser() actor: AuthUser) {
+    return this.enrolment.create(actor);
+  }
+
+  @Post('agents/enrolment-token/reveal')
+  @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Show the enrolment token and install command (audited)' })
+  revealEnrolmentToken(@CurrentUser() actor: AuthUser) {
+    return this.enrolment.reveal(actor);
+  }
+
+  @Post('agents/enrolment-token/replace')
+  @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Replace the enrolment token',
+    description:
+      'The previous token keeps enrolling new laptops for graceDays (0-30, default 7; 0 retires it now). Enrolled laptops are unaffected.',
+  })
+  replaceEnrolmentToken(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(enrolmentTokenReplaceSchema)) body: EnrolmentTokenReplaceInput,
+  ) {
+    return this.enrolment.replace(actor, body.graceDays);
   }
 
   @Delete('agents/enrolment-token')
   @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
   @HttpCode(204)
-  @ApiOperation({ summary: 'Disable agent enrolment' })
+  @ApiOperation({ summary: 'Disable agent enrolment (revokes current and grace tokens)' })
   async revokeEnrolmentToken(@CurrentUser() actor: AuthUser): Promise<void> {
-    await this.discovery.revokeEnrolmentToken(actor);
+    await this.enrolment.revoke(actor);
   }
 
   @Get('agents')
   @RequirePermissions(PERMISSIONS.DISCOVERY_READ)
-  @ApiOperation({ summary: 'Enrolled laptops and when each last reported' })
+  @ApiOperation({ summary: 'Enrolled laptops: status, last report, last rejection, agent version' })
   listAgents(@CurrentUser() actor: AuthUser) {
-    return this.discovery.listAgents(actor);
+    return this.enrolment.listAgents(actor);
   }
 
   @Delete('agents/:id')
@@ -158,6 +194,6 @@ export class DiscoveryController {
   @HttpCode(204)
   @ApiOperation({ summary: 'Revoke one laptop agent credential' })
   async revokeAgent(@CurrentUser() actor: AuthUser, @Param('id') id: string): Promise<void> {
-    await this.discovery.revokeAgent(actor, id);
+    await this.enrolment.revokeAgent(actor, id);
   }
 }
