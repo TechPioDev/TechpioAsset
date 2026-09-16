@@ -2220,6 +2220,8 @@ model RequestComment {
 
   request AssetRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   author  User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  /// v2.60 - images sent inline with the message; they share its visibility.
+  attachments Attachment[]
 
   @@index([requestId, createdAt])
   @@map("request_comments")
@@ -2510,12 +2512,18 @@ model Attachment {
   assetRequestId      String?
   maintenanceRecord   MaintenanceRecord? @relation(fields: [maintenanceRecordId], references: [id], onDelete: Cascade)
   maintenanceRecordId String?
+  /// v2.60 - set when the file was sent inline with a request message. It then
+  /// renders in the thread, not the attachments panel, and is hidden from
+  /// whoever may not read that message.
+  comment             RequestComment?    @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId           String?
 
   @@index([companyId, entityType, entityId])
   @@index([sha256])
   /// v2.12 - request detail loads attachments through this FK on every open,
   /// and Postgres does not index foreign keys for you.
   @@index([assetRequestId, deletedAt])
+  @@index([commentId])
   @@map("attachments")
 }
 

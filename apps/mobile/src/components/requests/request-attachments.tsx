@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Alert, Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { formatFileSize } from '@techpioasset/domain';
 import { ApiError } from '../../lib/api-client';
-import { formatBytes } from '../../lib/assessment';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, SectionTitle } from '../ui';
@@ -109,7 +109,7 @@ export function RequestAttachments({
                     {att.originalName}
                   </Text>
                   <Text style={{ color: c.subtle, fontSize: 12 }}>
-                    {opening === att.id ? 'Opening…' : formatBytes(att.sizeBytes)}
+                    {opening === att.id ? 'Opening…' : formatFileSize(att.sizeBytes)}
                   </Text>
                 </View>
               </Pressable>

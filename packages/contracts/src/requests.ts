@@ -163,6 +163,19 @@ export const requestCommentSchema = z.object({
   isInternal: z.boolean().default(false),
 });
 
+/** How many images one message may carry (v2.60). */
+export const MAX_COMMENT_IMAGES = 6;
+
+/**
+ * The same message arriving as multipart/form-data with `images[]` (v2.60).
+ * Form fields are strings, so `isInternal` comes as "true"/"false"; the text
+ * may be empty because a photo on its own is a message.
+ */
+export const requestCommentMultipartSchema = z.object({
+  body: z.string().trim().max(4000).default(''),
+  isInternal: z.preprocess((value) => value === true || value === 'true', z.boolean()),
+});
+
 export const fulfilRequestSchema = z.object({
   /** Asset to hand over; must be assignable. */
   assetId: z.string().min(1),

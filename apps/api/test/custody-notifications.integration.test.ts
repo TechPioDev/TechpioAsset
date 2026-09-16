@@ -110,6 +110,19 @@ describe('ASSET_ASSIGNED', () => {
   });
 });
 
+/**
+ * Makes a handover the OLDEST unconfirmed one in the database. The sweep takes
+ * the 500 oldest, and the test database carries hundreds of unconfirmed
+ * handovers left by other suites, so a handover dated now could sit outside
+ * the batch and never be chased - which read as the sweep being broken.
+ */
+async function backdate(assignmentId: string) {
+  await prisma.client.assetAssignment.update({
+    where: { id: assignmentId },
+    data: { assignedAt: new Date('2000-01-01T00:00:00Z') },
+  });
+}
+
 describe('RECEIPT_CONFIRMATION sweep', () => {
   it('leaves a fresh handover alone, then chases it once the grace period passes', async () => {
     const asset = await freshAsset(uniq());
@@ -127,8 +140,9 @@ describe('RECEIPT_CONFIRMATION sweep', () => {
     expect(await notificationsFor(s.employee.user.id, 'RECEIPT_CONFIRMATION', assignment.id))
       .toHaveLength(0);
 
-    // Four days on, still unconfirmed.
-    await sweeps.runReceiptSweep(new Date(Date.now() + 4 * 86_400_000));
+    // Long past the grace period, still unconfirmed.
+    await backdate(assignment.id);
+    await sweeps.runReceiptSweep();
     const chased = await notificationsFor(
       s.employee.user.id,
       'RECEIPT_CONFIRMATION',
@@ -151,7 +165,8 @@ describe('RECEIPT_CONFIRMATION sweep', () => {
     const count = async () =>
       (await notificationsFor(s.employee.user.id, 'RECEIPT_CONFIRMATION', assignment.id)).length;
 
-    await sweeps.runReceiptSweep(new Date(Date.now() + 4 * 86_400_000));
+    await backdate(assignment.id);
+    await sweeps.runReceiptSweep();
     expect(await count()).toBe(1);
 
     // The next night. Nothing has changed, and neither should their inbox.

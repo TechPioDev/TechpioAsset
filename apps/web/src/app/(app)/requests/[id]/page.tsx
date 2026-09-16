@@ -1,17 +1,44 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Printer, Check, CircleDashed, CircleX, Clock, MinusCircle, Paperclip, Trash2 } from 'lucide-react';
+import {
+  Printer,
+  Check,
+  CircleDashed,
+  CircleX,
+  Clock,
+  ImagePlus,
+  MinusCircle,
+  Paperclip,
+  Trash2,
+} from 'lucide-react';
 import { REQUEST_STATUS_TOKENS } from '@techpioasset/ui-tokens';
-import { PERMISSIONS, requestProgress, findIssueCategory, type RequestStatus } from '@techpioasset/domain';
+import {
+  PERMISSIONS,
+  formatFileSize,
+  requestProgress,
+  findIssueCategory,
+  type RequestStatus,
+} from '@techpioasset/domain';
 import { apiFetch, apiBaseUrl, getAccessToken, ApiError } from '@/lib/api-client';
+import {
+  COMMENT_IMAGE_ACCEPT,
+  MAX_COMMENT_IMAGES,
+  addPendingImages,
+  canSendMessage,
+  imageFilesFrom,
+  removePendingImage,
+  sentMessage,
+  type PendingImage,
+} from '@/lib/comment-images';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, Skeleton } from '@/components/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { ProcurementAssessment } from '@/components/requests/procurement-assessment';
+import { CommentImages, PendingImageStrip, type CommentAttachment } from '@/components/requests/conversation-images';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 
 interface Approval {
@@ -87,6 +114,8 @@ interface RequestDetail {
       email: string;
       profile: { firstName: string; lastName: string } | null;
     } | null;
+    /** v2.60 - pictures sent inline with the message. */
+    attachments: CommentAttachment[];
   }[];
   attachments: {
     id: string;
@@ -106,12 +135,6 @@ interface RequestDetail {
     blocked: boolean;
     blockedReason: string | null;
   } | null;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const DECISION_ICON = {
@@ -158,16 +181,92 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
   const canInternal = can(PERMISSIONS.REQUESTS_APPROVE);
   const [commentBody, setCommentBody] = useState('');
   const [commentInternal, setCommentInternal] = useState(false);
+
+  // v2.60 - pictures going out with the message. Previews are object URLs,
+  // owned here so they are revoked when an image is removed or sent.
+  const [pendingImages, setPendingImages] = useState<PendingImage<File>[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const previewsRef = useRef(previews);
+  previewsRef.current = previews;
+  const [dragOver, setDragOver] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => () => Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u)), []);
+
+  const pendingRef = useRef(pendingImages);
+  pendingRef.current = pendingImages;
+  // Side effects (toasts, object URLs) stay outside the state updaters, which
+  // React may run twice in development.
+  const addImages = useCallback(
+    (files: Iterable<File> | null | undefined) => {
+      const picked = Array.from(files ?? []);
+      if (picked.length === 0) return;
+      const { next, rejected } = addPendingImages(pendingRef.current, picked);
+      rejected.forEach((why) => toast.error(why));
+      const added = next.slice(pendingRef.current.length);
+      if (added.length > 0) {
+        const grown: Record<string, string> = {};
+        for (const p of added) grown[p.key] = URL.createObjectURL(p.file);
+        setPreviews((prev) => ({ ...prev, ...grown }));
+      }
+      pendingRef.current = next;
+      setPendingImages(next);
+    },
+    [toast],
+  );
+  const removeImage = useCallback((key: string) => {
+    const url = previewsRef.current[key];
+    if (url) URL.revokeObjectURL(url);
+    setPreviews((prev) => {
+      const { [key]: _gone, ...rest } = prev;
+      return rest;
+    });
+    setPendingImages((current) => removePendingImage(current, key));
+  }, []);
+  const clearImages = useCallback(() => {
+    Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u));
+    setPreviews({});
+    setPendingImages([]);
+  }, []);
+
   const postComment = useMutation({
-    mutationFn: (body: { body: string; isInternal: boolean }) =>
-      apiFetch(`/requests/${id}/comments`, { method: 'POST', body }),
-    onSuccess: async () => {
+    mutationFn: async (message: { body: string; isInternal: boolean; images: File[] }) => {
+      // Plain text goes as JSON; with pictures it is one multipart call, so the
+      // text and its images land together or not at all.
+      if (message.images.length === 0) {
+        return apiFetch(`/requests/${id}/comments`, {
+          method: 'POST',
+          body: { body: message.body, isInternal: message.isInternal },
+        });
+      }
+      const form = new FormData();
+      form.append('body', message.body);
+      form.append('isInternal', String(message.isInternal));
+      for (const image of message.images) form.append('images', image, image.name);
+      const res = await fetch(`${apiBaseUrl}/requests/${id}/comments`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+        body: form,
+      });
+      if (!res.ok) throw new ApiError(await res.json().catch(() => null), res.status);
+      return undefined;
+    },
+    onSuccess: async (_r, message) => {
+      // Cleared only once the server has it; a failure keeps everything typed.
       setCommentBody('');
       setCommentInternal(false);
+      clearImages();
+      toast.success(sentMessage(message.isInternal, message.images.length));
       await queryClient.invalidateQueries({ queryKey: ['request', id] });
     },
-    onError: (e) =>
-      toast.error(e instanceof ApiError ? (e.problem.detail ?? e.problem.title) : 'Could not send'),
+    onError: (e, message) =>
+      toast.error(
+        e instanceof ApiError
+          ? (e.problem?.detail ?? e.problem?.title ?? 'Could not send')
+          : message.isInternal
+            ? 'Could not add the note. Nothing was lost - try again.'
+            : 'Could not send the message. Nothing was lost - try again.',
+      ),
   });
   const addToCatalog = useMutation({
     mutationFn: (body: { name: string; categoryId: string | null }) =>
@@ -607,7 +706,7 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                       <Paperclip className="size-3.5 shrink-0" />
                       <span className="truncate">{a.originalName}</span>
                       <span className="shrink-0 text-xs text-[var(--color-content-subtle)]">
-                        {formatBytes(a.sizeBytes)}
+                        {formatFileSize(a.sizeBytes)}
                       </span>
                     </a>
                     {a.uploadedById === user?.id ? (
@@ -663,18 +762,52 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                         {new Date(c.createdAt).toLocaleString()}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-[var(--color-content-muted)]">{c.body}</p>
+                    {c.body ? (
+                      <p className="mt-0.5 whitespace-pre-wrap text-[var(--color-content-muted)]">{c.body}</p>
+                    ) : null}
+                    <CommentImages
+                      requestId={id}
+                      attachments={c.attachments ?? []}
+                      sentBy={personName(c.author)}
+                      sentAt={c.createdAt}
+                      isInternal={c.isInternal}
+                    />
                   </li>
                 ))}
               </ul>
             )}
 
             <form
-              className="mt-4 grid gap-2"
+              className={`mt-4 grid gap-2 rounded-[var(--radius-control)] ${
+                dragOver ? 'outline outline-2 outline-dashed outline-[var(--color-brand)] outline-offset-4' : ''
+              }`}
               onSubmit={(e) => {
                 e.preventDefault();
-                if (commentBody.trim().length === 0 || postComment.isPending) return;
-                postComment.mutate({ body: commentBody.trim(), isInternal: commentInternal });
+                if (!canSendMessage(commentBody, pendingImages) || postComment.isPending) return;
+                postComment.mutate({
+                  body: commentBody.trim(),
+                  isInternal: commentInternal,
+                  images: pendingImages.map((p) => p.file),
+                });
+              }}
+              // Dropping a picture anywhere on the composer attaches it.
+              onDragOver={(e) => {
+                if (Array.from(e.dataTransfer.types).includes('Files')) {
+                  e.preventDefault();
+                  setDragOver(true);
+                }
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                if (postComment.isPending) return;
+                const files = Array.from(e.dataTransfer.files);
+                const images = imageFilesFrom(files);
+                if (images.length < files.length) {
+                  toast.error('Only images can be dropped into a message. Add documents from the Attachments panel.');
+                }
+                addImages(images);
               }}
             >
               <label htmlFor="req-comment" className="sr-only">
@@ -685,6 +818,18 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                 rows={2}
                 value={commentBody}
                 onChange={(e) => setCommentBody(e.target.value)}
+                // A screenshot pasted from the clipboard goes in like a dropped file.
+                onPaste={(e) => {
+                  const images = imageFilesFrom(
+                    Array.from(e.clipboardData.items)
+                      .filter((item) => item.kind === 'file')
+                      .map((item) => item.getAsFile())
+                      .filter((f): f is File => f !== null),
+                  );
+                  if (images.length === 0) return;
+                  e.preventDefault();
+                  addImages(images);
+                }}
                 placeholder={
                   data.requester.id === user?.id || data.beneficiary?.id === user?.id
                     ? 'Ask a question about this request — e.g. how long will this take?'
@@ -692,26 +837,58 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                 }
                 className="w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm outline-none focus:border-[var(--color-brand)]"
               />
-              <div className="flex items-center justify-between gap-3">
-                {canInternal ? (
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--color-content-muted)]">
-                    <input
-                      type="checkbox"
-                      checked={commentInternal}
-                      onChange={(e) => setCommentInternal(e.target.checked)}
-                    />
-                    Internal note (hidden from the requester)
-                  </label>
-                ) : (
-                  <span />
-                )}
+              <PendingImageStrip
+                images={pendingImages}
+                previews={previews}
+                onRemove={removeImage}
+                disabled={postComment.isPending}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept={COMMENT_IMAGE_ACCEPT}
+                    multiple
+                    className="sr-only"
+                    aria-label="Add images to the message"
+                    onChange={(e) => {
+                      addImages(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={postComment.isPending || pendingImages.length >= MAX_COMMENT_IMAGES}
+                    title={`Up to ${MAX_COMMENT_IMAGES} images; you can also drop or paste them`}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-2.5 text-xs font-medium hover:bg-[var(--color-surface-sunken)] disabled:opacity-50"
+                  >
+                    <ImagePlus aria-hidden="true" className="size-3.5" />
+                    Add image
+                  </button>
+                  {canInternal ? (
+                    <label className="flex items-center gap-1.5 text-xs text-[var(--color-content-muted)]">
+                      <input
+                        type="checkbox"
+                        checked={commentInternal}
+                        onChange={(e) => setCommentInternal(e.target.checked)}
+                      />
+                      Internal note (hidden from the requester)
+                    </label>
+                  ) : null}
+                </div>
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={commentBody.trim().length === 0}
+                  disabled={!canSendMessage(commentBody, pendingImages)}
                   loading={postComment.isPending}
                 >
-                  Send
+                  {postComment.isPending
+                    ? pendingImages.length > 0
+                      ? 'Uploading…'
+                      : 'Sending…'
+                    : 'Send'}
                 </Button>
               </div>
             </form>

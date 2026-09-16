@@ -1,3 +1,5 @@
+import { formatFileSize } from '@techpioasset/domain';
+
 /**
  * The procurement assessment form, as pure logic (v2.56 mobile parity).
  *
@@ -91,8 +93,7 @@ export function assessmentBody(
 }
 
 /** Human-readable file size, as the web request page shows it. */
+/** Kept as a name; the one shared rule (KB below a megabyte) now lives in domain. */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return formatFileSize(bytes);
 }

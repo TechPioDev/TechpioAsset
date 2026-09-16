@@ -88,8 +88,8 @@ describe('assessmentBody (same PATCH body as the web panel)', () => {
 });
 
 describe('formatBytes', () => {
-  it('matches the web request page', () => {
-    expect(formatBytes(512)).toBe('512 B');
+  it('matches the web request page - KB below a megabyte, as the owner asked', () => {
+    expect(formatBytes(512)).toBe('1 KB');
     expect(formatBytes(2048)).toBe('2 KB');
     expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB');
   });

@@ -64,6 +64,41 @@ export async function pickImageFromLibrary(): Promise<PickOutcome> {
   }
 }
 
+/**
+ * Takes one photo with the system camera app (v2.60), for a picture sent in a
+ * request message. Same module and the same on-demand load as the library
+ * picker; the camera permission is asked for here because, unlike the
+ * library, the system camera cannot be used without it.
+ */
+export async function pickImageFromCamera(): Promise<PickOutcome> {
+  let ImagePicker: typeof import('expo-image-picker');
+  try {
+    ImagePicker = await import('expo-image-picker');
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return { kind: 'denied' };
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+      exif: false,
+    });
+    const asset = result.canceled ? null : result.assets?.[0];
+    if (!asset?.uri) return { kind: 'cancelled' };
+    const type = asset.mimeType ?? 'image/jpeg';
+    return {
+      kind: 'picked',
+      image: { uri: asset.uri, name: asset.fileName ?? `photo-${Date.now()}.jpg`, type },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/permission/i.test(message)) return { kind: 'denied' };
+    return { kind: 'unavailable' };
+  }
+}
+
 export interface InvoiceUploadResult {
   invoice: { id: string; invoiceNumber: string; verificationStatus: string };
   extraction: { ran: boolean; simulated: boolean; reason?: string };

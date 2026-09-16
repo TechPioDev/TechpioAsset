@@ -13,10 +13,11 @@ import {
   Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import 'multer';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
@@ -26,6 +27,8 @@ import {
   catalogItemSchema,
   approvalDecisionSchema,
   createRequestSchema,
+  MAX_COMMENT_IMAGES,
+  requestCommentMultipartSchema,
   requestCommentSchema,
   requestListQuerySchema,
   requestStatusEnum,
@@ -275,15 +278,42 @@ export class RequestsController {
     return this.requests.cancel(actor, id, body.reason);
   }
 
+  // One route, two encodings (v2.60). A plain message still arrives as JSON,
+  // which is what every installed phone build sends; a message with pictures
+  // arrives as multipart with `images[]`, so the text and its photos land in
+  // one call and one transaction - nothing half-sent, no orphan upload sitting
+  // in the attachments panel if the message itself fails. Multer ignores a
+  // JSON body, so the interceptor costs the JSON path nothing.
   @Post(':id/comments')
   @RequirePermissions(PERMISSIONS.REQUESTS_READ)
-  @ApiOperation({ summary: 'Add a comment' })
+  @UseInterceptors(FilesInterceptor('images', MAX_COMMENT_IMAGES, { limits: { fileSize: MAX_ATTACHMENT_BYTES } }))
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiOperation({
+    summary: 'Add a comment, optionally with inline images',
+    description:
+      'JSON {body, isInternal}, or multipart/form-data with the same fields plus up to ' +
+      `${MAX_COMMENT_IMAGES} image files under "images". Images are validated by their bytes; ` +
+      'they render in the thread and share the message\'s visibility.',
+  })
   comment(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
-    @Body(zodBody(requestCommentSchema)) body: { body: string; isInternal: boolean },
+    @Body() raw: unknown,
+    @UploadedFiles() images?: Express.Multer.File[],
   ) {
-    return this.requests.addComment(actor, id, body.body, body.isInternal);
+    const files = images ?? [];
+    // Form fields are strings; the JSON schema would refuse "true".
+    const multipart =
+      files.length > 0 ||
+      typeof (raw as { isInternal?: unknown } | null)?.isInternal === 'string';
+    const body = (multipart ? requestCommentMultipartSchema : requestCommentSchema).parse(raw);
+    return this.requests.addComment(
+      actor,
+      id,
+      body.body,
+      body.isInternal,
+      files.map((f) => ({ buffer: f.buffer, originalname: f.originalname, mimetype: f.mimetype })),
+    );
   }
 
   // Attachments — read permission is enough because the service gates on the

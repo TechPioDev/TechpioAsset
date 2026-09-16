@@ -1,6 +1,11 @@
 import { Logger, Injectable } from '@nestjs/common';
 import { ApprovalDecision, AuditAction, Prisma, type NotificationType, type RequestType } from '@prisma/client';
-import type { AuthUser, CreateRequestInput, RequestListQuery } from '@techpioasset/contracts';
+import {
+  MAX_COMMENT_IMAGES,
+  type AuthUser,
+  type CreateRequestInput,
+  type RequestListQuery,
+} from '@techpioasset/contracts';
 import {
   EQUIPMENT_CATALOG,
   assertTransition,
@@ -283,10 +288,20 @@ export class RequestsService {
                 profile: { select: { firstName: true, lastName: true } },
               },
             },
+            // v2.60 - pictures sent with the message, shown inline in the
+            // thread. They ride on the comment, so the internal-note filter
+            // above hides them along with the note.
+            attachments: {
+              where: { deletedAt: null },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, originalName: true, mimeType: true, sizeBytes: true },
+            },
           },
         },
         attachments: {
-          where: { deletedAt: null },
+          // The panel lists files added to the request itself; a picture sent
+          // in a message belongs to that message and is shown there instead.
+          where: { deletedAt: null, commentId: null },
           take: 50,
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -334,7 +349,10 @@ export class RequestsService {
       aboutAsset,
       // Fetched newest-first so the cap keeps the RECENT comments; read
       // oldest-first, which is how a conversation is followed.
-      comments: [...request.comments].reverse(),
+      comments: [...request.comments].reverse().map((comment) => ({
+        ...comment,
+        attachments: comment.attachments.map((a) => ({ ...a, isImage: a.mimeType.startsWith('image/') })),
+      })),
       canDecide,
       canDecline,
       waitingOn: await this.describeCurrentStep(actor, id),
@@ -631,6 +649,19 @@ export class RequestsService {
 
   private canSeeInternalComments(actor: AuthUser): boolean {
     return actor.permissions.includes(PERMISSIONS.REQUESTS_APPROVE);
+  }
+
+  /**
+   * Which of a request's attachments this actor may reach (v2.60): the panel's
+   * files, plus pictures sent in messages they may read. An image sent with an
+   * internal note is as private as the note - the list, the download, the
+   * signed link and removal all go through this, so there is one place it
+   * could leak from and it is here.
+   */
+  private attachmentVisibility(actor: AuthUser): Prisma.AttachmentWhereInput {
+    return this.canSeeInternalComments(actor)
+      ? {}
+      : { OR: [{ commentId: null }, { comment: { isInternal: false } }] };
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1611,16 +1642,98 @@ export class RequestsService {
     return this.findOne(actor, id);
   }
 
-  async addComment(actor: AuthUser, id: string, body: string, isInternal: boolean) {
+  /**
+   * Posts a message, with any pictures sent inline (v2.60).
+   *
+   * Every image is checked before any is stored, and the comment and its
+   * attachment rows are written in one transaction, so a message is either
+   * sent whole or not at all - the client can say "sent" or "not sent" and be
+   * right. Only images are accepted here: a spec sheet or a quote belongs in
+   * the attachments panel, which still takes documents.
+   */
+  async addComment(
+    actor: AuthUser,
+    id: string,
+    body: string,
+    isInternal: boolean,
+    images: { buffer: Buffer; originalname: string; mimetype: string }[] = [],
+  ) {
     await this.findOne(actor, id);
 
     if (isInternal && !this.canSeeInternalComments(actor)) {
       throw AppError.forbidden('You may not add internal comments');
     }
+    if (body.length === 0 && images.length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'Write a message or add a photo');
+    }
+    if (images.length > MAX_COMMENT_IMAGES) {
+      throw new AppError('VALIDATION_FAILED', `A message can carry at most ${MAX_COMMENT_IMAGES} images`);
+    }
 
-    await this.prisma.client.requestComment.create({
-      data: { requestId: id, authorId: actor.id, body, isInternal },
+    const checked = images.map((image) => {
+      const { contentType } = validateUpload({
+        data: image.buffer,
+        declaredMime: image.mimetype,
+        allowedMimes: this.config.get('ALLOWED_UPLOAD_MIME'),
+        maxBytes: this.config.get('MAX_UPLOAD_MB') * 1024 * 1024,
+      });
+      if (!contentType.startsWith('image/')) {
+        throw new AppError('UNSUPPORTED_MEDIA_TYPE', 'Only images can be sent in a message', {
+          detail: `"${image.originalname}" is not an image. Add documents from the Attachments panel instead.`,
+        });
+      }
+      return { ...image, contentType };
     });
+
+    const stored: { image: (typeof checked)[number]; object: { key: string; sizeBytes: number; sha256: string } }[] = [];
+    for (const image of checked) {
+      stored.push({
+        image,
+        object: await this.storage.put({
+          prefix: `requests/${actor.companyId}`,
+          originalName: image.originalname,
+          contentType: image.contentType,
+          data: image.buffer,
+        }),
+      });
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      const comment = await tx.requestComment.create({
+        data: { requestId: id, authorId: actor.id, body, isInternal },
+        select: { id: true },
+      });
+      if (stored.length > 0) {
+        await tx.attachment.createMany({
+          data: stored.map(({ image, object }) => ({
+            companyId: actor.companyId,
+            entityType: 'AssetRequest',
+            entityId: id,
+            assetRequestId: id,
+            commentId: comment.id,
+            storageKey: object.key,
+            originalName: image.originalname,
+            mimeType: image.contentType,
+            sizeBytes: object.sizeBytes,
+            sha256: object.sha256,
+            scanStatus: 'SKIPPED' as const,
+            uploadedById: actor.id,
+          })),
+        });
+      }
+    });
+
+    if (stored.length > 0) {
+      await this.audit.record({
+        companyId: actor.companyId,
+        actorId: actor.id,
+        action: AuditAction.REQUEST_SUBMITTED,
+        entityType: 'AssetRequest',
+        entityId: id,
+        newValues: { attachments: stored.map(({ image }) => image.originalname), isInternal },
+        reason: 'Images sent in a message',
+      });
+    }
 
     // v2.17: a message should reach the other side of the ticket, not sit
     // unseen. Requester-side messages go to whoever holds the pending step;
@@ -1629,7 +1742,8 @@ export class RequestsService {
       where: { id },
       select: { companyId: true, requesterId: true, beneficiaryId: true, requestNumber: true },
     });
-    const excerpt = body.length > 140 ? `${body.slice(0, 137)}…` : body;
+    const photos = images.length === 1 ? 'Sent a photo' : `Sent ${images.length} photos`;
+    const excerpt = body.length === 0 ? photos : body.length > 140 ? `${body.slice(0, 137)}…` : body;
     const requesterSide = actor.id === request.requesterId || actor.id === request.beneficiaryId;
     if (requesterSide) {
       const approvers = (await this.pendingApproverIds(id)).filter((uid) => uid !== actor.id);
@@ -2198,6 +2312,7 @@ export class RequestsService {
         assetRequestId: id,
         companyId: actor.companyId,
         deletedAt: null,
+        ...this.attachmentVisibility(actor),
       },
       select: { storageKey: true, originalName: true, mimeType: true },
     });
@@ -2217,7 +2332,13 @@ export class RequestsService {
   async createAttachmentLink(actor: AuthUser, id: string, attachmentId: string) {
     await this.findOne(actor, id); // scope gate first - a foreign request 404s
     const attachment = await this.prisma.client.attachment.findFirst({
-      where: { id: attachmentId, assetRequestId: id, companyId: actor.companyId, deletedAt: null },
+      where: {
+        id: attachmentId,
+        assetRequestId: id,
+        companyId: actor.companyId,
+        deletedAt: null,
+        ...this.attachmentVisibility(actor),
+      },
       select: { id: true },
     });
     if (!attachment) throw AppError.notFound('Attachment', attachmentId);
@@ -2259,7 +2380,13 @@ export class RequestsService {
   async removeAttachment(actor: AuthUser, id: string, attachmentId: string) {
     const request = await this.findOne(actor, id);
     const attachment = await this.prisma.client.attachment.findFirst({
-      where: { id: attachmentId, assetRequestId: id, companyId: actor.companyId, deletedAt: null },
+      where: {
+        id: attachmentId,
+        assetRequestId: id,
+        companyId: actor.companyId,
+        deletedAt: null,
+        ...this.attachmentVisibility(actor),
+      },
       select: { id: true, uploadedById: true },
     });
     if (!attachment) throw AppError.notFound('Attachment', attachmentId);
