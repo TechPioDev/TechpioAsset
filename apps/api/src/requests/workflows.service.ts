@@ -11,6 +11,17 @@ import { assessmentInsertIndex, isCompleteReorder, orderWorkflowSteps } from '@t
 import { AppError } from '../common/errors/app-error.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RequestsService, type RetiredStepAdvance } from './requests.service.js';
+
+/** Written on the skipped step of every request the change moved on. */
+const RETIRED_REASON = 'Step switched off in workflow settings';
+
+/**
+ * Taking a step out of in-flight requests walks every request sitting on it,
+ * so the transaction is given room: Prisma's 5s default was measured to fail
+ * on a database with a few hundred of them.
+ */
+const RETIRE_TX = { timeout: 120_000, maxWait: 10_000 };
 
 /**
  * Reading and editing the configured approval chains (v2.24, v2.28).
@@ -26,20 +37,29 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * every request and has no eligible approver is worse than one that rarely
  * applies.
  *
- * v2.28 adds the structure itself - add, rename, remove and reorder approval
- * steps. Two rules hold throughout: a chain is snapshotted onto the request
- * when it is submitted, so a structural change reaches only requests raised
- * afterwards (the one exception, moving a step's role, is deliberate and
- * documented on updateStep); and the assessment stages are never edited one
- * at a time - they stay a pair and are re-placed by their rule after every
- * change, see @techpioasset/domain orderWorkflowSteps.
+ * v2.28 adds the structure itself - add, rename, remove, reorder and switch
+ * off approval steps. A chain is snapshotted onto the request when it is
+ * submitted, so adding, renaming and reordering reach only requests raised
+ * afterwards. Taking a step away - switching it off or removing it - reaches
+ * the requests still in approval as well, because the owner's rule is that a
+ * step that no longer exists should not be waiting on anybody: queued copies
+ * go, the one currently awaiting a decision is skipped and the chain moves
+ * on (RequestsService.retireStepFromInFlight). The assessment stages are
+ * never edited one at a time - they stay a pair and are re-placed by their
+ * rule after every change, see @techpioasset/domain orderWorkflowSteps.
  */
 @Injectable()
 export class WorkflowsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly requests: RequestsService,
   ) {}
+
+  /** The after-commit half of taking a step out of in-flight requests. */
+  private async finishRetired(actor: AuthUser, advanced: RetiredStepAdvance[]): Promise<void> {
+    for (const ctx of advanced) await this.requests.finishRetiredStep(actor, ctx);
+  }
 
   async list(actor: AuthUser) {
     const definitions = await this.prisma.client.workflowDefinition.findMany({
@@ -317,8 +337,8 @@ export class WorkflowsService {
    *
    * `position` counts among the approval steps only; the assessment pair then
    * lands wherever the rule puts it, which may be before the new step if it
-   * is the first to carry a threshold. Requests already in flight are
-   * untouched - they carry their own copy of the chain.
+   * is the first to carry a threshold. Reaches requests raised from now on -
+   * nothing is inserted into a chain already in flight.
    */
   async addStep(actor: AuthUser, definitionId: string, input: CreateWorkflowStepInput) {
     const definition = await this.findDefinition(actor, definitionId);
@@ -383,9 +403,9 @@ export class WorkflowsService {
   /**
    * Remove an approval step (v2.28).
    *
-   * Requests already waiting on it keep it: their chain was copied at
-   * submission and is not rewritten here, exactly as removing the assessment
-   * stages behaves. Only requests raised from now on skip it.
+   * Reaches the requests still in approval too: a queued copy of the step is
+   * deleted, the copy currently awaiting a decision is skipped and the chain
+   * moves on. Decided copies are history and stay.
    */
   async removeStep(actor: AuthUser, stepId: string) {
     const step = await this.prisma.client.workflowStep.findFirst({
@@ -420,22 +440,23 @@ export class WorkflowsService {
       );
     }
 
-    await this.prisma.client.$transaction(async (tx) => {
+    const reach = await this.prisma.client.$transaction(async (tx) => {
       await tx.workflowStep.delete({ where: { id: step.id } });
       await this.applyOrder(
         tx,
         step.workflowDefinitionId,
         remaining.map((s) => s.id),
       );
-    });
-
-    const inFlight = await this.prisma.client.requestApproval.count({
-      where: {
+      return this.requests.retireStepFromInFlight(tx, {
+        companyId: actor.companyId,
+        workflowDefinitionId: step.workflowDefinitionId,
         stepName: step.name,
-        decision: { in: ['WAITING', 'PENDING'] },
-        request: { companyId: actor.companyId, workflowDefinitionId: step.workflowDefinitionId },
-      },
-    });
+        approverType: step.approverType,
+        approverRoleId: step.approverRoleId,
+        reason: RETIRED_REASON,
+      });
+    }, RETIRE_TX);
+    await this.finishRetired(actor, reach.advanced);
 
     await this.audit.record({
       companyId: actor.companyId,
@@ -451,9 +472,13 @@ export class WorkflowsService {
         approverRoleId: step.approverRoleId,
         costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
       },
-      // Says what the change did NOT reach, so the trail explains why a
-      // request can still be waiting on a step the workflow no longer has.
-      newValues: { removed: true, inFlightRequestsKeepingStep: inFlight },
+      // Says how far the change reached: the queued copies deleted and the
+      // requests moved on past the step.
+      newValues: {
+        removed: true,
+        inFlightRemoved: reach.removed,
+        inFlightSkipped: reach.advanced.length,
+      },
     });
 
     return this.list(actor);
@@ -511,9 +536,12 @@ export class WorkflowsService {
     if (input.isSkippable !== undefined) data.isSkippable = input.isSkippable;
     if (input.slaHours !== undefined) data.slaHours = input.slaHours;
 
-    // The On/Off switch (v2.28). Off is honoured when the next chain is
-    // built; nothing in flight changes. The stages are not switchable - they
-    // hold the request until answered - and the last step still on stays on.
+    // The On/Off switch (v2.28). Off leaves the step out of the next chain
+    // built AND takes it out of the requests still in approval; on reaches
+    // new requests only - nothing is re-inserted. The stages are not
+    // switchable - they hold the request until answered - and the last step
+    // still on stays on.
+    let switchingOff = false;
     if (input.isEnabled !== undefined && input.isEnabled !== step.isEnabled) {
       if (step.kind !== 'APPROVAL') {
         throw new AppError(
@@ -536,6 +564,7 @@ export class WorkflowsService {
             'This is the only step still switched on. A workflow needs one, so switch another on first.',
           );
         }
+        switchingOff = true;
       }
       data.isEnabled = input.isEnabled;
     }
@@ -555,10 +584,22 @@ export class WorkflowsService {
       data.approverType = 'ROLE';
     }
 
-    const updated = await this.prisma.client.workflowStep.update({
-      where: { id: stepId },
-      data,
-    });
+    // The setting and its reach into in-flight requests commit together.
+    const { updated, reach } = await this.prisma.client.$transaction(async (tx) => {
+      const row = await tx.workflowStep.update({ where: { id: stepId }, data });
+      const retired = switchingOff
+        ? await this.requests.retireStepFromInFlight(tx, {
+            companyId: actor.companyId,
+            workflowDefinitionId: step.workflowDefinitionId,
+            stepName: step.name,
+            approverType: step.approverType,
+            approverRoleId: step.approverRoleId,
+            reason: RETIRED_REASON,
+          })
+        : { removed: 0, advanced: [] };
+      return { updated: row, reach: retired };
+    }, RETIRE_TX);
+    await this.finishRetired(actor, reach.advanced);
 
     /**
      * Re-point the requests already in flight (v2.26).
@@ -620,6 +661,8 @@ export class WorkflowsService {
         // Says how far the change reached, so the trail shows the requests it
         // moved and not just the setting it changed.
         inFlightRequestsMoved: movedInFlight,
+        inFlightRemoved: reach.removed,
+        inFlightSkipped: reach.advanced.length,
       },
     });
 

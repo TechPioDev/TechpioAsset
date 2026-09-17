@@ -21,12 +21,12 @@ const stepName = z.string().trim().min(2).max(60);
 
 export const updateWorkflowStepSchema = z
   .object({
-    /** Rename (v2.28). Requests already in flight keep the old name. */
+    /** Rename (v2.28). Reaches new requests; ones in progress show the old name. */
     name: stepName.optional(),
     /**
-     * The On/Off switch (v2.28). Off: new requests skip the step; requests
-     * already waiting on it keep their chain. The last enabled approval step
-     * cannot be switched off.
+     * The On/Off switch (v2.28). Off: the step is skipped for new requests
+     * and removed from requests still in progress. On reaches new requests
+     * only. The last enabled approval step cannot be switched off.
      */
     isEnabled: z.boolean().optional(),
     /**

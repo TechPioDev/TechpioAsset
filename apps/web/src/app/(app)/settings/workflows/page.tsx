@@ -43,18 +43,19 @@ import { Breadcrumbs } from '@/components/breadcrumbs';
  * eligible is worse than one that rarely applies.
  *
  * v2.24 tuned a chain (threshold, later who approves); v2.28 lets the owner
- * change what the process IS: add, rename, remove and reorder approval
- * steps. Two things stay fixed. A chain is copied onto a request when it is
- * submitted, so every structural change reaches only requests raised
- * afterwards - the toasts say so. And the two assessment stages are a locked
- * pair: they leave only via the switch above the chain, and the API places
- * them (before the first thresholded step) after every reorder.
+ * change what the process IS: add, rename, remove, reorder and switch off
+ * approval steps. Adding, renaming and reordering reach requests raised from
+ * now on. Taking a step away - Off or Remove - also takes it out of requests
+ * still in progress: a queued copy goes, one awaiting a decision is skipped
+ * and the request moves on; decisions already made are kept. The toasts say
+ * so. The two assessment stages are a locked pair: they leave only via the
+ * switch above the chain, and the API places them (before the first
+ * thresholded step) after every reorder.
  *
- * Each approval step also has an On/Off switch - the reversible cousin of
- * Remove. Off keeps the step's name, role and threshold; new requests skip it
- * and the row reads "Skipped". The last step still on cannot be switched off
- * or removed, because a chain with nothing on approves everything on
- * submission.
+ * Off is the reversible cousin of Remove: it keeps the step's name, role and
+ * threshold, and the row reads "Skipped". The last step still on cannot be
+ * switched off or removed, because a chain with nothing on approves
+ * everything on submission.
  */
 
 const titleCase = (v: string) =>
@@ -88,7 +89,7 @@ export default function WorkflowSettingsPage() {
       toast.success(
         input.enabled
           ? 'Inventory check and cost assessment added to this workflow'
-          : 'Assessment stages removed — requests already in flight keep theirs',
+          : 'Assessment stages removed — requests already in progress are not changed',
       );
     },
     onError: (e) => toast.error(problem(e, 'Could not change the stages')),
@@ -144,7 +145,7 @@ export default function WorkflowSettingsPage() {
       }),
     onSuccess: async (_r, input) => {
       await queryClient.invalidateQueries({ queryKey: ['workflows'] });
-      toast.success(`Renamed to “${input.name}” — requests already in flight keep the old name`);
+      toast.success(`Renamed to “${input.name}” — requests already in progress show the old name`);
     },
     onError: (e) => toast.error(problem(e, 'Could not rename the step')),
   });
@@ -160,7 +161,7 @@ export default function WorkflowSettingsPage() {
       toast.success(
         input.isEnabled
           ? `“${input.name}” is on — requests raised from now on include it`
-          : `“${input.name}” is off — new requests skip it; requests already waiting on it keep their chain`,
+          : `“${input.name}” is off — skipped for new requests and removed from requests still in progress`,
       );
     },
     onError: (e, input) => toast.error(problem(e, `Could not switch “${input.name}”`)),
@@ -172,7 +173,7 @@ export default function WorkflowSettingsPage() {
     onSuccess: async (_r, input) => {
       await queryClient.invalidateQueries({ queryKey: ['workflows'] });
       toast.success(
-        `Removed “${input.name}” — new requests skip it; requests already waiting on it keep their current chain`,
+        `Removed “${input.name}” — new requests skip it, and it has been taken out of requests still in progress`,
       );
     },
     onError: (e, input) => toast.error(problem(e, `Could not remove “${input.name}”`)),
@@ -210,7 +211,7 @@ export default function WorkflowSettingsPage() {
   const askToRemove = async (step: WorkflowStep) => {
     const ok = await confirm({
       title: `Remove “${step.name}”?`,
-      body: 'New requests skip this step. Requests already waiting on it keep their current chain.',
+      body: 'New requests skip this step, and it is removed from requests still in progress: a request waiting on it moves on to the next step. Decisions already made are kept.',
       confirmLabel: 'Remove step',
       destructive: true,
     });
@@ -513,8 +514,10 @@ function StepRow({
           {isStage ? (
             <span>part of the assessment pair — removed together with “Remove stages”</span>
           ) : null}
-          {!isStage && !step.isEnabled ? (
-            <span>skipped — new requests leave this step out; requests already waiting on it keep their chain</span>
+          {off ? (
+            <span>
+              Off: this step is skipped for new requests and removed from requests still in progress
+            </span>
           ) : null}
         </p>
       </div>
@@ -847,8 +850,8 @@ function AddStepDialog({
           </Field>
 
           <p className="text-xs text-[var(--color-content-muted)]">
-            Requests raised from now on include the new step; requests already in flight keep their
-            current chain.
+            Requests raised from now on include the new step; it is not added to requests already in
+            progress.
           </p>
 
           <div className="flex justify-end gap-2">

@@ -57,7 +57,7 @@ export class WorkflowsController {
     summary: 'Add an approval step',
     description:
       'Inserted at `position` among the approval steps (default last). The assessment stages, ' +
-      'if present, are re-placed by their rule. Requests already in flight keep their chain.',
+      'if present, are re-placed by their rule. Reaches requests raised from now on.',
   })
   addStep(
     @CurrentUser() actor: AuthUser,
@@ -86,10 +86,11 @@ export class WorkflowsController {
   @Patch('steps/:id')
   @RequirePermissions(PERMISSIONS.WORKFLOWS_CONFIGURE)
   @ApiOperation({
-    summary: 'Change a step: name, cost threshold, skippability, SLA, or role',
+    summary: 'Change a step: name, cost threshold, skippability, SLA, role, or On/Off',
     description:
       'A null threshold means the step applies to every request. Moving the role also moves ' +
-      'the requests already waiting on the step; a rename reaches future requests only.',
+      'the requests already waiting on the step; switching the step off removes it from them ' +
+      '(queued copies go, a current one is skipped); a rename reaches future requests only.',
   })
   updateStep(
     @CurrentUser() actor: AuthUser,
@@ -105,8 +106,8 @@ export class WorkflowsController {
     summary: 'Remove an approval step',
     description:
       'Refused for the last approval step and for the assessment stages (which leave as a pair ' +
-      'via assessment-stages). Requests already waiting on the step keep their current chain; ' +
-      'new requests skip it.',
+      'via assessment-stages). New requests skip it, and it is taken out of requests still in ' +
+      'progress: queued copies go, the one awaiting a decision is skipped and the chain moves on.',
   })
   removeStep(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
     return this.workflows.removeStep(actor, id);

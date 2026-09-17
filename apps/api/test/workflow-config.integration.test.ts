@@ -669,11 +669,35 @@ describe('restructuring a chain', () => {
     }
   });
 
-  it('a request already waiting on a removed step keeps it; new requests skip it', async () => {
-    const inFlight = await raiseCheapRequest();
-    const chainBefore = (await api(app).get(`/api/v1/requests/${inFlight}`).set(auth(s.superAdmin)))
-      .body.data.approvals as { stepName: string; decision: string }[];
-    expect(chainBefore.map((a) => a.stepName)).toContain(ADDED_STEP);
+  /**
+   * The owner's rule, changed after seeing the first version live: a removed
+   * step disappears from requests still in progress too. REQ-2026-000020 was
+   * submitted at 07:45, HR was switched off at 10:08, and HR still showed
+   * "Queued" in its chain - the owner expected it gone.
+   */
+  it('a removed step leaves requests in progress: queued copies go, a current one is skipped', async () => {
+    // Queued: Manager is current, the added step waits behind it.
+    const queued = await raiseCheapRequest();
+    // Current: Manager approved, the added step is the one awaiting a decision.
+    const current = await raiseCheapRequest();
+    const toDirector = await api(app)
+      .post(`/api/v1/requests/${current}/decision`)
+      .set(auth(s.manager))
+      .send({ decision: 'APPROVED' });
+    expect(toDirector.status, JSON.stringify(toDirector.body)).toBeLessThan(300);
+    expect(await currentStepOf(current)).toBe(ADDED_STEP);
+    // Decided: walked straight through the added step, so its row is history.
+    const decided = await raiseCheapRequest();
+    for (const who of ['manager', 'hr'] as AccountKey[]) {
+      await api(app).post(`/api/v1/requests/${decided}/decision`).set(auth(s[who])).send({ decision: 'APPROVED' });
+    }
+    expect(
+      (await chainOf(decided)).find((a) => a.stepName === ADDED_STEP)?.decision,
+    ).toBe('APPROVED');
+    const foreignBefore = await foreignWaitingRows(ADDED_STEP);
+    const noticesBefore = await prisma.client.notification.count({
+      where: { entityId: current, type: 'APPROVAL_REQUIRED' },
+    });
 
     const removed = await api(app)
       .delete(`/api/v1/workflows/steps/${addedStepId}`)
@@ -688,64 +712,90 @@ describe('restructuring a chain', () => {
     ]);
     contiguous(steps);
 
-    // The snapshot is untouched...
-    const chainAfter = (await api(app).get(`/api/v1/requests/${inFlight}`).set(auth(s.superAdmin)))
-      .body.data.approvals as { stepName: string; decision: string }[];
-    expect(chainAfter.find((a) => a.stepName === ADDED_STEP)?.decision).toBe('WAITING');
+    // Queued copy: gone, the request still where it was.
+    const queuedChain = await chainOf(queued);
+    expect(queuedChain.map((a) => a.stepName)).not.toContain(ADDED_STEP);
+    expect(await currentStepOf(queued)).toBe('Manager review');
+    // And the rest of the chain is intact: Manager approving lands on HR.
+    await api(app).post(`/api/v1/requests/${queued}/decision`).set(auth(s.manager)).send({ decision: 'APPROVED' });
+    expect(await currentStepOf(queued)).toBe('HR confirmation');
 
-    // ...and the request still walks it: the removed step comes up next and
-    // is decided by the role it was given.
-    const manager = await api(app)
-      .post(`/api/v1/requests/${inFlight}/decision`)
-      .set(auth(s.manager))
-      .send({ decision: 'APPROVED' });
-    expect(manager.status, JSON.stringify(manager.body)).toBeLessThan(300);
-    const current = (manager.body.data.approvals as { stepName: string; decision: string }[]).find(
-      (a) => a.decision === 'PENDING',
-    );
-    expect(current?.stepName).toBe(ADDED_STEP);
-    const director = await api(app)
-      .post(`/api/v1/requests/${inFlight}/decision`)
-      .set(auth(s.hr))
-      .send({ decision: 'APPROVED' });
-    expect(director.status, JSON.stringify(director.body)).toBeLessThan(300);
+    // Current copy: skipped with the reason on it, and the request moved on
+    // to the next step, whose approvers were told.
+    const currentChain = await chainOf(current);
+    const skipped = currentChain.find((a) => a.stepName === ADDED_STEP)!;
+    expect(skipped.decision).toBe('SKIPPED');
+    expect(skipped.comment).toContain('switched off in workflow settings');
+    expect(await currentStepOf(current)).toBe('HR confirmation');
+    expect(await statusOf(current)).toBe('HR_REVIEW_PENDING');
     expect(
-      (director.body.data.approvals as { stepName: string; decision: string }[]).find(
-        (a) => a.decision === 'PENDING',
-      )?.stepName,
-    ).toBe('HR confirmation');
+      await prisma.client.notification.count({
+        where: { entityId: current, type: 'APPROVAL_REQUIRED' },
+      }),
+    ).toBeGreaterThan(noticesBefore);
+    // The manager's decision before it is untouched.
+    expect(currentChain.find((a) => a.stepName === 'Manager review')?.decision).toBe('APPROVED');
+
+    // Decided copy: history, and stays.
+    expect(
+      (await chainOf(decided)).find((a) => a.stepName === ADDED_STEP)?.decision,
+    ).toBe('APPROVED');
+
+    // Another tenant's requests are not this tenant's business.
+    expect(await foreignWaitingRows(ADDED_STEP)).toBe(foreignBefore);
 
     // A request raised now never sees it.
     const fresh = await raiseCheapRequest();
-    const freshChain = (await api(app).get(`/api/v1/requests/${fresh}`).set(auth(s.superAdmin)))
-      .body.data.approvals as { stepName: string }[];
-    expect(freshChain.map((a) => a.stepName)).not.toContain(ADDED_STEP);
+    expect((await chainOf(fresh)).map((a) => a.stepName)).not.toContain(ADDED_STEP);
 
-    // The trail says how far the removal did NOT reach.
+    // The trail says how far the removal reached.
     const trail = await prisma.client.auditLog.findFirst({
       where: { entityType: 'WorkflowStep', entityId: addedStepId },
       orderBy: { createdAt: 'desc' },
     });
-    const newValues = trail!.newValues as { removed: boolean; inFlightRequestsKeepingStep: number };
+    const newValues = trail!.newValues as {
+      removed: boolean;
+      inFlightRemoved: number;
+      inFlightSkipped: number;
+    };
     expect(newValues.removed).toBe(true);
-    expect(newValues.inFlightRequestsKeepingStep).toBeGreaterThanOrEqual(1);
+    expect(newValues.inFlightRemoved).toBeGreaterThanOrEqual(1);
+    expect(newValues.inFlightSkipped).toBeGreaterThanOrEqual(1);
   });
 });
+
+const chainOf = async (id: string) =>
+  (await api(app).get(`/api/v1/requests/${id}`).set(auth(s.superAdmin))).body.data.approvals as {
+    stepName: string;
+    decision: string;
+    comment: string | null;
+  }[];
+
+const currentStepOf = async (id: string) =>
+  (await chainOf(id)).find((a) => a.decision === 'PENDING')?.stepName ?? null;
+
+const statusOf = async (id: string) =>
+  (await api(app).get(`/api/v1/requests/${id}`).set(auth(s.superAdmin))).body.data.status as string;
+
+/** Undecided copies of a step in every OTHER tenant - must never move. */
+const foreignWaitingRows = (stepName: string) =>
+  prisma.client.requestApproval.count({
+    where: {
+      stepName,
+      decision: { in: ['WAITING', 'PENDING'] },
+      request: { companyId: { not: s.superAdmin.user.companyId } },
+    },
+  });
 
 /**
  * v2.28 - the On/Off switch.
  *
  * Removing a step throws away its name, role and threshold; switching it off
  * keeps them for the day it is wanted back. Same reach as a removal: the
- * next chain built leaves it out, and requests already in flight keep theirs.
+ * next chain built leaves it out, and it is taken out of the requests still
+ * in progress. Switching back on reaches new requests only.
  */
 describe('switching a step off', () => {
-  const chainOf = async (id: string) =>
-    (
-      (await api(app).get(`/api/v1/requests/${id}`).set(auth(s.superAdmin))).body.data
-        .approvals as { stepName: string; decision: string }[]
-    ).map((a) => a.stepName);
-
   const toggle = (stepId: string, isEnabled: boolean, as: Session = s.superAdmin) =>
     api(app).patch(`/api/v1/workflows/steps/${stepId}`).set(auth(as)).send({ isEnabled });
 
@@ -762,9 +812,10 @@ describe('switching a step off', () => {
     expect((await stepsOf(definitionId)).find((x) => x.id === hr.id)?.isEnabled).toBe(true);
   });
 
-  it('a new request skips the step, an older one keeps it, and switching on restores it', async () => {
+  it('a new request skips the step, a queued copy is removed, and switching on reaches new requests only', async () => {
     const older = await raiseCheapRequest();
-    expect(await chainOf(older)).toContain('HR confirmation');
+    expect((await chainOf(older)).map((a) => a.stepName)).toContain('HR confirmation');
+    const foreignBefore = await foreignWaitingRows('HR confirmation');
 
     const hr = (await stepsOf(definitionId)).find((x) => x.name === 'HR confirmation')!;
     expect(hr.canDisable).toBe(true);
@@ -775,19 +826,82 @@ describe('switching a step off', () => {
     expect(view.canDisable).toBe(false);
 
     const newer = await raiseCheapRequest();
-    expect(await chainOf(newer)).not.toContain('HR confirmation');
-    // The request submitted before the switch still carries the step.
-    expect(await chainOf(older)).toContain('HR confirmation');
+    expect((await chainOf(newer)).map((a) => a.stepName)).not.toContain('HR confirmation');
+    // The queued copy on the older request is gone; it is still with Manager
+    // and the chain after it is intact.
+    expect((await chainOf(older)).map((a) => a.stepName)).not.toContain('HR confirmation');
+    expect(await currentStepOf(older)).toBe('Manager review');
+    await api(app).post(`/api/v1/requests/${older}/decision`).set(auth(s.manager)).send({ decision: 'APPROVED' });
+    expect(await currentStepOf(older)).toBe('IT review');
+    expect(await foreignWaitingRows('HR confirmation')).toBe(foreignBefore);
 
     const trail = await prisma.client.auditLog.findFirst({
       where: { entityType: 'WorkflowStep', entityId: hr.id },
       orderBy: { createdAt: 'desc' },
     });
     expect((trail!.previousValues as { isEnabled: boolean }).isEnabled).toBe(true);
-    expect((trail!.newValues as { isEnabled: boolean }).isEnabled).toBe(false);
+    const newValues = trail!.newValues as { isEnabled: boolean; inFlightRemoved: number };
+    expect(newValues.isEnabled).toBe(false);
+    expect(newValues.inFlightRemoved).toBeGreaterThanOrEqual(1);
 
+    // Back on: the next request has it; the older one is not rewritten.
     expect((await toggle(hr.id, true)).status).toBeLessThan(300);
-    expect(await chainOf(await raiseCheapRequest())).toContain('HR confirmation');
+    expect((await chainOf(await raiseCheapRequest())).map((a) => a.stepName)).toContain('HR confirmation');
+    expect((await chainOf(older)).map((a) => a.stepName)).not.toContain('HR confirmation');
+  });
+
+  it('a request currently waiting on the step is skipped past it and its next approvers told', async () => {
+    const id = await raiseCheapRequest();
+    await api(app).post(`/api/v1/requests/${id}/decision`).set(auth(s.manager)).send({ decision: 'APPROVED' });
+    expect(await currentStepOf(id)).toBe('HR confirmation');
+    const noticesBefore = await prisma.client.notification.count({
+      where: { entityId: id, type: 'APPROVAL_REQUIRED', userId: s.itAdmin.user.id },
+    });
+
+    const hr = (await stepsOf(definitionId)).find((x) => x.name === 'HR confirmation')!;
+    expect((await toggle(hr.id, false)).status).toBeLessThan(300);
+
+    const chain = await chainOf(id);
+    const skipped = chain.find((a) => a.stepName === 'HR confirmation')!;
+    expect(skipped.decision).toBe('SKIPPED');
+    expect(skipped.comment).toBe('Step switched off in workflow settings');
+    expect(chain.find((a) => a.stepName === 'Manager review')?.decision).toBe('APPROVED');
+    expect(await currentStepOf(id)).toBe('IT review');
+    expect(await statusOf(id)).toBe('IT_REVIEW_PENDING');
+    expect(
+      await prisma.client.notification.count({
+        where: { entityId: id, type: 'APPROVAL_REQUIRED', userId: s.itAdmin.user.id },
+      }),
+    ).toBeGreaterThan(noticesBefore);
+
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowStep', entityId: hr.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect((trail!.newValues as { inFlightSkipped: number }).inFlightSkipped).toBeGreaterThanOrEqual(1);
+
+    await toggle(hr.id, true);
+  });
+
+  it('a request whose last live step is switched off settles', async () => {
+    // Cheap request: Finance (250) will be skipped on cost, so once Manager
+    // and HR are done, IT is the last step anybody has to decide.
+    const id = await raiseCheapRequest();
+    for (const who of ['manager', 'hr'] as AccountKey[]) {
+      await api(app).post(`/api/v1/requests/${id}/decision`).set(auth(s[who])).send({ decision: 'APPROVED' });
+    }
+    expect(await currentStepOf(id)).toBe('IT review');
+
+    const it = (await stepsOf(definitionId)).find((x) => x.name === 'IT review')!;
+    expect((await toggle(it.id, false)).status).toBeLessThan(300);
+
+    expect(await currentStepOf(id)).toBeNull();
+    expect(await statusOf(id)).toBe('APPROVED');
+    const chain = await chainOf(id);
+    expect(chain.find((a) => a.stepName === 'IT review')?.decision).toBe('SKIPPED');
+    expect(chain.find((a) => a.stepName === 'Finance approval')?.decision).toBe('SKIPPED');
+
+    await toggle(it.id, true);
   });
 
   it('refuses to switch off, or remove, the last step still on', async () => {

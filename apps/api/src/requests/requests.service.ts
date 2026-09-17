@@ -12,6 +12,7 @@ import {
   findIssueCategory,
   requestStatusMachine,
   PERMISSIONS,
+  REQUEST_REVIEW_STEPS,
   type RequestStatus,
   decideRequestCreation,
   resolvePendingImages,
@@ -35,6 +36,31 @@ import { WebhooksService } from '../integrations/webhooks.service.js';
 import { WorkflowService } from './workflow.service.js';
 
 const SORTABLE = ['createdAt', 'requestNumber', 'status', 'priority', 'requiredBy'] as const;
+
+/**
+ * Statuses in which a request is still walking its approval chain. SUBMITTED
+ * is the honest fallback for a step staffed by a custom role, so it counts.
+ */
+export const IN_APPROVAL_STATUSES: readonly RequestStatus[] = [
+  'SUBMITTED',
+  ...REQUEST_REVIEW_STEPS,
+];
+
+type ApproverTypeValue = Prisma.RequestApprovalWhereInput['approverType'];
+
+/** One request the retirement of a step moved on; see retireStepFromInFlight. */
+export interface RetiredStepAdvance {
+  requestId: string;
+  requestNumber: string;
+  requesterId: string;
+  type: string;
+  previousStatus: string;
+  replacesAssetId: string | null;
+  businessReason: string;
+  stepName: string;
+  nextStep: { stepOrder: number; stepName: string } | null;
+  skipped: string[];
+}
 
 /** The client shape Prisma passes to interactive-transaction callbacks. */
 type Tx = Omit<
@@ -2199,6 +2225,131 @@ export class RequestsService {
     });
     // Filled from stock: the unit that was held is now handed over.
     await this.issueReservedStock(actor, ctx.requestId);
+  }
+
+  /**
+   * Take a workflow step out of every request still in approval (v2.28).
+   *
+   * The owner's rule, after seeing the first version live: a step switched
+   * off or removed in settings must disappear from requests already in
+   * progress too, not only from the ones raised afterwards. A queued copy of
+   * the step is deleted outright - nobody has seen it. The copy currently
+   * awaiting a decision is marked SKIPPED with the reason on it and the chain
+   * moves on, exactly as an unstaffed step does. Decided rows are history and
+   * are never touched.
+   *
+   * Runs inside the caller's transaction so the setting and its reach commit
+   * together; the caller then hands the advanced requests to
+   * finishRetiredStep, which does the status, notifications and audit the
+   * ordinary decision path does after ITS transaction.
+   *
+   * Matched on the snapshot's name, approver type and role, as the reassign
+   * path does, because stepOrder is renumbered by every structural change.
+   */
+  async retireStepFromInFlight(
+    tx: Tx,
+    input: {
+      companyId: string;
+      workflowDefinitionId: string;
+      stepName: string;
+      approverType: string;
+      approverRoleId: string | null;
+      reason: string;
+    },
+  ): Promise<{ removed: number; advanced: RetiredStepAdvance[] }> {
+    const match = {
+      stepName: input.stepName,
+      approverType: input.approverType as ApproverTypeValue,
+      approverRoleId: input.approverRoleId,
+      request: {
+        companyId: input.companyId,
+        workflowDefinitionId: input.workflowDefinitionId,
+        status: { in: [...IN_APPROVAL_STATUSES] },
+      },
+    };
+
+    // Queued copies: nobody has seen them, so they simply go - one statement,
+    // because a tenant can have thousands and this runs inside a transaction.
+    const gone = await tx.requestApproval.deleteMany({
+      where: { ...match, decision: ApprovalDecision.WAITING },
+    });
+
+    // Current copies: skipped with the reason, then each request moves on.
+    // The promotion is per request (it looks at that request's money and
+    // staffing), so only requests actually sitting on the step are walked.
+    const current = await tx.requestApproval.findMany({
+      where: { ...match, decision: ApprovalDecision.PENDING },
+      select: {
+        id: true,
+        stepName: true,
+        request: {
+          select: {
+            id: true,
+            requestNumber: true,
+            requesterId: true,
+            type: true,
+            status: true,
+            replacesAssetId: true,
+            businessReason: true,
+            requester: { select: { profile: { select: { managerId: true } } } },
+          },
+        },
+      },
+    });
+    if (current.length > 0) {
+      await tx.requestApproval.updateMany({
+        where: { id: { in: current.map((row) => row.id) } },
+        data: { decision: ApprovalDecision.SKIPPED, decidedAt: new Date(), comment: input.reason },
+      });
+    }
+
+    const advanced: RetiredStepAdvance[] = [];
+    for (const row of current) {
+      const request = row.request;
+      const { current: nextStep, skipped } = await this.promoteUntilStaffed(tx, {
+        requestId: request.id,
+        companyId: input.companyId,
+        requesterManagerId: request.requester.profile?.managerId ?? null,
+        requesterId: request.requesterId,
+      });
+      advanced.push({
+        requestId: request.id,
+        requestNumber: request.requestNumber,
+        requesterId: request.requesterId,
+        type: request.type,
+        previousStatus: request.status,
+        replacesAssetId: request.replacesAssetId,
+        businessReason: request.businessReason,
+        stepName: row.stepName,
+        nextStep: nextStep ? { stepOrder: nextStep.stepOrder, stepName: nextStep.stepName } : null,
+        skipped,
+      });
+    }
+    return { removed: gone.count, advanced };
+  }
+
+  /** The after-commit half of retireStepFromInFlight: status, notices, audit. */
+  async finishRetiredStep(actor: AuthUser, ctx: RetiredStepAdvance): Promise<void> {
+    await this.settleAfterStep(actor, ctx);
+    const after = await this.prisma.client.assetRequest.findUnique({
+      where: { id: ctx.requestId },
+      select: { status: true },
+    });
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.REQUEST_APPROVED,
+      entityType: 'AssetRequest',
+      entityId: ctx.requestId,
+      previousValues: { status: ctx.previousStatus },
+      newValues: {
+        status: after?.status ?? null,
+        step: ctx.stepName,
+        skippedBecause: 'step switched off in workflow settings',
+        alsoSkipped: ctx.skipped,
+        nextStep: ctx.nextStep?.stepName ?? null,
+      },
+    });
   }
 
   private async pendingApproverIds(requestId: string): Promise<string[]> {
