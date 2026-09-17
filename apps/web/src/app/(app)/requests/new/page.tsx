@@ -364,12 +364,16 @@ function NewRequestForm() {
   const [uncataloguedFor, setUncataloguedFor] = useState<number | null>(null);
   useEffect(() => {
     if (type !== 'UPGRADE' || itemTouched.current) return;
+    // Only fill a row that exists. The table starts empty (v2.21), and writing
+    // to row 0 regardless conjured an item with no quantity that the table did
+    // not show - so every upgrade request failed on "Items" with nothing to fix.
+    if (fields.length === 0) return;
     const label = UPGRADE_TYPES.find(([k]) => k === upgradeType)?.[1];
     if (!label) return;
     const spec = requestedSpec && requestedSpec !== 'OTHER' ? ` to ${requestedSpec}` : '';
     const about = selectedAsset ? ` — ${selectedAsset.name} (${selectedAsset.assetTag})` : '';
     form.setValue('items.0.description', `${label}${spec}${about}`);
-  }, [type, upgradeType, requestedSpec, selectedAsset?.id]);
+  }, [type, upgradeType, requestedSpec, selectedAsset?.id, fields.length]);
 
   // v2.61 - pictures of the fault or the item, inline in the reason while
   // raising the request. Same list, editor and limits as the conversation.
