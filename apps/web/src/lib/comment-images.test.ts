@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DRAFT_IMAGES_FAILED_MESSAGE,
   MAX_COMMENT_IMAGES,
   addPendingImages,
   canSendMessage,
+  clipboardImageFiles,
   imageCaption,
   imageFilesFrom,
   isCommentImage,
   removePendingImage,
   sentMessage,
+  submittedMessage,
 } from './comment-images';
 
 const jpg = (name = 'photo.jpg', size = 342 * 1024) => ({ name, type: 'image/jpeg', size });
@@ -74,5 +77,29 @@ describe('comment images - pending list', () => {
   it('keeps only the images out of a paste or drop', () => {
     expect(imageFilesFrom([jpg(), { name: 'x.txt', type: 'text/plain', size: 1 }]).map((f) => f.name)).toEqual(['photo.jpg']);
     expect(imageFilesFrom(null)).toEqual([]);
+  });
+
+  it('takes the image files off a clipboard and ignores its text', () => {
+    const items = [
+      { kind: 'string', getAsFile: () => null },
+      { kind: 'file', getAsFile: () => jpg('shot.png') },
+      { kind: 'file', getAsFile: () => ({ name: 'notes.txt', type: 'text/plain', size: 3 }) },
+    ];
+    expect(clipboardImageFiles(items).map((f) => f.name)).toEqual(['shot.png']);
+    expect(clipboardImageFiles(null)).toEqual([]);
+  });
+});
+
+describe('images attached while raising a request', () => {
+  it('the success toast names the pictures that went with it', () => {
+    expect(submittedMessage(0)).toBe('Request submitted for approval');
+    expect(submittedMessage(1)).toBe('Request submitted for approval with 1 image');
+    expect(submittedMessage(2)).toBe('Request submitted for approval with 2 images');
+  });
+
+  it('a failed upload leaves a draft and says where to finish it', () => {
+    expect(DRAFT_IMAGES_FAILED_MESSAGE).toBe(
+      'Request saved as a draft but the images could not be uploaded — open it and add them from the conversation',
+    );
   });
 });

@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DRAFT_IMAGES_FAILED_MESSAGE,
   MAX_COMMENT_IMAGES,
   addPendingPhoto,
   canSendMessage,
   commentPayload,
   failedMessage,
+  insertPhotoMarker,
+  markersToTokens,
   photoCaption,
+  photoMarkersIn,
   removePendingPhoto,
+  removePhotoMarker,
   sentMessage,
+  submittedMessage,
+  syncPhotosToMarkers,
   withPhotoSize,
+  wordsWithoutMarkers,
   type PendingPhoto,
 } from './comment-images';
 
@@ -73,6 +81,66 @@ describe('comment photos on the phone', () => {
       ],
       files: [{ field: 'images', uri: 'file:///tmp/photo.jpg', name: 'photo.jpg', type: 'image/jpeg' }],
     });
+  });
+
+  it('a marker in the text goes on the wire as the API token for the same picture', () => {
+    const photos = addPendingPhoto([], shot(), keys()).next;
+    expect(commentPayload('The corner: [photo 1] cracked', false, photos)).toMatchObject({
+      kind: 'multipart',
+      fields: [
+        ['body', 'The corner: ![image 1](pending:1) cracked'],
+        ['isInternal', 'false'],
+      ],
+    });
+    // A stale marker with no picture behind it is not sent as a token.
+    expect(commentPayload('Just words [photo 1]', false, [])).toEqual({
+      kind: 'json',
+      body: { body: 'Just words', isInternal: false },
+    });
+  });
+
+  it('puts the marker in at the cursor, spaced from the words, or at the end with no cursor', () => {
+    expect(insertPhotoMarker('The corner cracked', { start: 10, end: 10 }, 1)).toEqual({
+      text: 'The corner [photo 1] cracked',
+      caret: 20,
+    });
+    expect(insertPhotoMarker('Front:\n', { start: 7, end: 7 }, 2)).toEqual({ text: 'Front:\n[photo 2]', caret: 16 });
+    expect(insertPhotoMarker('See this', null, 1)).toEqual({ text: 'See this [photo 1]', caret: 18 });
+    // A selection is replaced.
+    expect(insertPhotoMarker('a XXX b', { start: 2, end: 5 }, 1).text).toBe('a [photo 1] b');
+    expect(insertPhotoMarker('', null, 1)).toEqual({ text: '[photo 1]', caret: 9 });
+  });
+
+  it('lists the markers in the text once each, in order', () => {
+    expect(photoMarkersIn('[photo 2] a [photo 1] b [photo 2]')).toEqual([2, 1]);
+    expect(photoMarkersIn('no markers')).toEqual([]);
+  });
+
+  it('a marker the person deleted takes its picture with it, and the rest renumber', () => {
+    const key = keys();
+    let photos: PendingPhoto[] = [];
+    for (const name of ['a.jpg', 'b.jpg', 'c.jpg']) photos = addPendingPhoto(photos, shot(name), key).next;
+    const { text, photos: kept } = syncPhotosToMarkers('x [photo 1] y [photo 3] z', photos);
+    expect(text).toBe('x [photo 1] y [photo 2] z');
+    expect(kept.map((p) => p.name)).toEqual(['a.jpg', 'c.jpg']);
+    // Removing via the thumbnail's control is the same path.
+    const after = syncPhotosToMarkers(removePhotoMarker(text, 1), kept);
+    expect(after.text).toBe('x  y [photo 1] z');
+    expect(after.photos.map((p) => p.name)).toEqual(['c.jpg']);
+  });
+
+  it('the words alone, for the business reason; the tokens, for the wire', () => {
+    expect(wordsWithoutMarkers('Dropped it [photo 1] and the corner  cracked [photo 2]\n\n\nBadly.')).toBe(
+      'Dropped it and the corner cracked\n\nBadly.',
+    );
+    expect(markersToTokens('a [photo 1] b [photo 12]')).toBe('a ![image 1](pending:1) b ![image 12](pending:12)');
+  });
+
+  it('the banners after raising a request', () => {
+    expect(submittedMessage(0)).toBe('Request submitted for approval');
+    expect(submittedMessage(1)).toBe('Request submitted for approval with 1 image');
+    expect(submittedMessage(3)).toBe('Request submitted for approval with 3 images');
+    expect(DRAFT_IMAGES_FAILED_MESSAGE).toMatch(/saved as a draft/);
   });
 
   it('the banners say what happened and that nothing was lost', () => {

@@ -14,6 +14,8 @@ import {
   PERMISSIONS,
   type RequestStatus,
   decideRequestCreation,
+  resolvePendingImages,
+  stripImageTokens,
   type RequestCreationPolicy,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
@@ -1669,6 +1671,20 @@ export class RequestsService {
     if (images.length > MAX_COMMENT_IMAGES) {
       throw new AppError('VALIDATION_FAILED', `A message can carry at most ${MAX_COMMENT_IMAGES} images`);
     }
+    // v2.61 - pictures sit inline, as `![image N](pending:N)` tokens naming
+    // the Nth file sent. Checked before anything is stored: a token for a file
+    // that did not arrive, or one naming an attachment directly (the only way
+    // in is by upload order, so a public message can never point at an
+    // internal note's picture), is refused whole.
+    const placeholders = resolvePendingImages(body, images.map((_, i) => String(i)));
+    if (!placeholders.ok) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        placeholders.reason === 'dangling'
+          ? `The message refers to image ${placeholders.index}, which was not sent`
+          : 'Images in a message are referenced by the order they are sent in',
+      );
+    }
 
     const checked = images.map((image) => {
       const { contentType } = validateUpload({
@@ -1704,22 +1720,34 @@ export class RequestsService {
         select: { id: true },
       });
       if (stored.length > 0) {
-        await tx.attachment.createMany({
-          data: stored.map(({ image, object }) => ({
-            companyId: actor.companyId,
-            entityType: 'AssetRequest',
-            entityId: id,
-            assetRequestId: id,
-            commentId: comment.id,
-            storageKey: object.key,
-            originalName: image.originalname,
-            mimeType: image.contentType,
-            sizeBytes: object.sizeBytes,
-            sha256: object.sha256,
-            scanStatus: 'SKIPPED' as const,
-            uploadedById: actor.id,
-          })),
-        });
+        // One at a time, in the order sent: each token is rewritten to the id
+        // its file was stored under, and the message is updated in the same
+        // transaction - a reader never sees a `pending:` token.
+        const ids: string[] = [];
+        for (const { image, object } of stored) {
+          const attachment = await tx.attachment.create({
+            data: {
+              companyId: actor.companyId,
+              entityType: 'AssetRequest',
+              entityId: id,
+              assetRequestId: id,
+              commentId: comment.id,
+              storageKey: object.key,
+              originalName: image.originalname,
+              mimeType: image.contentType,
+              sizeBytes: object.sizeBytes,
+              sha256: object.sha256,
+              scanStatus: 'SKIPPED' as const,
+              uploadedById: actor.id,
+            },
+            select: { id: true },
+          });
+          ids.push(attachment.id);
+        }
+        const resolved = resolvePendingImages(body, ids);
+        if (resolved.ok && resolved.body !== body) {
+          await tx.requestComment.update({ where: { id: comment.id }, data: { body: resolved.body } });
+        }
       }
     });
 
@@ -1743,7 +1771,9 @@ export class RequestsService {
       select: { companyId: true, requesterId: true, beneficiaryId: true, requestNumber: true },
     });
     const photos = images.length === 1 ? 'Sent a photo' : `Sent ${images.length} photos`;
-    const excerpt = body.length === 0 ? photos : body.length > 140 ? `${body.slice(0, 137)}…` : body;
+    // The notification carries the words, not the tokens.
+    const words = stripImageTokens(body).replace(/\s+/g, ' ').trim();
+    const excerpt = words.length === 0 ? photos : words.length > 140 ? `${words.slice(0, 137)}…` : words;
     const requesterSide = actor.id === request.requesterId || actor.id === request.beneficiaryId;
     if (requesterSide) {
       const approvers = (await this.pendingApproverIds(id)).filter((uid) => uid !== actor.id);

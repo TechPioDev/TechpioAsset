@@ -17,13 +17,16 @@ import {
   STORAGE_UPGRADE_OPTIONS,
   UPGRADE_TYPES,
   findIssueCategory,
+  stripImageTokens,
 } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { DRAFT_IMAGES_FAILED_MESSAGE, MAX_COMMENT_IMAGES, submittedMessage } from '@/lib/comment-images';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, controlCls as inputCls } from '@/components/ui';
+import { AddImagesButton, postComment, usePendingImages } from '@/components/requests/conversation-images';
+import { InlineImageEditor, type InlineImageEditorHandle } from '@/components/requests/inline-image-editor';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Form,
   FormControl,
@@ -92,11 +95,27 @@ const NOTES_TIP = {
   body: 'A model, spec or link helps IT pick exactly the right equipment.',
 } as const;
 
+/**
+ * v2.61 - the reason box takes pictures inline. What is STORED as the business
+ * reason is the words alone (it is quoted in lists, emails and the PDF, which
+ * cannot show a picture); the words with the pictures in place become the
+ * conversation's first message, from the requester, so approvers see the
+ * cracked corner exactly where the sentence mentions it. Tokens live only in
+ * messages, which already carry pictures and their visibility rules.
+ */
+function reasonWords(withTokens: string): string {
+  return stripImageTokens(withTokens).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 const requestSchema = z
   .object({
     type: z.string().min(1, 'Choose a request type'),
     priority: z.string().min(1),
-    businessReason: z.string().min(10, 'At least 10 characters — approvers read this first.'),
+    // The box holds the words and the picture tokens; the words alone must
+    // carry the reason - a picture is not an explanation.
+    businessReason: z
+      .string()
+      .refine((v) => reasonWords(v).length >= 10, 'At least 10 characters — approvers read this first.'),
     requiredBy: z.string().optional(),
     // Dynamic-form fields; which are required depends on the type (below).
     targetAssetId: z.string().optional(),
@@ -176,6 +195,17 @@ const gb = (v: string | number | null | undefined) => (v == null ? null : `${Num
 const fmtDate = (v: string | null) =>
   v ? new Date(v).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 type RequestValues = z.infer<typeof requestSchema>;
+
+/**
+ * The request exists (as a draft) but its pictures did not go up. Carries the
+ * id so the page can send the person to it rather than to a blank form.
+ */
+class DraftImagesError extends Error {
+  constructor(readonly requestId: string) {
+    super(DRAFT_IMAGES_FAILED_MESSAGE);
+    this.name = 'DraftImagesError';
+  }
+}
 
 export default function NewRequestPage() {
   // useSearchParams needs a Suspense boundary during prerender.
@@ -327,15 +357,21 @@ function NewRequestForm() {
     form.setValue('items.0.description', `${label}${spec}${about}`);
   }, [type, upgradeType, requestedSpec, selectedAsset?.id]);
 
+  // v2.61 - pictures of the fault or the item, inline in the reason while
+  // raising the request. Same list, editor and limits as the conversation.
+  const pictures = usePendingImages(toast);
+  const reasonEditorRef = useRef<InlineImageEditorHandle>(null);
+
   const submit = useMutation({
     mutationFn: async (values: RequestValues) => {
+      const images = pictures.images.map((p) => p.file);
       const created = await apiFetch<{ id: string }>('/requests', {
         method: 'POST',
         body: {
           type: values.type,
           priority: values.priority,
           ...(issue ? { issueCategory: issue.key } : {}),
-          businessReason: values.businessReason,
+          businessReason: reasonWords(values.businessReason),
           ...(values.requiredBy ? { requiredBy: values.requiredBy } : {}),
           ...(assetLinked && values.targetAssetId
             ? {
@@ -391,16 +427,36 @@ function NewRequestForm() {
           })),
         },
       });
+      // The pictures go up as the conversation's first message - the reason
+      // with the pictures where they were written, from the requester,
+      // visible to everyone who can see the request - so there is one storage
+      // path and one set of visibility rules. If they fail, the request stays
+      // a DRAFT rather than reaching approvers without the evidence it was
+      // raised with; the person adds them from the request page and submits
+      // from there.
+      if (images.length > 0) {
+        try {
+          await postComment(created.id, { body: values.businessReason.trim(), isInternal: false, images });
+        } catch {
+          throw new DraftImagesError(created.id);
+        }
+      }
       // Created as a draft first, then submitted, so a validation failure never
       // leaves a half-built request in an approval queue.
       await apiFetch(`/requests/${created.id}/submit`, { method: 'POST' });
-      return created;
+      return { ...created, imageCount: images.length };
     },
     onSuccess: (created) => {
-      toast.success('Request submitted for approval');
+      pictures.clearImages();
+      toast.success(submittedMessage(created.imageCount));
       router.push(`/requests/${created.id}`);
     },
     onError: (caught) => {
+      if (caught instanceof DraftImagesError) {
+        toast.error(caught.message);
+        router.push(`/requests/${caught.requestId}`);
+        return;
+      }
       toast.error('The request was not submitted');
       // Surface server-side field errors on the matching RHF fields.
       if (caught instanceof ApiError) {
@@ -772,21 +828,41 @@ function NewRequestForm() {
                 control={form.control}
                 name="businessReason"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-field="businessReason">
                     <FormLabel>
                       Why do you need it?{' '}
                       <span style={{ color: 'var(--tone-critical-fg)' }}>*</span>
                     </FormLabel>
                     <FormControl>
-                      <Textarea
-                        rows={4}
+                      {/* Pictures go where the cursor is - "Add image", a drop, or a paste. */}
+                      <InlineImageEditor
+                        ref={reasonEditorRef}
+                        aria-label="Why do you need it?"
+                        value={field.value}
+                        images={pictures.images}
+                        previewFor={pictures.previewFor}
+                        onChange={({ text, keys }) => {
+                          field.onChange(text);
+                          pictures.setOrder(keys);
+                        }}
+                        onAddFiles={pictures.addImages}
+                        onRejectedDrop={() => toast.error('Only images can be dropped into the reason.')}
+                        disabled={submit.isPending}
+                        minRows={4}
                         placeholder="Provide a brief description of why you need this."
-                        {...field}
                       />
                     </FormControl>
-                    <FormDescription>
-                      At least 10 characters. Approvers read this first.
-                    </FormDescription>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <AddImagesButton
+                        onFiles={(files) => reasonEditorRef.current?.addFiles(files)}
+                        disabled={submit.isPending || pictures.images.length >= MAX_COMMENT_IMAGES}
+                        label="Add images to the request"
+                      />
+                      <FormDescription>
+                        At least 10 characters. Approvers read this first — photos of the fault or the item
+                        help them decide.
+                      </FormDescription>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}

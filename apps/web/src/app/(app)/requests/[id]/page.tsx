@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -9,7 +9,6 @@ import {
   CircleDashed,
   CircleX,
   Clock,
-  ImagePlus,
   MinusCircle,
   Paperclip,
   Trash2,
@@ -23,22 +22,20 @@ import {
   type RequestStatus,
 } from '@techpioasset/domain';
 import { apiFetch, apiBaseUrl, getAccessToken, ApiError } from '@/lib/api-client';
-import {
-  COMMENT_IMAGE_ACCEPT,
-  MAX_COMMENT_IMAGES,
-  addPendingImages,
-  canSendMessage,
-  imageFilesFrom,
-  removePendingImage,
-  sentMessage,
-  type PendingImage,
-} from '@/lib/comment-images';
+import { MAX_COMMENT_IMAGES, canSendMessage, sentMessage } from '@/lib/comment-images';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, Skeleton } from '@/components/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { ProcurementAssessment } from '@/components/requests/procurement-assessment';
-import { CommentImages, PendingImageStrip, type CommentAttachment } from '@/components/requests/conversation-images';
+import {
+  AddImagesButton,
+  MessageBody,
+  postComment as sendComment,
+  usePendingImages,
+  type CommentAttachment,
+} from '@/components/requests/conversation-images';
+import { InlineImageEditor, type InlineImageEditorHandle } from '@/components/requests/inline-image-editor';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 
 interface Approval {
@@ -182,75 +179,21 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
   const [commentBody, setCommentBody] = useState('');
   const [commentInternal, setCommentInternal] = useState(false);
 
-  // v2.60 - pictures going out with the message. Previews are object URLs,
-  // owned here so they are revoked when an image is removed or sent.
-  const [pendingImages, setPendingImages] = useState<PendingImage<File>[]>([]);
-  const [previews, setPreviews] = useState<Record<string, string>>({});
-  const previewsRef = useRef(previews);
-  previewsRef.current = previews;
-  const [dragOver, setDragOver] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => () => Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u)), []);
-
-  const pendingRef = useRef(pendingImages);
-  pendingRef.current = pendingImages;
-  // Side effects (toasts, object URLs) stay outside the state updaters, which
-  // React may run twice in development.
-  const addImages = useCallback(
-    (files: Iterable<File> | null | undefined) => {
-      const picked = Array.from(files ?? []);
-      if (picked.length === 0) return;
-      const { next, rejected } = addPendingImages(pendingRef.current, picked);
-      rejected.forEach((why) => toast.error(why));
-      const added = next.slice(pendingRef.current.length);
-      if (added.length > 0) {
-        const grown: Record<string, string> = {};
-        for (const p of added) grown[p.key] = URL.createObjectURL(p.file);
-        setPreviews((prev) => ({ ...prev, ...grown }));
-      }
-      pendingRef.current = next;
-      setPendingImages(next);
+  // v2.60 - pictures going out with the message; since v2.61 they sit inline
+  // in the text (see inline-image-editor.tsx). `commentBody` is the token text
+  // the editor reports; `pendingImages` follows the order of the tokens.
+  const { images: pendingImages, addImages, previewFor, setOrder, clearImages } = usePendingImages(toast);
+  const editorRef = useRef<InlineImageEditorHandle>(null);
+  const onEditorChange = useCallback(
+    ({ text, keys }: { text: string; keys: string[] }) => {
+      setCommentBody(text);
+      setOrder(keys);
     },
-    [toast],
+    [setOrder],
   );
-  const removeImage = useCallback((key: string) => {
-    const url = previewsRef.current[key];
-    if (url) URL.revokeObjectURL(url);
-    setPreviews((prev) => {
-      const { [key]: _gone, ...rest } = prev;
-      return rest;
-    });
-    setPendingImages((current) => removePendingImage(current, key));
-  }, []);
-  const clearImages = useCallback(() => {
-    Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u));
-    setPreviews({});
-    setPendingImages([]);
-  }, []);
 
   const postComment = useMutation({
-    mutationFn: async (message: { body: string; isInternal: boolean; images: File[] }) => {
-      // Plain text goes as JSON; with pictures it is one multipart call, so the
-      // text and its images land together or not at all.
-      if (message.images.length === 0) {
-        return apiFetch(`/requests/${id}/comments`, {
-          method: 'POST',
-          body: { body: message.body, isInternal: message.isInternal },
-        });
-      }
-      const form = new FormData();
-      form.append('body', message.body);
-      form.append('isInternal', String(message.isInternal));
-      for (const image of message.images) form.append('images', image, image.name);
-      const res = await fetch(`${apiBaseUrl}/requests/${id}/comments`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
-        body: form,
-      });
-      if (!res.ok) throw new ApiError(await res.json().catch(() => null), res.status);
-      return undefined;
-    },
+    mutationFn: (message: { body: string; isInternal: boolean; images: File[] }) => sendComment(id, message),
     onSuccess: async (_r, message) => {
       // Cleared only once the server has it; a failure keeps everything typed.
       setCommentBody('');
@@ -762,11 +705,9 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                         {new Date(c.createdAt).toLocaleString()}
                       </span>
                     </div>
-                    {c.body ? (
-                      <p className="mt-0.5 whitespace-pre-wrap text-[var(--color-content-muted)]">{c.body}</p>
-                    ) : null}
-                    <CommentImages
+                    <MessageBody
                       requestId={id}
+                      body={c.body}
                       attachments={c.attachments ?? []}
                       sentBy={personName(c.author)}
                       sentAt={c.createdAt}
@@ -778,9 +719,7 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
             )}
 
             <form
-              className={`mt-4 grid gap-2 rounded-[var(--radius-control)] ${
-                dragOver ? 'outline outline-2 outline-dashed outline-[var(--color-brand)] outline-offset-4' : ''
-              }`}
+              className="mt-4 grid gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!canSendMessage(commentBody, pendingImages) || postComment.isPending) return;
@@ -790,83 +729,36 @@ export default function RequestDetailPage({ params }: { params: Promise<{ id: st
                   images: pendingImages.map((p) => p.file),
                 });
               }}
-              // Dropping a picture anywhere on the composer attaches it.
-              onDragOver={(e) => {
-                if (Array.from(e.dataTransfer.types).includes('Files')) {
-                  e.preventDefault();
-                  setDragOver(true);
-                }
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(false);
-                if (postComment.isPending) return;
-                const files = Array.from(e.dataTransfer.files);
-                const images = imageFilesFrom(files);
-                if (images.length < files.length) {
-                  toast.error('Only images can be dropped into a message. Add documents from the Attachments panel.');
-                }
-                addImages(images);
-              }}
             >
               <label htmlFor="req-comment" className="sr-only">
                 Write a message
               </label>
-              <textarea
+              {/* Pictures go where the cursor is - "Add image", a drop, or a paste. */}
+              <InlineImageEditor
+                ref={editorRef}
                 id="req-comment"
-                rows={2}
+                aria-label="Write a message"
                 value={commentBody}
-                onChange={(e) => setCommentBody(e.target.value)}
-                // A screenshot pasted from the clipboard goes in like a dropped file.
-                onPaste={(e) => {
-                  const images = imageFilesFrom(
-                    Array.from(e.clipboardData.items)
-                      .filter((item) => item.kind === 'file')
-                      .map((item) => item.getAsFile())
-                      .filter((f): f is File => f !== null),
-                  );
-                  if (images.length === 0) return;
-                  e.preventDefault();
-                  addImages(images);
-                }}
+                images={pendingImages}
+                previewFor={previewFor}
+                onChange={onEditorChange}
+                onAddFiles={addImages}
+                onRejectedDrop={() =>
+                  toast.error('Only images can be dropped into a message. Add documents from the Attachments panel.')
+                }
+                disabled={postComment.isPending}
                 placeholder={
                   data.requester.id === user?.id || data.beneficiary?.id === user?.id
                     ? 'Ask a question about this request — e.g. how long will this take?'
                     : 'Reply to the requester — they are notified of your message.'
                 }
-                className="w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm outline-none focus:border-[var(--color-brand)]"
-              />
-              <PendingImageStrip
-                images={pendingImages}
-                previews={previews}
-                onRemove={removeImage}
-                disabled={postComment.isPending}
               />
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept={COMMENT_IMAGE_ACCEPT}
-                    multiple
-                    className="sr-only"
-                    aria-label="Add images to the message"
-                    onChange={(e) => {
-                      addImages(e.target.files);
-                      e.target.value = '';
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => imageInputRef.current?.click()}
+                  <AddImagesButton
+                    onFiles={(files) => editorRef.current?.addFiles(files)}
                     disabled={postComment.isPending || pendingImages.length >= MAX_COMMENT_IMAGES}
-                    title={`Up to ${MAX_COMMENT_IMAGES} images; you can also drop or paste them`}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-2.5 text-xs font-medium hover:bg-[var(--color-surface-sunken)] disabled:opacity-50"
-                  >
-                    <ImagePlus aria-hidden="true" className="size-3.5" />
-                    Add image
-                  </button>
+                  />
                   {canInternal ? (
                     <label className="flex items-center gap-1.5 text-xs text-[var(--color-content-muted)]">
                       <input

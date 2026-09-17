@@ -46,3 +46,4 @@ export * from './asset-receipt';
 export * from './expenses';
 export * from './device-agent';
 export * from './file-size';
+export * from './message-body';

@@ -1,15 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ImageOff, X } from 'lucide-react';
-import { API_BASE, getAccessToken } from '@/lib/api-client';
-import { imageCaption, type PendingImage } from '@/lib/comment-images';
+import { ImageOff, ImagePlus } from 'lucide-react';
+import { parseMessageBody } from '@techpioasset/domain';
+import { API_BASE, ApiError, apiFetch, getAccessToken } from '@/lib/api-client';
+import {
+  COMMENT_IMAGE_ACCEPT,
+  MAX_COMMENT_IMAGES,
+  addPendingImages,
+  imageCaption,
+  removePendingImage,
+  type PendingImage,
+} from '@/lib/comment-images';
 import { Skeleton } from '@/components/ui';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/assets/photo-lightbox';
 
 /**
- * Pictures in a request conversation (v2.60): the ones waiting to go out with
- * the message being written, and the ones already sent, inline in the thread.
+ * Pictures in a request conversation (v2.60), inline in the text since v2.61:
+ * the ones being written into the message (see inline-image-editor.tsx), and
+ * the ones already sent, rendered where their token sits in the thread. The
+ * same pieces serve the new-request form, whose pictures become the
+ * conversation's first message.
  */
 
 export interface CommentAttachment {
@@ -20,55 +31,140 @@ export interface CommentAttachment {
   isImage: boolean;
 }
 
-/** Thumbnails of what will go with the message, each with its size and a remove control. */
-export function PendingImageStrip({
-  images,
-  previews,
-  onRemove,
-  disabled,
-}: {
-  images: PendingImage<File>[];
-  /** key -> object URL, owned by the composer so it can revoke them. */
-  previews: Record<string, string>;
-  onRemove: (key: string) => void;
-  disabled: boolean;
-}) {
-  if (images.length === 0) return null;
-  return (
-    <ul className="flex flex-wrap gap-2" aria-label="Images to send">
-      {images.map((image) => (
-        <li
-          key={image.key}
-          className="relative w-28 rounded-[var(--radius-control)] border border-[var(--color-border)] p-1"
-        >
-          {previews[image.key] ? (
-            // eslint-disable-next-line @next/next/no-img-element -- a local object URL; nothing to optimise.
-            <img
-              src={previews[image.key]}
-              alt=""
-              className="h-20 w-full rounded object-cover"
-            />
-          ) : (
-            <div className="grid h-20 w-full place-items-center rounded bg-[var(--color-surface-sunken)] text-[var(--color-content-subtle)]">
-              <ImageOff aria-hidden="true" className="size-4" />
-            </div>
-          )}
-          <p className="mt-1 truncate text-[11px] text-[var(--color-content-muted)]" title={image.caption}>
-            {image.caption}
-          </p>
-          <button
-            type="button"
-            onClick={() => onRemove(image.key)}
-            disabled={disabled}
-            aria-label={`Remove ${image.file.name}`}
-            className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-content-muted)] shadow-sm hover:text-[var(--tone-critical-fg)] disabled:opacity-50"
-          >
-            <X aria-hidden="true" className="size-3.5" />
-          </button>
-        </li>
-      ))}
-    </ul>
+/**
+ * The pictures waiting to go out, in the order they sit in the text, with
+ * their previews. Previews are object URLs, owned here so they are revoked
+ * when a picture is removed, sent, or the page is left. Side effects (toasts,
+ * object URLs) stay outside the state updaters, which React may run twice in
+ * development.
+ */
+export function usePendingImages(toast: { error: (message: string) => void }) {
+  const [images, setImages] = useState<PendingImage<File>[]>([]);
+  const previewsRef = useRef<Record<string, string>>({});
+  useEffect(() => () => Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u)), []);
+
+  const pendingRef = useRef(images);
+  pendingRef.current = images;
+
+  /** Queues what the server would accept and returns just those, keyed and previewed. */
+  const addImages = useCallback(
+    (files: Iterable<File> | null | undefined): PendingImage<File>[] => {
+      const picked = Array.from(files ?? []);
+      if (picked.length === 0) return [];
+      const { next, rejected } = addPendingImages(pendingRef.current, picked);
+      rejected.forEach((why) => toast.error(why));
+      const added = next.slice(pendingRef.current.length);
+      for (const p of added) previewsRef.current[p.key] = URL.createObjectURL(p.file);
+      pendingRef.current = next;
+      setImages(next);
+      return added;
+    },
+    [toast],
   );
+  const previewFor = useCallback((key: string): string | undefined => previewsRef.current[key], []);
+  const removeImage = useCallback((key: string) => {
+    const url = previewsRef.current[key];
+    if (url) URL.revokeObjectURL(url);
+    delete previewsRef.current[key];
+    pendingRef.current = removePendingImage(pendingRef.current, key);
+    setImages(pendingRef.current);
+  }, []);
+  /**
+   * The editor reports the pictures still in the text, in reading order. The
+   * list follows: reordered to match, and anything the person deleted from
+   * the text (backspace, the remove control) is let go here too.
+   */
+  const setOrder = useCallback((keys: readonly string[]) => {
+    const byKey = new Map(pendingRef.current.map((p) => [p.key, p]));
+    const next = keys.flatMap((k) => byKey.get(k) ?? []);
+    for (const p of pendingRef.current) {
+      if (!keys.includes(p.key)) {
+        const url = previewsRef.current[p.key];
+        if (url) URL.revokeObjectURL(url);
+        delete previewsRef.current[p.key];
+      }
+    }
+    const same = next.length === pendingRef.current.length && next.every((p, i) => p === pendingRef.current[i]);
+    if (same) return;
+    pendingRef.current = next;
+    setImages(next);
+  }, []);
+  const clearImages = useCallback(() => {
+    Object.values(previewsRef.current).forEach((u) => URL.revokeObjectURL(u));
+    previewsRef.current = {};
+    pendingRef.current = [];
+    setImages([]);
+  }, []);
+
+  return { images, addImages, previewFor, removeImage, setOrder, clearImages };
+}
+
+/** "Add image": a file picker limited to what the server takes. */
+export function AddImagesButton({
+  onFiles,
+  disabled,
+  label = 'Add images to the message',
+}: {
+  onFiles: (files: FileList | null) => void;
+  disabled: boolean;
+  label?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={COMMENT_IMAGE_ACCEPT}
+        multiple
+        className="sr-only"
+        aria-label={label}
+        onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={disabled}
+        title={`Up to ${MAX_COMMENT_IMAGES} images, inserted where the cursor is; you can also drop or paste them`}
+        className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-2.5 text-xs font-medium hover:bg-[var(--color-surface-sunken)] disabled:opacity-50"
+      >
+        <ImagePlus aria-hidden="true" className="size-3.5" />
+        Add image
+      </button>
+    </>
+  );
+}
+
+/**
+ * Posts a message. Plain text goes as JSON; with pictures it is one multipart
+ * call - the text with its `pending:N` tokens and the files in that order -
+ * so the text and its images land together or not at all.
+ */
+export async function postComment(
+  requestId: string,
+  message: { body: string; isInternal: boolean; images: File[] },
+): Promise<void> {
+  if (message.images.length === 0) {
+    await apiFetch(`/requests/${requestId}/comments`, {
+      method: 'POST',
+      body: { body: message.body, isInternal: message.isInternal },
+    });
+    return;
+  }
+  const form = new FormData();
+  form.append('body', message.body);
+  form.append('isInternal', String(message.isInternal));
+  for (const image of message.images) form.append('images', image, image.name);
+  const res = await fetch(`${API_BASE}/requests/${requestId}/comments`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+    body: form,
+  });
+  if (!res.ok) throw new ApiError(await res.json().catch(() => null), res.status);
 }
 
 /**
@@ -79,11 +175,14 @@ export function PendingImageStrip({
 function SentImage({
   requestId,
   attachment,
+  inline,
   onReady,
   onOpen,
 }: {
   requestId: string;
   attachment: CommentAttachment;
+  /** In the flow of the text (up to 480px wide) rather than a thumbnail. */
+  inline: boolean;
   onReady: (id: string, url: string) => void;
   onOpen: (id: string) => void;
 }) {
@@ -117,14 +216,17 @@ function SentImage({
     };
   }, [requestId, attachment.id, onReady]);
 
+  const box = inline ? 'max-h-[360px] max-w-[480px]' : 'max-h-[240px] max-w-[240px]';
+  const width = inline ? 'max-w-[480px]' : 'max-w-[240px]';
+
   return (
-    <figure className="w-fit max-w-[240px]">
+    <figure className={`w-fit ${width}`}>
       {failed ? (
         <div className="grid h-24 w-40 place-items-center rounded-[var(--radius-control)] border border-[var(--color-border)] text-[var(--color-content-subtle)]">
           <ImageOff aria-hidden="true" className="size-5" />
         </div>
       ) : !url ? (
-        <Skeleton className="h-32 w-40 rounded-[var(--radius-control)]" />
+        <Skeleton className={`${inline ? 'h-40 w-64' : 'h-32 w-40'} rounded-[var(--radius-control)]`} />
       ) : (
         <button
           type="button"
@@ -138,26 +240,45 @@ function SentImage({
           <img
             src={url}
             alt={attachment.originalName}
-            className="max-h-[240px] max-w-[240px] rounded-[var(--radius-control)] border border-[var(--color-border)] object-cover transition-opacity hover:opacity-90"
+            className={`${box} rounded-[var(--radius-control)] border border-[var(--color-border)] object-contain transition-opacity hover:opacity-90`}
           />
         </button>
       )}
-      <figcaption className="mt-1 max-w-[240px] truncate text-[11px] text-[var(--color-content-subtle)]" title={caption}>
+      <figcaption className={`mt-1 ${width} truncate text-[11px] text-[var(--color-content-subtle)]`} title={caption}>
         {caption}
       </figcaption>
     </figure>
   );
 }
 
-/** The pictures under one message, with a full-size viewer that steps through them. */
-export function CommentImages({
+/** Where a token points at a picture the viewer cannot see, or that is gone. */
+function UnavailableImage() {
+  return (
+    <span className="my-1 inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-dashed border-[var(--color-border-strong)] px-2 py-1 align-bottom text-xs text-[var(--color-content-subtle)]">
+      <ImageOff aria-hidden="true" className="size-3.5" />
+      Image unavailable
+    </span>
+  );
+}
+
+/**
+ * A sent message: its text, with each picture rendered where the writer put
+ * it. Pictures the text does not mention (messages from before v2.61, and
+ * older phone builds) follow the text as thumbnails, as they always have. A
+ * token for an attachment the server did not return - one the viewer may not
+ * see, or one since removed - shows as unavailable rather than as a broken
+ * picture or a leaked id. One full-size viewer steps through all of them.
+ */
+export function MessageBody({
   requestId,
+  body,
   attachments,
   sentBy,
   sentAt,
   isInternal,
 }: {
   requestId: string;
+  body: string;
   attachments: CommentAttachment[];
   sentBy: string;
   sentAt: string;
@@ -168,10 +289,22 @@ export function CommentImages({
   const onReady = useCallback((id: string, url: string) => setUrls((prev) => ({ ...prev, [id]: url })), []);
 
   const images = attachments.filter((a) => a.isImage);
-  if (images.length === 0) return null;
+  const byId = new Map(images.map((a) => [a.id, a]));
+  const segments = parseMessageBody(body);
+  const referenced = new Set(
+    segments.flatMap((s) => (s.kind === 'image' && s.ref.kind === 'attachment' && byId.has(s.ref.id) ? [s.ref.id] : [])),
+  );
+  const trailing = images.filter((a) => !referenced.has(a.id));
+  // Pictures in reading order, for the viewer's index.
+  const ordered = [
+    ...segments.flatMap((s) => (s.kind === 'image' && s.ref.kind === 'attachment' ? (byId.get(s.ref.id) ?? []) : [])),
+    ...trailing,
+  ].filter((a, i, all) => all.indexOf(a) === i);
+
+  if (segments.length === 0 && images.length === 0) return null;
 
   // Only the ones that have loaded can be viewed; the index is over that set.
-  const viewable: LightboxPhoto[] = images
+  const viewable: LightboxPhoto[] = ordered
     .filter((a) => urls[a.id])
     .map((a) => ({
       id: a.id,
@@ -185,11 +318,31 @@ export function CommentImages({
 
   return (
     <>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {images.map((a) => (
-          <SentImage key={a.id} requestId={requestId} attachment={a} onReady={onReady} onOpen={setOpenId} />
-        ))}
+      <div className="mt-0.5 text-[var(--color-content-muted)]">
+        {segments.map((s, i) => {
+          if (s.kind === 'text') {
+            return (
+              <span key={i} className="whitespace-pre-wrap">
+                {s.text}
+              </span>
+            );
+          }
+          const attachment = s.ref.kind === 'attachment' ? byId.get(s.ref.id) : undefined;
+          if (!attachment) return <UnavailableImage key={i} />;
+          return (
+            <span key={i} className="my-1 inline-block max-w-full align-bottom">
+              <SentImage requestId={requestId} attachment={attachment} inline onReady={onReady} onOpen={setOpenId} />
+            </span>
+          );
+        })}
       </div>
+      {trailing.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {trailing.map((a) => (
+            <SentImage key={a.id} requestId={requestId} attachment={a} inline={false} onReady={onReady} onOpen={setOpenId} />
+          ))}
+        </div>
+      ) : null}
       {openIndex >= 0 ? (
         <PhotoLightbox
           photos={viewable}

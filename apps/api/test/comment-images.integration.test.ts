@@ -181,6 +181,118 @@ describe('sending a message with images', () => {
   });
 });
 
+describe('pictures inline in the text (v2.61)', () => {
+  it('rewrites each pending token to the id its file was stored under, in send order', async () => {
+    const res = await api(app)
+      .post(`/api/v1/requests/${requestId}/comments`)
+      .set(auth(s.employee))
+      .field('body', 'Front:\n![image 1](pending:1)\nSide:\n![image 2](pending:2)\nThanks')
+      .field('isInternal', 'false')
+      .attach('images', PNG, 'front.png')
+      .attach('images', PNG, 'side.png');
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+
+    const comment = (res.body.data.comments as Comment[]).at(-1)!;
+    const [front, side] = comment.attachments;
+    expect(front?.originalName).toBe('front.png');
+    expect(side?.originalName).toBe('side.png');
+    expect(comment.body).toBe(
+      `Front:\n![image 1](attachment:${front!.id})\nSide:\n![image 2](attachment:${side!.id})\nThanks`,
+    );
+    expect(comment.body).not.toContain('pending:');
+  });
+
+  it('refuses a token for a picture that was not sent, and stores nothing', async () => {
+    const before = await prisma.client.requestComment.count({ where: { requestId } });
+    const res = await api(app)
+      .post(`/api/v1/requests/${requestId}/comments`)
+      .set(auth(s.employee))
+      .field('body', 'One picture ![image 1](pending:1) and a missing one ![image 2](pending:2)')
+      .field('isInternal', 'false')
+      .attach('images', PNG, 'only-one.png');
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toMatch(/image 2, which was not sent/i);
+    expect(await prisma.client.requestComment.count({ where: { requestId } })).toBe(before);
+    expect(await prisma.client.attachment.count({ where: { assetRequestId: requestId, originalName: 'only-one.png' } })).toBe(0);
+  });
+
+  it('a body naming an attachment directly is refused - pictures are referenced by send order only', async () => {
+    const res = await api(app)
+      .post(`/api/v1/requests/${requestId}/comments`)
+      .set(auth(s.employee))
+      .send({ body: 'See ![image 1](attachment:anyid)', isInternal: false });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toMatch(/order they are sent/i);
+  });
+
+  it('a message whose pictures carry no tokens still goes through, as every installed phone build sends it', async () => {
+    const res = await api(app)
+      .post(`/api/v1/requests/${requestId}/comments`)
+      .set(auth(s.employee))
+      .field('body', 'Untokened')
+      .field('isInternal', 'false')
+      .attach('images', PNG, 'loose.png');
+    expect(res.status).toBe(201);
+    const comment = (res.body.data.comments as Comment[]).at(-1)!;
+    expect(comment.body).toBe('Untokened');
+    expect(comment.attachments).toHaveLength(1);
+  });
+});
+
+describe('pictures attached while raising a request (v2.61)', () => {
+  let draftId: string;
+
+  afterAll(async () => {
+    if (!draftId) return;
+    await prisma.client.$executeRawUnsafe('DELETE FROM attachments WHERE "assetRequestId" = $1', draftId);
+    await prisma.client.$executeRawUnsafe('DELETE FROM notifications WHERE "entityId" = $1', draftId);
+    await prisma.client.$executeRawUnsafe('DELETE FROM request_comments WHERE "requestId" = $1', draftId);
+    await prisma.client.$executeRawUnsafe('DELETE FROM request_items WHERE "requestId" = $1', draftId);
+    await prisma.client.$executeRawUnsafe('DELETE FROM request_approvals WHERE "requestId" = $1', draftId);
+    await prisma.client.$executeRawUnsafe('DELETE FROM asset_requests WHERE id = $1', draftId);
+  });
+
+  it('the requester\'s first message with inline pictures lands on the DRAFT and is there after submit', async () => {
+    // The web and phone forms do create -> first message -> submit, so the
+    // pictures are part of the request from the moment approvers first see it.
+    const created = await api(app)
+      .post('/api/v1/requests')
+      .set(auth(s.employee))
+      .send({
+        type: 'DAMAGE',
+        businessReason: 'Dropped the laptop; the corner is cracked and the screen flickers.',
+        items: [{ description: `Laptop ${Math.random().toString(36).slice(2, 8)}`, quantity: 1 }],
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    draftId = created.body.data.id;
+    expect(created.body.data.status).toBe('DRAFT');
+
+    const first = await api(app)
+      .post(`/api/v1/requests/${draftId}/comments`)
+      .set(auth(s.employee))
+      .field('body', 'Dropped the laptop; the corner is cracked ![image 1](pending:1) and the screen flickers.')
+      .field('isInternal', 'false')
+      .attach('images', PNG, 'corner.png');
+    expect(first.status, JSON.stringify(first.body).slice(0, 300)).toBe(201);
+    const comment = (first.body.data.comments as Comment[])[0]!;
+    expect(comment.isInternal).toBe(false);
+    expect(comment.attachments).toHaveLength(1);
+    expect(comment.body).toContain(`![image 1](attachment:${comment.attachments[0]!.id})`);
+
+    const submitted = await api(app).post(`/api/v1/requests/${draftId}/submit`).set(auth(s.employee));
+    expect(submitted.status, JSON.stringify(submitted.body).slice(0, 300)).toBe(201);
+
+    // Visible to the requester and to a reviewer, as the first message.
+    for (const who of ['employee', 'itAdmin'] as const) {
+      const res = await api(app).get(`/api/v1/requests/${draftId}`).set(auth(s[who]));
+      expect(res.status).toBe(200);
+      const comments = res.body.data.comments as Comment[];
+      expect(comments[0]?.id).toBe(comment.id);
+      expect(comments[0]?.attachments[0]?.originalName).toBe('corner.png');
+    }
+  });
+});
+
 describe('an internal note\'s image is as hidden as the note', () => {
   let internalImageId: string;
   let publicImageId: string;
@@ -249,6 +361,24 @@ describe('an internal note\'s image is as hidden as the note', () => {
     const opened = await api(app).get(`/api/v1${link.body.data.path}`);
     expect(opened.status).toBe(200);
     expect(opened.headers['content-type']).toContain('image/png');
+  });
+
+  it('a public message cannot point at the note\'s image by id, so the requester never sees that id', async () => {
+    const crafted = await api(app)
+      .post(`/api/v1/requests/${requestId}/comments`)
+      .set(auth(s.itAdmin))
+      .send({ body: `Look here ![image 1](attachment:${internalImageId})`, isInternal: false });
+    expect(crafted.status).toBe(422);
+    expect(JSON.stringify(crafted.body)).toMatch(/order they are sent/i);
+
+    const res = await detail('employee');
+    expect(res.status).toBe(200);
+    const publicComments = (res.body.data.comments as Comment[]).filter((c) => !c.isInternal);
+    expect(publicComments.length).toBeGreaterThan(0);
+    for (const c of publicComments) {
+      expect(c.body).not.toContain(internalImageId);
+      expect(c.attachments.map((a) => a.id)).not.toContain(internalImageId);
+    }
   });
 
   it('a reviewer reaches the note\'s image; a stranger reaches neither', async () => {

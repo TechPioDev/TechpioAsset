@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, Text, View } from 'react-native';
 import { ApiError } from '../../src/lib/api-client';
 import {
   REQUEST_STATUS_TOKENS,
@@ -8,6 +8,13 @@ import {
   TONE_PALETTE_LIGHT,
 } from '@techpioasset/ui-tokens';
 import type { RequestStatus } from '@techpioasset/domain';
+import {
+  DRAFT_IMAGES_FAILED_MESSAGE,
+  PHOTO_MARKER_HINT,
+  commentPayload,
+  submittedMessage,
+  wordsWithoutMarkers,
+} from '../../src/lib/comment-images';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import {
@@ -20,6 +27,13 @@ import {
   SectionTitle,
   StatusPill,
 } from '../../src/components/ui';
+import {
+  FlashBanner,
+  PhotoMarkerStrip,
+  PhotoPickButtons,
+  useFlash,
+  usePhotoMarkers,
+} from '../../src/components/requests/photo-markers';
 
 interface RequestRow {
   id: string;
@@ -47,6 +61,11 @@ export default function RequestsScreen() {
   // be excepted either way. Ask before offering the form: filling one in and
   // being refused at the end is a worse way to find out.
   const [raiseBlockedReason, setRaiseBlockedReason] = useState<string | null>(null);
+  // v2.61 - pictures of the fault or the item, inline in the reason as
+  // `[photo N]` markers. They become the conversation's first message.
+  const { flash, showFlash, clearFlash } = useFlash();
+  const pictures = usePhotoMarkers({ text: reason, setText: setReason, showFlash });
+  const { photos } = pictures;
 
   const loadPolicy = useCallback(async () => {
     try {
@@ -78,35 +97,66 @@ export default function RequestsScreen() {
 
   async function submit() {
     // Validate with a clear message instead of a silently disabled button.
+    // What is stored as the reason is the words alone - it is quoted in lists
+    // and emails, which cannot show a picture; the words with the pictures in
+    // place go up as the conversation's first message.
+    const words = wordsWithoutMarkers(reason);
     if (item.trim().length === 0) {
       setFormError('Enter what you need.');
       return;
     }
-    if (reason.trim().length < 10) {
-      setFormError(`Add a business reason of at least 10 characters (${reason.trim().length}/10).`);
+    if (words.length < 10) {
+      setFormError(`Add a business reason of at least 10 characters (${words.length}/10).`);
       return;
     }
     setFormError(null);
+    clearFlash();
     setSubmitting(true);
+    let createdId: string | null = null;
     try {
       const created = await api.request<{ id: string; requestNumber?: string }>('/requests', {
         method: 'POST',
         body: {
           type: 'ADDITIONAL_EQUIPMENT',
-          businessReason: reason.trim(),
+          businessReason: words,
           items: [{ description: item.trim(), quantity: 1 }],
         },
       });
+      createdId = created.id;
+      if (photos.length > 0) {
+        // The pictures, in the sentence they were written into, as the first
+        // message from the requester. If this fails the request stays a
+        // draft rather than reaching approvers without the evidence.
+        const payload = commentPayload(reason, false, photos);
+        if (payload.kind === 'multipart') {
+          const form = new FormData();
+          for (const [name, value] of payload.fields) form.append(name, value);
+          for (const file of payload.files) {
+            form.append(file.field, { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+          }
+          try {
+            await api.request(`/requests/${created.id}/comments`, { formData: form });
+          } catch {
+            showFlash('error', DRAFT_IMAGES_FAILED_MESSAGE);
+            router.push(`/request/${created.id}`);
+            return;
+          }
+        }
+      }
       await api.request(`/requests/${created.id}/submit`, { method: 'POST' });
+      const sent = submittedMessage(photos.length);
       setReason('');
       setItem('');
+      pictures.clear();
       await load();
-      Alert.alert('Request submitted', 'It has been sent for approval.');
+      showFlash('success', sent);
     } catch (caught) {
       setFormError(
         caught instanceof ApiError
           ? (caught.problem?.detail ?? caught.problem?.title ?? 'Could not submit. Please try again.')
-          : 'Could not submit. Check your connection and try again.',
+          : createdId
+            ? 'The request was saved as a draft but not submitted. Check your connection and open it to submit.'
+            : 'Could not submit. Check your connection and try again.',
       );
     } finally {
       setSubmitting(false);
@@ -138,15 +188,28 @@ export default function RequestsScreen() {
                   placeholder="Why do you need it? (at least 10 characters)"
                   value={reason}
                   onChangeText={(t) => {
-                    setReason(t);
+                    pictures.onChangeText(t);
                     if (formError) setFormError(null);
                   }}
+                  onSelectionChange={pictures.onSelectionChange}
                   multiline
+                  maxLength={2000}
                 />
+                <PhotoMarkerStrip photos={photos} onRemove={pictures.remove} disabled={submitting} />
+                <PhotoPickButtons
+                  onLibrary={pictures.addFromLibrary}
+                  onCamera={pictures.addFromCamera}
+                  disabled={submitting}
+                  count={photos.length}
+                />
+                <Text style={{ color: c.subtle, fontSize: 12, marginTop: -4, marginBottom: spacing.md }}>
+                  Photos of the fault or the item help approvers decide. {PHOTO_MARKER_HINT}
+                </Text>
                 {formError ? (
                   <Text style={{ color: c.danger, fontSize: 13, marginBottom: spacing.md }}>{formError}</Text>
                 ) : null}
-                <Button label="Submit request" icon="send" onPress={submit} loading={submitting} />
+                <FlashBanner flash={flash} />
+                <Button label="Submit request" icon="send" onPress={() => void submit()} loading={submitting} />
               </>
             )}
           </Card>

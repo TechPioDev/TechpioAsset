@@ -93,3 +93,35 @@ export function imageFilesFrom<F extends FileLike>(files: Iterable<F> | null | u
   if (!files) return [];
   return Array.from(files).filter((f) => isCommentImage(f));
 }
+
+/** The image files on a clipboard (a pasted screenshot); text items are ignored. */
+export function clipboardImageFiles<F extends FileLike>(
+  items: Iterable<{ kind: string; getAsFile(): F | null }> | null | undefined,
+): F[] {
+  if (!items) return [];
+  return imageFilesFrom(
+    Array.from(items)
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((f): f is F => f !== null),
+  );
+}
+
+/**
+ * v2.61 - pictures attached while RAISING a request. They travel as the
+ * conversation's first message (photo-only, from the requester), so there is
+ * one storage path and one set of visibility rules. The toast names them.
+ */
+export function submittedMessage(imageCount: number): string {
+  const what = 'Request submitted for approval';
+  if (imageCount === 0) return what;
+  return `${what} with ${imageCount === 1 ? '1 image' : `${imageCount} images`}`;
+}
+
+/**
+ * When the request was created but its pictures did not go up: it is left as a
+ * draft, deliberately - submitting without them would send approvers a report
+ * of damage they cannot see. The person finishes it from the request page.
+ */
+export const DRAFT_IMAGES_FAILED_MESSAGE =
+  'Request saved as a draft but the images could not be uploaded — open it and add them from the conversation';
