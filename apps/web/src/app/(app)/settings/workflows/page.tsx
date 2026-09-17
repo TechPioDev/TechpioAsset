@@ -513,6 +513,9 @@ function StepRow({
           {isStage ? (
             <span>part of the assessment pair — removed together with “Remove stages”</span>
           ) : null}
+          {!isStage && !step.isEnabled ? (
+            <span>skipped — new requests leave this step out; requests already waiting on it keep their chain</span>
+          ) : null}
         </p>
       </div>
 
@@ -597,6 +600,9 @@ function StepSwitch({
 }) {
   return (
     <span className="inline-flex items-center gap-2" title={reason}>
+      {/* Sizes are inline, not utilities: the site's base button rule adds
+          padding and the knob was absolutely positioned, so the pill grew and
+          the knob landed outside it - a solid blue blob with no knob. */}
       <button
         type="button"
         role="switch"
@@ -605,16 +611,37 @@ function StepSwitch({
         aria-describedby={`switch-help-${id}`}
         disabled={disabled}
         onClick={() => onChange(!on)}
-        className="relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-        style={{ backgroundColor: on ? 'var(--color-brand)' : 'var(--color-border-strong)' }}
+        className="shrink-0 rounded-full border-0 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: on ? 'flex-end' : 'flex-start',
+          boxSizing: 'border-box',
+          width: 44,
+          height: 24,
+          padding: 2,
+          margin: 0,
+          backgroundColor: on ? 'var(--color-brand)' : 'var(--color-border-strong)',
+        }}
       >
         <span
-          className="absolute top-0.5 size-5 rounded-full bg-white transition-transform"
-          style={{ transform: on ? 'translateX(1.375rem)' : 'translateX(0.125rem)' }}
+          aria-hidden="true"
+          style={{
+            display: 'block',
+            width: 20,
+            height: 20,
+            borderRadius: 9999,
+            backgroundColor: '#fff',
+            boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
+          }}
         />
       </button>
-      <span id={`switch-help-${id}`} className="text-xs text-[var(--color-content-muted)]">
-        {on ? 'On' : 'Off: new requests skip this step; requests already waiting on it keep their chain'}
+      <span
+        id={`switch-help-${id}`}
+        className="text-xs font-medium whitespace-nowrap"
+        style={{ color: on ? 'var(--color-content)' : 'var(--color-content-muted)' }}
+      >
+        {on ? 'On' : 'Off'}
       </span>
     </span>
   );
