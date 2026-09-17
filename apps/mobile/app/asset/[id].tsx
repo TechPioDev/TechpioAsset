@@ -1,33 +1,69 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from 'react-native';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import {
   PERMISSIONS,
-  assetDetailTabs,
+  assetDetailNav,
+  assetIdentifier,
   assetSpecRows,
+  conditionSentence,
   custodyHistory,
   custodyOptions,
+  deviceHealthTiles,
+  deviceLifecycle,
   hasDiscoveryTabs,
+  headerMeta,
+  HEALTH_GRADE_TONE,
   issuedByName,
+  latestAgentReport,
+  noteSummary,
+  quickSpecs,
+  relativeAge,
+  reportFreshness,
+  resolveAssetImageSource,
   warrantySource,
   type AssetCondition,
-  type AssetDetailTabKey,
+  type AssetDetailNavKey,
   type AssetStatus,
   type AvailabilityState,
+  type HealthTile,
   type LifecycleState,
   type OwnershipType,
 } from '@techpioasset/domain';
-import { CONDITION_TOKENS } from '@techpioasset/ui-tokens';
+import { CONDITION_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { assetPills } from '../../src/asset-pills';
+import { DISPOSABLE_FROM, transferView } from '../../src/lib/asset-admin';
 import { holderDisplayName, warrantyCheckNotice } from '../../src/lib/asset-detail';
+import {
+  agentPill,
+  assetImagePath,
+  assetNavIcon,
+  healthScoreTile,
+  lastSyncLine,
+  moreActions,
+  warrantyStanding,
+  type MoreActionKey,
+} from '../../src/lib/asset-overview';
 import { useSession } from '../../src/providers/session';
+import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { ConditionPhotoSheet, type PhotoStage } from '../../src/components/condition-photo-sheet';
 import { ConditionPhotoStrip } from '../../src/components/condition-photo-strip';
+import { AssetImageCard, DeviceIcon } from '../../src/components/assets/asset-image-card';
+import { AssetNotes } from '../../src/components/assets/asset-notes';
 import { DisposalCard, type DisposalRecord } from '../../src/components/assets/disposal-card';
 import { EquipmentKit } from '../../src/components/assets/equipment-kit';
-import { InfoRow, TabStrip, ToneBadge } from '../../src/components/assets/detail-parts';
+import { CardLink, CardTitle, InfoRow, TabStrip, ToneBadge } from '../../src/components/assets/detail-parts';
 import {
   HardwareTab,
   HealthTab,
@@ -37,11 +73,13 @@ import {
   type HealthDto,
   type OsInfoDto,
 } from '../../src/components/assets/discovery-tabs';
-import { LifecycleTab } from '../../src/components/assets/lifecycle-tab';
+import { HealthTileGrid } from '../../src/components/assets/health-tiles';
+import { LifecycleTab, TimelineEvent } from '../../src/components/assets/lifecycle-tab';
+import { MoreActionsSheet } from '../../src/components/assets/more-actions-sheet';
 import { PriceCard } from '../../src/components/assets/price-card';
 import { TransferCard, type OpenTransfer } from '../../src/components/assets/transfer-card';
 import { useTheme } from '../../src/theme';
-import { Button, Card, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 
 interface Person {
   id?: string;
@@ -54,6 +92,7 @@ interface AssetDetail {
   id: string;
   assetTag: string;
   name: string;
+  description?: string | null;
   brand: string | null;
   model: string | null;
   serialNumber: string | null;
@@ -68,14 +107,19 @@ interface AssetDetail {
   lifecycleState: LifecycleState | null;
   availabilityState: AvailabilityState | null;
   ownershipType: OwnershipType | null;
+  /** The optimistic-lock version; every PATCH carries it. */
+  version: number;
   category?: { name: string } | null;
   subcategory?: { key: string; name: string } | null;
   office?: { id: string; name: string } | null;
+  department?: { id: string; name: string } | null;
   purchaseDate: string | null;
   warrantyStartDate?: string | null;
   warrantyEndDate: string | null;
   expectedReplacementDate?: string | null;
   notes?: string | null;
+  /** v2.61 - the unit's own uploaded picture, if any. */
+  photo?: { id: string; mimeType: string; createdAt: string } | null;
   /** Sent only to holders of assets:cost:read - the API omits it for everyone else. */
   purchaseCost?: string | null;
   currency?: string | null;
@@ -83,7 +127,13 @@ interface AssetDetail {
   transfers?: OpenTransfer[];
   disposal?: DisposalRecord | null;
   /** v2.53 - the catalogue listing this unit came from, when it came through procurement. */
-  vendorProduct?: { id: string; name: string } | null;
+  vendorProduct?: {
+    id: string;
+    name: string;
+    warrantyMonths?: number | null;
+    /** v2.61 - the listing's lead picture, which the image card shows first. */
+    primaryImageId?: string | null;
+  } | null;
   assignedUser?: (Person & { id: string }) | null;
   /** The real total - `assignments` is capped at 20 by the API. */
   assignmentCount?: number;
@@ -121,24 +171,37 @@ function fmtDate(value: string | null): string {
     : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/** The overview panels the "More actions" sheet can bring into view. */
+type Anchor = 'custody' | 'transfer' | 'disposal';
+
 /**
  * Asset detail — the screen a QR scan opens (spec section 15).
  *
- * Laid out as the web asset page is: the same header pills, the same tabs
- * shown to the same people, and the same wording, most of it from the domain
- * package's asset-detail module that the web page renders too. A client
- * holding a phone next to a laptop should read the same asset twice, not two
- * slightly different ones.
+ * Laid out as the redesigned web asset page is (v2.61 → phone v2.62): the
+ * same header, the same sections in the same order, the same picture rule and
+ * health tiles, and the same "More actions" doors, most of it from the domain
+ * package's asset-detail and asset-overview modules that the web page renders
+ * too. A client holding a phone next to a laptop should read the same asset
+ * twice, not two slightly different ones.
  */
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, user } = useSession();
   const router = useRouter();
-  const { c, scheme, spacing } = useTheme();
+  const { c, scheme, spacing, radius } = useTheme();
+  const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
 
   const [asset, setAsset] = useState<AssetDetail | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<AssetDetailTabKey>('overview');
+  const [tab, setTab] = useState<AssetDetailNavKey>('overview');
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  // Bringing an overview panel into view from the sheet: the panels report
+  // where they landed, and a jump waits for the one it wants when the
+  // overview has to mount first.
+  const scrollRef = useRef<ScrollView>(null);
+  const anchors = useRef<Partial<Record<Anchor, number>>>({});
+  const [pendingJump, setPendingJump] = useState<Anchor | null>(null);
 
   const load = useCallback(async () => {
     const data = await api.request<AssetDetail>(`/assets/${id}`);
@@ -165,6 +228,7 @@ export default function AssetDetailScreen() {
   const mayReturn = can(PERMISSIONS.ASSETS_RETURN);
   const mayEdit = can(PERMISSIONS.ASSETS_UPDATE);
   const canSeeCost = can(PERMISSIONS.ASSETS_COST_READ);
+  const canOpenCatalogue = can(PERMISSIONS.VENDOR_PRODUCTS_READ);
   // Either custody right is enough to photograph a handover (web: condition-photos.tsx).
   const canCapture = mayAssign || mayReturn;
   const isMine = Boolean(user && holderId === user.id);
@@ -220,15 +284,35 @@ export default function AssetDetailScreen() {
   }
 
   const softwareCount = asset._count?.installedSoftware ?? 0;
-  const tabs = assetDetailTabs({ showDiscovery: hasDiscoveryTabs(asset), softwareCount, canSeeCost });
+  const showDiscovery = hasDiscoveryTabs(asset);
+  const nav = assetDetailNav({ showDiscovery, softwareCount, canSeeCost });
+  const tabs = nav.map((item) => ({ ...item, icon: assetNavIcon(item.key) }));
   // Moving from a laptop to a headset with "Hardware" open would leave the
   // screen on a tab that no longer exists; fall back rather than show nothing.
-  const activeTab = tabs.some((t) => t.key === tab) ? tab : 'overview';
+  const activeTab: AssetDetailNavKey = tabs.some((t) => t.key === tab) ? tab : 'overview';
 
   // Offered to whoever the API lets report it - a fleet manager, or the person
   // holding the device - and not once it already is (web: same rule).
   const mayReportDamage = asset.status !== 'DAMAGED' && (mayEdit || isMine);
   const offer = custodyOptions({ canAssign: mayAssign, canReturn: mayReturn, status: asset.status, isHeld });
+  const transfer = transferView({
+    canTransfer: can(PERMISSIONS.ASSETS_TRANSFER),
+    status: asset.status,
+    holderId,
+    hasOpenTransfer: Boolean(asset.transfers?.[0]),
+  });
+  const canDispose = !asset.disposal && can(PERMISSIONS.ASSETS_DISPOSE) && DISPOSABLE_FROM.includes(asset.status);
+  const actionGroups = moreActions({
+    hasHolder: Boolean(asset.assignedUser),
+    canUpdate: mayEdit,
+    hasQrToken: Boolean(asset.qrToken),
+    custody: offer,
+    transfer,
+    canDispose,
+    canSeeCost,
+    hasPrice: asset.purchaseCost != null,
+  });
+
   const spec = assetSpecRows(asset.subcategory?.key, asset.specs);
   const issuedBy = issuedByName(asset.assignments);
   const warranty = warrantySource(
@@ -239,6 +323,35 @@ export default function AssetDetailScreen() {
     asset.name,
   );
   const conditionToken = CONDITION_TOKENS[asset.condition];
+  const identifier = assetIdentifier(asset);
+  const meta = headerMeta({
+    brand: asset.brand,
+    model: asset.model,
+    typeName: asset.subcategory?.name,
+    holderName,
+  });
+  const lastReport = latestAgentReport(asset.hardwareProfile, asset.osInfo);
+  const agent = lastReport ? agentPill(reportFreshness(lastReport.at), lastReport.at) : null;
+  const imageSource = resolveAssetImageSource(asset);
+  const tiles: HealthTile[] = [
+    ...(asset.health
+      ? [healthScoreTile(asset.health, HEALTH_GRADE_TONE[asset.health.grade] as HealthTile['tone'])]
+      : []),
+    ...deviceHealthTiles(asset.hardwareProfile, asset.osInfo),
+  ];
+  const specs = quickSpecs({
+    hw: asset.hardwareProfile,
+    os: asset.osInfo,
+    specs: asset.specs,
+    assetTag: asset.assetTag,
+  });
+  const { events } = deviceLifecycle(asset, fmtDate);
+  const standing = warrantyStanding(asset.warrantyEndDate);
+  const summary = noteSummary(asset.notes);
+  // The header thumbnail is the same picture the card leads with; the device
+  // glyph stands in when there is none, so both read as the same device.
+  const thumbPath = assetImagePath(imageSource, asset.id);
+  const thumb = thumbPath ? api.imageSource(thumbPath) : null;
 
   function checkWarranty() {
     if (!warranty) return;
@@ -254,70 +367,137 @@ export default function AssetDetailScreen() {
     ]);
   }
 
+  const scrollToAnchor = (key: Anchor) => {
+    const y = anchors.current[key];
+    if (y == null) return false;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - spacing.sm), animated: true });
+    return true;
+  };
+  const anchorLayout = (key: Anchor) => (e: LayoutChangeEvent) => {
+    anchors.current[key] = e.nativeEvent.layout.y;
+    if (pendingJump === key) {
+      scrollToAnchor(key);
+      setPendingJump(null);
+    }
+  };
+  /** Switch to the overview and bring one of its panels into view. */
+  function jumpTo(key: Anchor) {
+    if (activeTab === 'overview' && scrollToAnchor(key)) return;
+    setTab('overview');
+    setPendingJump(key);
+  }
+
+  function runAction(key: MoreActionKey) {
+    if (!asset) return;
+    switch (key) {
+      case 'receipt':
+        router.push(`/asset/receipt?id=${asset.id}`);
+        return;
+      case 'edit':
+        router.push(`/asset/edit?id=${asset.id}`);
+        return;
+      case 'qr':
+        setTab('lifecycle');
+        return;
+      case 'price':
+        setTab('financials');
+        return;
+      default:
+        jumpTo(key);
+    }
+  }
+
+  const openListing = asset.vendorProduct && canOpenCatalogue
+    ? () => router.push(`/offer/${asset.vendorProduct!.id}`)
+    : undefined;
+
   return (
-    <Screen scroll>
+    <Screen scroll scrollRef={scrollRef}>
+      {/* Header: who this device is, in one glance. */}
       <Card style={{ marginBottom: spacing.lg }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-          <IconBadge icon="hardware-chip-outline" />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>{asset.name}</Text>
-            <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>
-              {asset.assetTag}
-              {asset.serialNumber ? ` · SN ${asset.serialNumber}` : ''}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>
+          {thumb ? (
+            <AuthImage
+              uri={thumb.uri}
+              headers={thumb.headers}
+              style={{ width: 48, height: 48, borderRadius: 12 }}
+              accessibilityLabel={asset.name}
+            />
+          ) : (
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                backgroundColor: c.brandSoft,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <DeviceIcon typeKey={asset.subcategory?.key} size={24} color={c.brand} />
+            </View>
+          )}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>
+              {asset.name}
+              {identifier ? (
+                <Text style={{ color: c.muted, fontWeight: '400', fontSize: 15 }}>
+                  {' '}· {identifier.label} {identifier.value}
+                </Text>
+              ) : null}
+            </Text>
+            <Text style={{ color: c.muted, fontSize: 13, marginTop: 3, lineHeight: 18 }}>
+              {[...meta, asset.assetTag].join('  |  ')}
             </Text>
           </View>
-          {/* Printable handover receipt - offered whenever a holder exists, as
-              on the web; an employee can only ever reach their own device. */}
-          {asset.assignedUser ? (
+          {actionGroups.length > 0 ? (
             <Pressable
-              onPress={() => router.push(`/asset/receipt?id=${asset.id}`)}
+              onPress={() => setActionsOpen(true)}
               accessibilityRole="button"
-              accessibilityLabel="Handover receipt"
+              accessibilityLabel="More actions"
               hitSlop={8}
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 4,
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: 999,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
                 borderWidth: 1,
                 borderColor: c.border,
-              }}
-            >
-              <Ionicons name="print-outline" size={15} color={c.brand} />
-              <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>Receipt</Text>
-            </Pressable>
-          ) : null}
-          {mayEdit ? (
-            <Pressable
-              onPress={() => router.push(`/asset/edit?id=${asset.id}`)}
-              accessibilityRole="button"
-              accessibilityLabel="Edit asset"
-              hitSlop={8}
-              style={{
-                flexDirection: 'row',
                 alignItems: 'center',
-                gap: 4,
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: c.border,
+                justifyContent: 'center',
               }}
             >
-              <Ionicons name="create-outline" size={15} color={c.brand} />
-              <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>Edit</Text>
+              <Ionicons name="ellipsis-horizontal" size={18} color={c.text} />
             </Pressable>
           ) : null}
         </View>
+
         <View
           style={{ marginTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
         >
           {assetPills(asset, scheme, { includeOwnership: true }).map((p) => (
             <StatusPill key={p.label} label={p.label} bg={p.bg} fg={p.fg} />
           ))}
+          <StatusPill
+            label={`Condition: ${conditionToken.label}`}
+            bg={palette[conditionToken.tone].bg}
+            fg={palette[conditionToken.tone].fg}
+          />
+          {/* Agent freshness, never "online": the agent reports on a schedule,
+              so the honest claim is how recently it did. */}
+          {agent ? <StatusPill label={agent.label} bg={palette[agent.tone].bg} fg={palette[agent.tone].fg} /> : null}
         </View>
+
+        {lastReport ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md }}>
+            <Ionicons name="sync-outline" size={13} color={c.subtle} />
+            <Text style={{ color: c.subtle, fontSize: 12, flex: 1 }}>
+              Last sync <Text style={{ color: c.muted, fontWeight: '600' }}>{new Date(lastReport.at).toLocaleString()}</Text>
+              {' · '}
+              {lastSyncLine(lastReport)}
+            </Text>
+          </View>
+        ) : null}
+
         {mayReportDamage ? (
           <Button
             label="Report damage"
@@ -334,17 +514,59 @@ export default function AssetDetailScreen() {
 
       {activeTab === 'overview' ? (
         <>
-          <Card style={{ padding: 0, marginBottom: spacing.xl }}>
+          <AssetImageCard
+            assetId={asset.id}
+            assetName={asset.name}
+            typeKey={asset.subcategory?.key}
+            brand={asset.brand}
+            source={imageSource}
+            hasOwnPhoto={Boolean(asset.photo)}
+            canManage={mayEdit}
+            onViewListing={openListing}
+            onChanged={() => void load()}
+          />
+
+          <ListCard title="Key information">
+            <InfoRow label="Serial number" value={asset.serialNumber} copy={asset.serialNumber} mono />
+            <InfoRow label="Asset tag" value={asset.assetTag} copy={asset.assetTag} mono />
             <InfoRow label="Category" value={asset.category?.name} />
             <InfoRow label="Type" value={asset.subcategory?.name} />
-            <InfoRow label="Office" value={asset.office?.name} />
             <InfoRow label="Brand" value={asset.brand} />
             <InfoRow label="Model" value={asset.model} />
-            {/* Shown only when the asset carries one, as on the web. */}
-            {asset.imei ? <InfoRow label="IMEI" value={asset.imei} /> : null}
-            {asset.macAddress ? <InfoRow label="MAC address" value={asset.macAddress} /> : null}
-            <InfoRow label="Condition" value={<ToneBadge tone={conditionToken.tone} label={conditionToken.label} />} />
-            <InfoRow label="Purchased on" value={fmtDate(asset.purchaseDate)} />
+            {/* Shown only when the asset carries one, so a monitor's list is
+                not padded with blank network rows. */}
+            {asset.macAddress ? (
+              <InfoRow label="MAC address" value={asset.macAddress} copy={asset.macAddress} mono />
+            ) : null}
+            {asset.imei ? <InfoRow label="IMEI" value={asset.imei} copy={asset.imei} mono /> : null}
+            <InfoRow label="Office" value={asset.office?.name} />
+            <InfoRow
+              label="Assigned to"
+              last={!asset.department && !asset.vendorProduct}
+              value={
+                holderName ? (
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 14, textAlign: 'right' }}>
+                      {holderName}
+                      {asset.assignedUser?.profile?.employeeNumber ? (
+                        <Text style={{ color: c.subtle, fontSize: 12, fontWeight: '400' }}>
+                          {' '}
+                          · {asset.assignedUser.profile.employeeNumber}
+                        </Text>
+                      ) : null}
+                    </Text>
+                    {issuedBy ? (
+                      <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>issued by {issuedBy}</Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  'Unassigned'
+                )
+              }
+            />
+            {asset.department ? (
+              <InfoRow label="Team / department" value={asset.department.name} last={!asset.vendorProduct} />
+            ) : null}
             {/* v2.53 - what this unit is according to the supplier who sold it.
                 A link only for someone who can open the catalogue: an employee
                 looking at their own laptop would otherwise tap through to a
@@ -353,16 +575,174 @@ export default function AssetDetailScreen() {
               <InfoRow
                 label="Supplied as"
                 value={asset.vendorProduct.name}
-                {...(can(PERMISSIONS.VENDOR_PRODUCTS_READ)
-                  ? { onPress: () => router.push(`/offer/${asset.vendorProduct!.id}`) }
-                  : {})}
+                last
+                {...(openListing ? { onPress: openListing } : {})}
               />
+            ) : null}
+          </ListCard>
+
+          {tiles.length > 0 ? (
+            <Card style={{ marginBottom: spacing.lg }}>
+              <CardTitle
+                action={
+                  lastReport ? (
+                    <Text style={{ color: c.subtle, fontSize: 12 }}>Reported {relativeAge(lastReport.at)}</Text>
+                  ) : null
+                }
+              >
+                Device health
+              </CardTitle>
+              <HealthTileGrid tiles={tiles} />
+              {showDiscovery ? <CardLink label="View health details" onPress={() => setTab('health')} /> : null}
+            </Card>
+          ) : null}
+
+          {/* v2.20 - whatever the type declared, labelled from the same
+              catalogue the form used. Nothing recorded, nothing shown. */}
+          {spec.rows.length > 0 ? (
+            <ListCard title={`${spec.title} specification`}>
+              {spec.rows.map(([label, value], i) => (
+                <InfoRow key={label} label={label} value={value} last={i === spec.rows.length - 1} />
+              ))}
+            </ListCard>
+          ) : null}
+
+          {/* v2.32 - condition evidence, before and after, as a timeline per
+              custody event. Shown whether or not the asset is out now. */}
+          <ConditionPhotoStrip
+            assetId={asset.id}
+            refreshKey={photoVersion}
+            canCapture={canCapture}
+            holderName={holderName}
+            onAdd={setPhotoStage}
+          />
+          <View style={{ height: spacing.sm }} />
+
+          <Card style={{ marginBottom: spacing.lg }}>
+            <CardTitle
+              action={
+                <Pressable onPress={() => setTab('lifecycle')} accessibilityRole="link" hitSlop={6}>
+                  <Text style={{ color: c.brand, fontSize: 13, fontWeight: '600' }}>Full lifecycle →</Text>
+                </Pressable>
+              }
+            >
+              {'Lifecycle & service'}
+            </CardTitle>
+            {events.length === 0 ? (
+              <Text style={{ color: c.muted, fontSize: 14 }}>Nothing recorded for this device yet.</Text>
+            ) : (
+              events.map((e, i) => (
+                <TimelineEvent key={i} event={e} formatDate={fmtDate} last={i === events.length - 1} />
+              ))
+            )}
+          </Card>
+
+          {/* v2.21 - what else this person was given. Only with a holder: with
+              nobody holding it there is no kit to speak of. */}
+          {holderId ? (
+            <EquipmentKit holderId={holderId} holderName={holderName} excludeAssetId={asset.id} />
+          ) : null}
+
+          {/* Custody: the web panel's moves, gated by the same rule, plus the
+              holder's side of it - confirming receipt - which is the phone's. */}
+          <View onLayout={anchorLayout('custody')}>
+            {offer.show || (openAssignment && isMine) ? (
+              <>
+                <SectionTitle>Custody</SectionTitle>
+                <Card style={{ marginBottom: spacing.xl }}>
+                  <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
+                    {isHeld ? `Currently with ${holderName ?? 'someone'}.` : 'Not assigned to anyone right now.'}
+                  </Text>
+
+                  {openAssignment && isMine && !openAssignment.acknowledgedAt ? (
+                    <Button
+                      label="Confirm receipt"
+                      icon="checkmark-circle-outline"
+                      onPress={confirmReceipt}
+                      loading={busy}
+                      style={{ marginBottom: spacing.md }}
+                    />
+                  ) : null}
+
+                  {/* Offered for as long as the asset is out, not just before
+                      receipt is confirmed: a mouse or a monitor gets damaged
+                      months later, and the person holding it is the only one
+                      looking at it. Confirming locks removal, not addition.
+                      Custody staff get the same camera from the photo section. */}
+                  {openAssignment && isMine && !canCapture ? (
+                    <>
+                      <Button
+                        label="Add a photo of it"
+                        icon="camera-outline"
+                        variant="secondary"
+                        onPress={() => setPhotoStage('HANDOVER')}
+                        style={{ marginBottom: spacing.sm }}
+                      />
+                      <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
+                        {openAssignment.acknowledgedAt
+                          ? 'Photograph any marks or damage. Once added, removing it needs IT.'
+                          : 'Optional. Photograph any marks now — confirming receipt locks what you add.'}
+                      </Text>
+                    </>
+                  ) : null}
+
+                  {offer.assign ? (
+                    <Button
+                      label="Assign"
+                      icon="person-add-outline"
+                      onPress={() => setHandover('assign')}
+                      disabled={busy}
+                      style={{ marginBottom: spacing.sm }}
+                    />
+                  ) : null}
+                  {offer.handOver ? (
+                    <Button
+                      label="Hand over"
+                      icon="swap-horizontal-outline"
+                      variant="secondary"
+                      onPress={() => setHandover('reassign')}
+                      disabled={busy}
+                      style={{ marginBottom: spacing.sm }}
+                    />
+                  ) : null}
+                  {offer.recordReturn ? (
+                    <Button
+                      label="Record return"
+                      icon="arrow-undo-outline"
+                      variant="secondary"
+                      onPress={() => setHandover('return')}
+                      disabled={busy}
+                    />
+                  ) : null}
+                </Card>
+              </>
+            ) : null}
+          </View>
+
+          <Card style={{ marginBottom: spacing.lg }}>
+            <CardTitle>Condition</CardTitle>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <ToneBadge tone={conditionToken.tone} label={conditionToken.label} />
+              <Text style={{ color: c.muted, fontSize: 14, flex: 1, lineHeight: 20 }}>
+                {conditionSentence(asset.condition)}
+              </Text>
+            </View>
+          </Card>
+
+          <ListCard title={'Warranty & purchase'} action={<ToneBadge tone={standing.tone} label={standing.label} />}>
+            <InfoRow label="Purchased on" value={fmtDate(asset.purchaseDate)} />
+            {asset.vendorProduct?.warrantyMonths ? (
+              <InfoRow label="Cover" value={`${asset.vendorProduct.warrantyMonths} months`} />
+            ) : null}
+            {asset.expectedReplacementDate ? (
+              <InfoRow label="Expected replacement" value={fmtDate(asset.expectedReplacementDate)} />
             ) : null}
             <InfoRow
               label="Warranty ends"
+              last
               value={
-                <>
-                  <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: standing.expired ? c.danger : c.text, fontWeight: '600', fontSize: 14 }}>
                     {fmtDate(asset.warrantyEndDate)}
                   </Text>
                   {/* The maker's official lookup, detected from what the asset
@@ -381,164 +761,73 @@ export default function AssetDetailScreen() {
                       <Ionicons name="open-outline" size={13} color={c.brand} />
                     </Pressable>
                   ) : null}
-                </>
+                </View>
               }
             />
-            <InfoRow
-              label="Assigned to"
-              last
-              value={
-                holderName ? (
-                  <>
-                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 14, textAlign: 'right' }}>
-                      {holderName}
-                      {asset.assignedUser?.profile?.employeeNumber ? (
-                        <Text style={{ color: c.subtle, fontSize: 12, fontWeight: '400' }}>
-                          {' '}
-                          · {asset.assignedUser.profile.employeeNumber}
-                        </Text>
-                      ) : null}
-                    </Text>
-                    {issuedBy ? (
-                      <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>issued by {issuedBy}</Text>
-                    ) : null}
-                  </>
-                ) : (
-                  'Unassigned'
-                )
-              }
+          </ListCard>
+
+          <ListCard
+            title="Quick specs"
+            footer={
+              showDiscovery && asset.hardwareProfile ? (
+                <CardLink label="View full hardware details" onPress={() => setTab('hardware')} />
+              ) : null
+            }
+          >
+            {specs.map((row, i) => (
+              <InfoRow key={row.label} label={row.label} value={row.value} last={i === specs.length - 1} />
+            ))}
+          </ListCard>
+
+          <View onLayout={anchorLayout('transfer')}>
+            <TransferCard
+              assetId={asset.id}
+              assetName={asset.name}
+              status={asset.status}
+              officeId={asset.office?.id ?? null}
+              holderId={holderId}
+              openTransfer={asset.transfers?.[0] ?? null}
+              onChanged={() => void load()}
             />
-          </Card>
-
-          {asset.notes ? (
-            <Card style={{ marginTop: -spacing.md, marginBottom: spacing.xl }}>
-              <Text style={{ color: c.muted, fontSize: 13, lineHeight: 19 }}>{asset.notes}</Text>
-            </Card>
-          ) : null}
-
-          {/* v2.20 - whatever the type declared, labelled from the same
-              catalogue the form used. Nothing recorded, nothing shown. */}
-          {spec.rows.length > 0 ? (
-            <>
-              <SectionTitle>{spec.title}</SectionTitle>
-              <Card style={{ padding: 0, marginBottom: spacing.xl }}>
-                {spec.rows.map(([label, value], i) => (
-                  <InfoRow key={label} label={label} value={value} last={i === spec.rows.length - 1} />
-                ))}
-              </Card>
-            </>
-          ) : null}
-
-          {/* Custody: the web panel's moves, gated by the same rule, plus the
-              holder's side of it - confirming receipt - which is the phone's. */}
-          {offer.show || (openAssignment && isMine) ? (
-            <>
-              <SectionTitle>Custody</SectionTitle>
-              <Card style={{ marginBottom: spacing.xl }}>
-                <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
-                  {isHeld ? `Currently with ${holderName ?? 'someone'}.` : 'Not assigned to anyone right now.'}
-                </Text>
-
-                {openAssignment && isMine && !openAssignment.acknowledgedAt ? (
-                  <Button
-                    label="Confirm receipt"
-                    icon="checkmark-circle-outline"
-                    onPress={confirmReceipt}
-                    loading={busy}
-                    style={{ marginBottom: spacing.md }}
-                  />
-                ) : null}
-
-                {/* Offered for as long as the asset is out, not just before
-                    receipt is confirmed: a mouse or a monitor gets damaged
-                    months later, and the person holding it is the only one
-                    looking at it. Confirming locks removal, not addition.
-                    Custody staff get the same camera from the photo section. */}
-                {openAssignment && isMine && !canCapture ? (
-                  <>
-                    <Button
-                      label="Add a photo of it"
-                      icon="camera-outline"
-                      variant="secondary"
-                      onPress={() => setPhotoStage('HANDOVER')}
-                      style={{ marginBottom: spacing.sm }}
-                    />
-                    <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
-                      {openAssignment.acknowledgedAt
-                        ? 'Photograph any marks or damage. Once added, removing it needs IT.'
-                        : 'Optional. Photograph any marks now — confirming receipt locks what you add.'}
-                    </Text>
-                  </>
-                ) : null}
-
-                {offer.assign ? (
-                  <Button
-                    label="Assign"
-                    icon="person-add-outline"
-                    onPress={() => setHandover('assign')}
-                    disabled={busy}
-                    style={{ marginBottom: spacing.sm }}
-                  />
-                ) : null}
-                {offer.handOver ? (
-                  <Button
-                    label="Hand over"
-                    icon="swap-horizontal-outline"
-                    variant="secondary"
-                    onPress={() => setHandover('reassign')}
-                    disabled={busy}
-                    style={{ marginBottom: spacing.sm }}
-                  />
-                ) : null}
-                {offer.recordReturn ? (
-                  <Button
-                    label="Record return"
-                    icon="arrow-undo-outline"
-                    variant="secondary"
-                    onPress={() => setHandover('return')}
-                    disabled={busy}
-                  />
-                ) : null}
-              </Card>
-            </>
-          ) : null}
-
-          {/* v2.32 - condition evidence, before and after, as a timeline per
-              custody event. Shown whether or not the asset is out now. */}
-          <ConditionPhotoStrip
-            assetId={asset.id}
-            refreshKey={photoVersion}
-            canCapture={canCapture}
-            holderName={holderName}
-            onAdd={setPhotoStage}
-          />
-          <View style={{ height: spacing.sm }} />
-
-          {/* v2.21 - what else this person was given. Only with a holder: with
-              nobody holding it there is no kit to speak of. */}
-          {holderId ? (
-            <EquipmentKit holderId={holderId} holderName={holderName} excludeAssetId={asset.id} />
-          ) : null}
-
-          <TransferCard
-            assetId={asset.id}
-            assetName={asset.name}
-            status={asset.status}
-            officeId={asset.office?.id ?? null}
-            holderId={holderId}
-            openTransfer={asset.transfers?.[0] ?? null}
-            onChanged={() => void load()}
-          />
+          </View>
 
           {/* End of life: the record once it exists, or the action for
               assets:dispose holders when the state machine allows it. */}
-          <DisposalCard
-            assetId={asset.id}
-            assetName={asset.name}
-            status={asset.status}
-            disposal={asset.disposal ?? null}
-            onChanged={() => void load()}
-          />
+          <View onLayout={anchorLayout('disposal')}>
+            <DisposalCard
+              assetId={asset.id}
+              assetName={asset.name}
+              status={asset.status}
+              disposal={asset.disposal ?? null}
+              onChanged={() => void load()}
+            />
+          </View>
+
+          {/* The imported sheet's remarks, one line, with the way to the rest. */}
+          {summary ? (
+            <Pressable
+              onPress={() => setTab('notes')}
+              accessibilityRole="button"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                borderWidth: 1,
+                borderColor: c.border,
+                borderRadius: radius.lg,
+                backgroundColor: c.card,
+                paddingHorizontal: spacing.lg,
+                paddingVertical: 10,
+              }}
+            >
+              <Ionicons name="document-text-outline" size={16} color={c.subtle} />
+              <Text style={{ color: c.muted, fontSize: 13, flex: 1 }} numberOfLines={2}>
+                {standing.expired ? <Text style={{ color: c.danger, fontWeight: '600' }}>Warranty out · </Text> : null}
+                {summary}
+              </Text>
+              <Text style={{ color: c.brand, fontSize: 12, fontWeight: '600' }}>Open notes</Text>
+            </Pressable>
+          ) : null}
         </>
       ) : null}
 
@@ -557,6 +846,41 @@ export default function AssetDetailScreen() {
 
       {activeTab === 'history' ? <HistoryTab asset={asset} /> : null}
 
+      {activeTab === 'notes' ? (
+        <AssetNotes
+          assetId={asset.id}
+          notes={asset.notes}
+          description={asset.description}
+          version={asset.version}
+          canEdit={mayEdit}
+          onEditForm={() => router.push(`/asset/edit?id=${asset.id}`)}
+          onSaved={() => void load()}
+        />
+      ) : null}
+
+      {activeTab === 'attachments' ? (
+        <>
+          {/* v2.32 - condition evidence, before and after. */}
+          <ConditionPhotoStrip
+            assetId={asset.id}
+            refreshKey={photoVersion}
+            canCapture={canCapture}
+            holderName={holderName}
+            onAdd={setPhotoStage}
+          />
+          <View style={{ height: spacing.sm }} />
+          <Card>
+            <CardTitle>Documents</CardTitle>
+            <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>
+              Documents are not yet stored against individual assets — the condition photos above are the
+              evidence on file for this unit.
+              {asset.vendorProduct ? ' Datasheets, manuals and certificates for this model live on its catalogue listing.' : ''}
+            </Text>
+            {openListing ? <CardLink label="Open the catalogue listing" onPress={openListing} /> : null}
+          </Card>
+        </>
+      ) : null}
+
       {/* Price — assets:cost:read only (PriceCard checks again); recorded once, then locked. */}
       {activeTab === 'financials' && canSeeCost ? (
         <PriceCard
@@ -566,6 +890,14 @@ export default function AssetDetailScreen() {
           onRecorded={() => void load()}
         />
       ) : null}
+
+      <MoreActionsSheet
+        visible={actionsOpen}
+        groups={actionGroups}
+        assetName={asset.name}
+        onClose={() => setActionsOpen(false)}
+        onSelect={runAction}
+      />
 
       {/* Mounted whatever the tab, so a handover finished from the custody
           card can still open the camera straight after. */}
@@ -597,6 +929,33 @@ export default function AssetDetailScreen() {
         }}
       />
     </Screen>
+  );
+}
+
+/**
+ * A card whose body is a list of InfoRows: the title sits inside the card, as
+ * on the web, with the rows flush to its edges beneath it.
+ */
+function ListCard({
+  title,
+  action,
+  footer,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const { spacing } = useTheme();
+  return (
+    <Card style={{ padding: 0, marginBottom: spacing.lg }}>
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 2 }}>
+        <CardTitle action={action}>{title}</CardTitle>
+      </View>
+      {children}
+      {footer ? <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>{footer}</View> : null}
+    </Card>
   );
 }
 

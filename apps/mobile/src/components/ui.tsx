@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -20,17 +20,21 @@ export function Screen({
   scroll = false,
   padded = true,
   refreshControl,
+  scrollRef,
 }: {
   children: ReactNode;
   scroll?: boolean;
   padded?: boolean;
   refreshControl?: ComponentProps<typeof ScrollView>['refreshControl'];
+  /** With `scroll`, a handle on the list so a screen can bring one of its sections into view. */
+  scrollRef?: RefObject<ScrollView | null>;
 }) {
   const { c, spacing } = useTheme();
   const pad = padded ? { padding: spacing.lg } : undefined;
   if (scroll) {
     return (
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1, backgroundColor: c.background }}
         contentContainerStyle={[{ paddingBottom: spacing.xxl }, pad]}
         refreshControl={refreshControl}

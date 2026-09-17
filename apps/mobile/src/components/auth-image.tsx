@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Platform, type ImageStyle, type StyleProp } from 'react-native';
 import { useTheme } from '../theme';
 
@@ -20,14 +20,28 @@ export function AuthImage({
   headers,
   style,
   accessibilityLabel,
+  resizeMode = 'cover',
+  onError,
 }: {
   uri: string;
   headers: Record<string, string>;
   style?: StyleProp<ImageStyle>;
   accessibilityLabel: string;
+  /** Product pictures are shown whole (`contain`); photos fill their frame. */
+  resizeMode?: 'cover' | 'contain';
+  /**
+   * Told once when the bytes cannot be shown (permission, a deleted file), so a
+   * caller with something better than a blank box - the asset card's
+   * illustration - can fall back to it. Optional: most callers keep the blank.
+   */
+  onError?: () => void;
 }) {
   const { c } = useTheme();
   const [webUri, setWebUri] = useState<string | null>(null);
+  // Held in a ref: the callback's identity is not an input, and re-fetching
+  // whenever a parent re-renders would re-download the same picture.
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -36,7 +50,10 @@ export function AuthImage({
     void (async () => {
       try {
         const res = await fetch(uri, { headers });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (alive) onErrorRef.current?.();
+          return;
+        }
         const blob = await res.blob();
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -44,6 +61,7 @@ export function AuthImage({
       } catch {
         // Left blank rather than shown broken; the caller's caption still says
         // what it was meant to be.
+        if (alive) onErrorRef.current?.();
       }
     })();
     return () => {
@@ -58,8 +76,9 @@ export function AuthImage({
     <Image
       source={source ?? undefined}
       style={[{ backgroundColor: c.border }, style]}
-      resizeMode="cover"
+      resizeMode={resizeMode}
       accessibilityLabel={accessibilityLabel}
+      onError={onError ? () => onError() : undefined}
     />
   );
 }

@@ -62,7 +62,8 @@ export function LifecycleTab({
   );
 }
 
-function TimelineEvent({
+/** One dot-and-line of the timeline; the overview's "Lifecycle & service" card draws the same rows. */
+export function TimelineEvent({
   event,
   formatDate,
   last,
