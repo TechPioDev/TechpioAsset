@@ -10,6 +10,7 @@ export * from './money';
 export * from './tracking';
 export * from './permissions';
 export * from './workflow';
+export * from './workflow-order';
 export * from './sod';
 export * from './invoice-verification';
 export * from './ai-config';

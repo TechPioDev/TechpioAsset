@@ -68,8 +68,13 @@ export class WorkflowService {
       return { definitionId: null, steps: [] };
     }
 
+    // v2.28 - a step switched off is not part of the process for anything
+    // raised from now on. Filtered here, at the snapshot, so a request already
+    // in flight keeps the step it was submitted with.
+    const enabled = definition.steps.filter((step) => step.isEnabled);
+
     const applicable = resolveApplicableSteps(
-      definition.steps.map((step) => ({
+      enabled.map((step) => ({
         stepOrder: step.stepOrder,
         approverType: step.approverType as ApproverType,
         approverRoleKey: step.approverRole?.key ?? null,

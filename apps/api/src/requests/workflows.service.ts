@@ -2,15 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import type {
   AuthUser,
+  CreateWorkflowStepInput,
+  ReorderWorkflowStepsInput,
   SetAssessmentStagesInput,
   UpdateWorkflowStepInput,
 } from '@techpioasset/contracts';
+import { assessmentInsertIndex, isCompleteReorder, orderWorkflowSteps } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Reading and tuning the configured approval chains (v2.24).
+ * Reading and editing the configured approval chains (v2.24, v2.28).
  *
  * The chains have been configurable in the data model since the beginning and
  * editable nowhere: `workflows:configure` was granted to Super Admin and
@@ -22,6 +25,14 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * it, because a threshold is only half the question: a step that applies to
  * every request and has no eligible approver is worse than one that rarely
  * applies.
+ *
+ * v2.28 adds the structure itself - add, rename, remove and reorder approval
+ * steps. Two rules hold throughout: a chain is snapshotted onto the request
+ * when it is submitted, so a structural change reaches only requests raised
+ * afterwards (the one exception, moving a step's role, is deliberate and
+ * documented on updateStep); and the assessment stages are never edited one
+ * at a time - they stay a pair and are re-placed by their rule after every
+ * change, see @techpioasset/domain orderWorkflowSteps.
  */
 @Injectable()
 export class WorkflowsService {
@@ -68,30 +79,43 @@ export class WorkflowsService {
         })
       : 0;
 
-    return definitions.map((definition) => ({
-      id: definition.id,
-      key: definition.key,
-      name: definition.name,
-      description: definition.description,
-      requestType: definition.requestType,
-      isActive: definition.isActive,
-      steps: definition.steps.map((step) => ({
-        id: step.id,
-        stepOrder: step.stepOrder,
-        name: step.name,
-        approverType: step.approverType,
-        approverRoleKey: step.approverRole?.key ?? null,
-        approverRoleName: step.approverRole?.name ?? null,
-        costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
-        kind: step.kind,
-        isSkippable: step.isSkippable,
-        slaHours: step.slaHours,
-        eligibleApprovers:
-          step.approverType === 'LINE_MANAGER'
-            ? managerHolders
-            : (holderCount.get(step.approverRoleId ?? '') ?? 0),
-      })),
-    }));
+    return definitions.map((definition) => {
+      const approvals = definition.steps.filter((s) => s.kind === 'APPROVAL');
+      const enabledCount = approvals.filter((s) => s.isEnabled).length;
+      // A chain must keep one enabled approval step, or every new request is
+      // approved on submission. Removing a step that is already off never
+      // threatens that; removing or switching off the last one on does.
+      const lastOn = (step: (typeof approvals)[number]) => step.isEnabled && enabledCount <= 1;
+      return {
+        id: definition.id,
+        key: definition.key,
+        name: definition.name,
+        description: definition.description,
+        requestType: definition.requestType,
+        isActive: definition.isActive,
+        steps: definition.steps.map((step) => ({
+          id: step.id,
+          stepOrder: step.stepOrder,
+          name: step.name,
+          approverType: step.approverType,
+          approverRoleKey: step.approverRole?.key ?? null,
+          approverRoleName: step.approverRole?.name ?? null,
+          costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
+          kind: step.kind,
+          isSkippable: step.isSkippable,
+          slaHours: step.slaHours,
+          eligibleApprovers:
+            step.approverType === 'LINE_MANAGER'
+              ? managerHolders
+              : (holderCount.get(step.approverRoleId ?? '') ?? 0),
+          isEnabled: step.isEnabled,
+          // The stages leave only as a pair, via their own route, and are
+          // never switched off - they hold the request until answered.
+          canRemove: step.kind === 'APPROVAL' && approvals.length > 1 && !lastOn(step),
+          canDisable: step.kind === 'APPROVAL' && step.isEnabled && !lastOn(step),
+        })),
+      };
+    });
   }
 
   /**
@@ -149,8 +173,9 @@ export class WorkflowsService {
     if (!role) throw AppError.notFound('Role', roleKey);
 
     // Before the first thresholded step: its answer is what the threshold is
-    // measured against.
-    const firstThresholded = definition.steps.find((s) => s.costThreshold !== null);
+    // measured against. The same rule re-places the pair after every later
+    // add, remove or reorder.
+    const firstThresholded = definition.steps[assessmentInsertIndex(definition.steps)];
     const insertAt = firstThresholded
       ? firstThresholded.stepOrder
       : (definition.steps.at(-1)?.stepOrder ?? 0) + 1;
@@ -226,19 +251,244 @@ export class WorkflowsService {
       orderBy: { stepOrder: 'asc' },
       select: { id: true },
     });
+    await this.writeOrder(
+      tx,
+      steps.map((step) => step.id),
+    );
+  }
+
+  /** Assign stepOrder 1..n in the order given; two passes, see renumber. */
+  private async writeOrder(
+    tx: Pick<PrismaService['client'], 'workflowStep'>,
+    orderedIds: readonly string[],
+  ): Promise<void> {
     const PARK = 1000;
-    for (const [index, step] of steps.entries()) {
-      await tx.workflowStep.update({
-        where: { id: step.id },
-        data: { stepOrder: PARK + index },
-      });
+    for (const [index, id] of orderedIds.entries()) {
+      await tx.workflowStep.update({ where: { id }, data: { stepOrder: PARK + index } });
     }
-    for (const [index, step] of steps.entries()) {
-      await tx.workflowStep.update({
-        where: { id: step.id },
-        data: { stepOrder: index + 1 },
-      });
+    for (const [index, id] of orderedIds.entries()) {
+      await tx.workflowStep.update({ where: { id }, data: { stepOrder: index + 1 } });
     }
+  }
+
+  /**
+   * Write the whole chain from an approval order, with the assessment pair
+   * re-placed by its rule. Every structural change ends here so the pair can
+   * never be split or stranded by one of them.
+   */
+  private async applyOrder(
+    tx: Pick<PrismaService['client'], 'workflowStep'>,
+    definitionId: string,
+    approvalIdsInOrder: readonly string[],
+  ): Promise<void> {
+    const steps = await tx.workflowStep.findMany({
+      where: { workflowDefinitionId: definitionId },
+      select: { id: true, kind: true, costThreshold: true },
+    });
+    const byId = new Map(steps.map((step) => [step.id, step]));
+    const approvals = approvalIdsInOrder
+      .map((id) => byId.get(id))
+      .filter((step): step is NonNullable<typeof step> => Boolean(step))
+      .map((step) => ({
+        id: step.id,
+        kind: step.kind,
+        costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
+      }));
+    const stages = steps
+      .filter((step) => step.kind !== 'APPROVAL')
+      .map((step) => ({ id: step.id, kind: step.kind, costThreshold: null }));
+    await this.writeOrder(
+      tx,
+      orderWorkflowSteps(approvals, stages).map((step) => step.id),
+    );
+  }
+
+  private async findDefinition(actor: AuthUser, definitionId: string) {
+    const definition = await this.prisma.client.workflowDefinition.findFirst({
+      where: { id: definitionId, companyId: actor.companyId },
+      include: { steps: { orderBy: { stepOrder: 'asc' } } },
+    });
+    if (!definition) throw AppError.notFound('Workflow', definitionId);
+    return definition;
+  }
+
+  /**
+   * Add an approval step (v2.28).
+   *
+   * `position` counts among the approval steps only; the assessment pair then
+   * lands wherever the rule puts it, which may be before the new step if it
+   * is the first to carry a threshold. Requests already in flight are
+   * untouched - they carry their own copy of the chain.
+   */
+  async addStep(actor: AuthUser, definitionId: string, input: CreateWorkflowStepInput) {
+    const definition = await this.findDefinition(actor, definitionId);
+
+    let approverRoleId: string | null = null;
+    if (input.approverType === 'ROLE') {
+      const role = await this.prisma.client.role.findFirst({
+        where: { companyId: actor.companyId, key: input.approverRoleKey ?? '' },
+        select: { id: true },
+      });
+      if (!role) throw AppError.notFound('Role', input.approverRoleKey);
+      approverRoleId = role.id;
+    }
+
+    const approvalIds = definition.steps.filter((s) => s.kind === 'APPROVAL').map((s) => s.id);
+    // Past the end reads as "last" rather than as an error: the page offers
+    // "After: <step>", and a step removed by somebody else in the meantime
+    // should not turn that into a refusal.
+    const at = Math.min((input.position ?? approvalIds.length + 1) - 1, approvalIds.length);
+
+    const created = await this.prisma.client.$transaction(async (tx) => {
+      const step = await tx.workflowStep.create({
+        data: {
+          workflowDefinitionId: definitionId,
+          // Parked clear of both the live range and renumber's own parking
+          // lot; applyOrder assigns the real number.
+          stepOrder: 5000 + definition.steps.length,
+          name: input.name,
+          kind: 'APPROVAL',
+          approverType: input.approverType,
+          approverRoleId,
+          costThreshold: input.costThreshold ? new Prisma.Decimal(input.costThreshold) : null,
+          slaHours: input.slaHours ?? null,
+        },
+      });
+      approvalIds.splice(at, 0, step.id);
+      await this.applyOrder(tx, definitionId, approvalIds);
+      return step;
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'WorkflowStep',
+      entityId: created.id,
+      newValues: {
+        workflow: definition.name,
+        step: input.name,
+        added: true,
+        position: at + 1,
+        approverType: input.approverType,
+        approverRoleId,
+        costThreshold: input.costThreshold ?? null,
+        slaHours: input.slaHours ?? null,
+      },
+    });
+
+    return this.list(actor);
+  }
+
+  /**
+   * Remove an approval step (v2.28).
+   *
+   * Requests already waiting on it keep it: their chain was copied at
+   * submission and is not rewritten here, exactly as removing the assessment
+   * stages behaves. Only requests raised from now on skip it.
+   */
+  async removeStep(actor: AuthUser, stepId: string) {
+    const step = await this.prisma.client.workflowStep.findFirst({
+      where: { id: stepId, workflowDefinition: { companyId: actor.companyId } },
+      include: {
+        workflowDefinition: {
+          select: { id: true, name: true, steps: { orderBy: { stepOrder: 'asc' } } },
+        },
+      },
+    });
+    if (!step) throw AppError.notFound('Workflow step', stepId);
+
+    if (step.kind !== 'APPROVAL') {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'The inventory check and cost assessment leave together - use "Remove stages" on the workflow.',
+      );
+    }
+    const remaining = step.workflowDefinition.steps.filter(
+      (s) => s.kind === 'APPROVAL' && s.id !== step.id,
+    );
+    if (remaining.length === 0) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'A workflow needs at least one approval step. Add another before removing this one.',
+      );
+    }
+    if (step.isEnabled && !remaining.some((s) => s.isEnabled)) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'This is the only step still switched on. Switch another on before removing it.',
+      );
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.workflowStep.delete({ where: { id: step.id } });
+      await this.applyOrder(
+        tx,
+        step.workflowDefinitionId,
+        remaining.map((s) => s.id),
+      );
+    });
+
+    const inFlight = await this.prisma.client.requestApproval.count({
+      where: {
+        stepName: step.name,
+        decision: { in: ['WAITING', 'PENDING'] },
+        request: { companyId: actor.companyId, workflowDefinitionId: step.workflowDefinitionId },
+      },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'WorkflowStep',
+      entityId: step.id,
+      previousValues: {
+        workflow: step.workflowDefinition.name,
+        step: step.name,
+        stepOrder: step.stepOrder,
+        approverType: step.approverType,
+        approverRoleId: step.approverRoleId,
+        costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
+      },
+      // Says what the change did NOT reach, so the trail explains why a
+      // request can still be waiting on a step the workflow no longer has.
+      newValues: { removed: true, inFlightRequestsKeepingStep: inFlight },
+    });
+
+    return this.list(actor);
+  }
+
+  /**
+   * Reorder the approval steps (v2.28). The list must name every approval
+   * step exactly once; the assessment pair follows its rule.
+   */
+  async reorderSteps(actor: AuthUser, definitionId: string, input: ReorderWorkflowStepsInput) {
+    const definition = await this.findDefinition(actor, definitionId);
+    const approvals = definition.steps.filter((s) => s.kind === 'APPROVAL');
+    if (!isCompleteReorder(input.stepIds, approvals)) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'The order must name every approval step in this workflow exactly once.',
+      );
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await this.applyOrder(tx, definitionId, input.stepIds);
+    });
+
+    const nameOf = new Map(definition.steps.map((s) => [s.id, s.name]));
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'WorkflowDefinition',
+      entityId: definitionId,
+      previousValues: { workflow: definition.name, order: approvals.map((s) => s.name) },
+      newValues: { order: input.stepIds.map((id) => nameOf.get(id) ?? id) },
+    });
+
+    return this.list(actor);
   }
 
   async updateStep(actor: AuthUser, stepId: string, input: UpdateWorkflowStepInput) {
@@ -251,12 +501,44 @@ export class WorkflowsService {
     if (!step) throw AppError.notFound('Workflow step', stepId);
 
     const data: Prisma.WorkflowStepUpdateInput = {};
+    // A rename reaches future requests only: the rows already in flight carry
+    // the name they were built with, and rewriting history is not the job.
+    if (input.name !== undefined) data.name = input.name;
     if (input.costThreshold !== undefined) {
       data.costThreshold =
         input.costThreshold === null ? null : new Prisma.Decimal(input.costThreshold);
     }
     if (input.isSkippable !== undefined) data.isSkippable = input.isSkippable;
     if (input.slaHours !== undefined) data.slaHours = input.slaHours;
+
+    // The On/Off switch (v2.28). Off is honoured when the next chain is
+    // built; nothing in flight changes. The stages are not switchable - they
+    // hold the request until answered - and the last step still on stays on.
+    if (input.isEnabled !== undefined && input.isEnabled !== step.isEnabled) {
+      if (step.kind !== 'APPROVAL') {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          'The inventory check and cost assessment are added or removed together, not switched off.',
+        );
+      }
+      if (!input.isEnabled) {
+        const othersOn = await this.prisma.client.workflowStep.count({
+          where: {
+            workflowDefinitionId: step.workflowDefinitionId,
+            kind: 'APPROVAL',
+            isEnabled: true,
+            id: { not: step.id },
+          },
+        });
+        if (othersOn === 0) {
+          throw new AppError(
+            'VALIDATION_FAILED',
+            'This is the only step still switched on. A workflow needs one, so switch another on first.',
+          );
+        }
+      }
+      data.isEnabled = input.isEnabled;
+    }
 
     let newRoleId: string | null = null;
     if (input.approverRoleKey !== undefined) {
@@ -322,13 +604,16 @@ export class WorkflowsService {
         step: step.name,
         costThreshold: step.costThreshold ? step.costThreshold.toString() : null,
         isSkippable: step.isSkippable,
+        isEnabled: step.isEnabled,
         slaHours: step.slaHours,
         approverRoleId: step.approverRoleId,
         approverType: step.approverType,
       },
       newValues: {
+        step: updated.name,
         costThreshold: updated.costThreshold ? updated.costThreshold.toString() : null,
         isSkippable: updated.isSkippable,
+        isEnabled: updated.isEnabled,
         slaHours: updated.slaHours,
         approverRoleId: updated.approverRoleId,
         approverType: updated.approverType,

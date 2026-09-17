@@ -30,8 +30,52 @@ let prisma: PrismaService;
 let s: Record<AccountKey, Session>;
 let financeStepId: string;
 let originalThreshold: string | null = null;
+/** The catch-all definition the restructuring tests edit. */
+let definitionId: string;
+/** A step name no seed uses, so leftovers from a broken run are recognisable. */
+const ADDED_STEP = 'Director sign-off';
 
 const listWorkflows = (as: Session) => api(app).get('/api/v1/workflows').set(auth(as));
+
+type StepView = {
+  id: string;
+  stepOrder: number;
+  name: string;
+  kind: string;
+  approverRoleKey: string | null;
+  costThreshold: string | null;
+  isEnabled: boolean;
+  canRemove: boolean;
+  canDisable: boolean;
+};
+
+async function stepsOf(id: string): Promise<StepView[]> {
+  const res = await listWorkflows(s.superAdmin);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  const definition = (res.body.data as { id: string; steps: StepView[] }[]).find(
+    (d) => d.id === id,
+  );
+  expect(definition, 'the workflow should still be listed').toBeTruthy();
+  return definition!.steps;
+}
+
+/**
+ * Remove any step this suite added, and switch every step back on, whatever
+ * state a previous run left.
+ */
+async function dropAddedStep() {
+  await prisma.client.workflowStep.updateMany({
+    where: { workflowDefinitionId: definitionId, isEnabled: false },
+    data: { isEnabled: true },
+  });
+  const strays = await prisma.client.workflowStep.findMany({
+    where: { workflowDefinitionId: definitionId, name: ADDED_STEP },
+    select: { id: true },
+  });
+  for (const stray of strays) {
+    await api(app).delete(`/api/v1/workflows/steps/${stray.id}`).set(auth(s.superAdmin));
+  }
+}
 
 async function raiseCheapRequest() {
   const created = await api(app)
@@ -95,13 +139,16 @@ beforeAll(async () => {
       name: 'Finance approval',
       workflowDefinition: { companyId: s.superAdmin.user.companyId, requestType: null },
     },
-    select: { id: true, costThreshold: true },
+    select: { id: true, costThreshold: true, workflowDefinitionId: true },
   });
   financeStepId = step.id;
   originalThreshold = step.costThreshold ? step.costThreshold.toString() : null;
+  definitionId = step.workflowDefinitionId;
+  await dropAddedStep();
 });
 
 afterAll(async () => {
+  await dropAddedStep();
   await prisma.client.workflowStep.update({
     where: { id: financeStepId },
     data: { costThreshold: originalThreshold },
@@ -372,5 +419,415 @@ describe('reassigning who staffs a step', () => {
       .set(auth(s.officeAdmin))
       .send({ approverRoleKey: 'INVENTORY_MANAGER' });
     expect(res.status).toBe(403);
+  });
+});
+
+/**
+ * v2.28 - restructuring a chain: add, rename, remove, reorder.
+ *
+ * The owner's ask, verbatim: "how we hide or remove any option, like remove
+ * the HR step, or add another step ... can we rearrange all steps". Until now
+ * the page could tune a step and not change what the process IS.
+ *
+ * The rules pinned here: a chain keeps at least one approval step; the two
+ * assessment stages stay a pair, placed before the first thresholded step, and
+ * leave only via their own switch; and a request already in flight carries
+ * the chain it was submitted with - a removed step is still decided there,
+ * and only new requests skip it.
+ */
+describe('restructuring a chain', () => {
+  let addedStepId: string;
+
+  const setStages = (enabled: boolean) =>
+    api(app)
+      .patch(`/api/v1/workflows/${definitionId}/assessment-stages`)
+      .set(auth(s.superAdmin))
+      .send({ enabled });
+
+  const reorder = (stepIds: string[]) =>
+    api(app)
+      .put(`/api/v1/workflows/${definitionId}/steps/order`)
+      .set(auth(s.superAdmin))
+      .send({ stepIds });
+
+  const approvalIds = (steps: StepView[]) =>
+    steps.filter((x) => x.kind === 'APPROVAL').map((x) => x.id);
+
+  const contiguous = (steps: StepView[]) =>
+    expect(steps.map((x) => x.stepOrder)).toEqual(steps.map((_, i) => i + 1));
+
+  beforeAll(async () => {
+    // A known shape: no stages, Finance thresholded so the pair has somewhere
+    // to go when the stages are switched on below.
+    await setStages(false);
+    await api(app)
+      .patch(`/api/v1/workflows/steps/${financeStepId}`)
+      .set(auth(s.superAdmin))
+      .send({ costThreshold: '250' });
+  });
+
+  afterAll(async () => {
+    await setStages(false);
+  });
+
+  it('needs workflows:configure', async () => {
+    const steps = await stepsOf(definitionId);
+    const post = await api(app)
+      .post(`/api/v1/workflows/${definitionId}/steps`)
+      .set(auth(s.officeAdmin))
+      .send({ name: ADDED_STEP, approverType: 'ROLE', approverRoleKey: 'HR' });
+    expect(post.status).toBe(403);
+    const del = await api(app)
+      .delete(`/api/v1/workflows/steps/${steps[0]!.id}`)
+      .set(auth(s.officeAdmin));
+    expect(del.status).toBe(403);
+    const put = await api(app)
+      .put(`/api/v1/workflows/${definitionId}/steps/order`)
+      .set(auth(s.officeAdmin))
+      .send({ stepIds: approvalIds(steps) });
+    expect(put.status).toBe(403);
+  });
+
+  it('reads an unknown or foreign id as missing', async () => {
+    const post = await api(app)
+      .post('/api/v1/workflows/not-a-workflow/steps')
+      .set(auth(s.superAdmin))
+      .send({ name: ADDED_STEP, approverType: 'ROLE', approverRoleKey: 'HR' });
+    expect(post.status).toBe(404);
+    const del = await api(app).delete('/api/v1/workflows/steps/not-a-step').set(auth(s.superAdmin));
+    expect(del.status).toBe(404);
+    const put = await api(app)
+      .put('/api/v1/workflows/not-a-workflow/steps/order')
+      .set(auth(s.superAdmin))
+      .send({ stepIds: ['x'] });
+    expect(put.status).toBe(404);
+  });
+
+  it('adds a step at the asked position, renumbered and audited', async () => {
+    const before = (await stepsOf(definitionId)).map((x) => x.name);
+    expect(before).toEqual(['Manager review', 'HR confirmation', 'IT review', 'Finance approval']);
+
+    const res = await api(app)
+      .post(`/api/v1/workflows/${definitionId}/steps`)
+      .set(auth(s.superAdmin))
+      .send({ name: ADDED_STEP, approverType: 'ROLE', approverRoleKey: 'HR', position: 2 });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const steps = await stepsOf(definitionId);
+    expect(steps.map((x) => x.name)).toEqual([
+      'Manager review',
+      ADDED_STEP,
+      'HR confirmation',
+      'IT review',
+      'Finance approval',
+    ]);
+    contiguous(steps);
+    const added = steps.find((x) => x.name === ADDED_STEP)!;
+    addedStepId = added.id;
+    expect(added.approverRoleKey).toBe('HR');
+    expect(added.canRemove).toBe(true);
+
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowStep', entityId: addedStepId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(trail, 'adding a step is a governance change').not.toBeNull();
+    expect(JSON.stringify(trail!.newValues)).toContain(ADDED_STEP);
+  });
+
+  it('a ROLE step needs a role, and the role must exist', async () => {
+    const noRole = await api(app)
+      .post(`/api/v1/workflows/${definitionId}/steps`)
+      .set(auth(s.superAdmin))
+      .send({ name: 'Nobody', approverType: 'ROLE' });
+    expect(noRole.status).toBe(422);
+    const badRole = await api(app)
+      .post(`/api/v1/workflows/${definitionId}/steps`)
+      .set(auth(s.superAdmin))
+      .send({ name: 'Nobody', approverType: 'ROLE', approverRoleKey: 'NOT_A_ROLE' });
+    expect(badRole.status).toBe(404);
+  });
+
+  it('renames a step, and only the definition', async () => {
+    const res = await api(app)
+      .patch(`/api/v1/workflows/steps/${addedStepId}`)
+      .set(auth(s.superAdmin))
+      .send({ name: 'Director approval' });
+    expect(res.status, JSON.stringify(res.body)).toBeLessThan(300);
+    expect((await stepsOf(definitionId)).find((x) => x.id === addedStepId)?.name).toBe(
+      'Director approval',
+    );
+
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowStep', entityId: addedStepId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(JSON.stringify(trail!.previousValues)).toContain(ADDED_STEP);
+    expect(JSON.stringify(trail!.newValues)).toContain('Director approval');
+
+    // Back to the name the rest of the suite (and its cleanup) looks for.
+    await api(app)
+      .patch(`/api/v1/workflows/steps/${addedStepId}`)
+      .set(auth(s.superAdmin))
+      .send({ name: ADDED_STEP });
+  });
+
+  it('reorders the approval steps, and the assessment pair follows its rule', async () => {
+    expect((await setStages(true)).status).toBeLessThan(300);
+    const withStages = await stepsOf(definitionId);
+    expect(withStages.map((x) => x.name)).toEqual([
+      'Manager review',
+      ADDED_STEP,
+      'HR confirmation',
+      'IT review',
+      'Inventory check',
+      'Cost assessment',
+      'Finance approval',
+    ]);
+    const original = approvalIds(withStages);
+
+    // Finance, the thresholded step, moves to the front: the pair must go
+    // with it, because its answer is what Finance's threshold is measured
+    // against.
+    const reversed = await reorder([...original].reverse());
+    expect(reversed.status, JSON.stringify(reversed.body)).toBeLessThan(300);
+    const after = await stepsOf(definitionId);
+    expect(after.map((x) => x.name)).toEqual([
+      'Inventory check',
+      'Cost assessment',
+      'Finance approval',
+      'IT review',
+      'HR confirmation',
+      ADDED_STEP,
+      'Manager review',
+    ]);
+    contiguous(after);
+
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowDefinition', entityId: definitionId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(JSON.stringify(trail!.newValues)).toContain('Finance approval');
+
+    // And back.
+    expect((await reorder(original)).status).toBeLessThan(300);
+    const restored = await stepsOf(definitionId);
+    expect(restored.map((x) => x.name)).toEqual(withStages.map((x) => x.name));
+    contiguous(restored);
+
+    // A list that drops a step, or names a stage, is refused rather than
+    // repaired - either would silently change what the process is.
+    expect((await reorder(original.slice(1))).status).toBe(422);
+    const stage = restored.find((x) => x.kind === 'INVENTORY_CHECK')!;
+    expect((await reorder([...original, stage.id])).status).toBe(422);
+    expect((await reorder([original[0]!, ...original])).status).toBe(422);
+
+    await setStages(false);
+  });
+
+  it('refuses to remove an assessment stage on its own', async () => {
+    await setStages(true);
+    const stage = (await stepsOf(definitionId)).find((x) => x.kind === 'INVENTORY_CHECK')!;
+    expect(stage.canRemove).toBe(false);
+    const res = await api(app)
+      .delete(`/api/v1/workflows/steps/${stage.id}`)
+      .set(auth(s.superAdmin));
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Remove stages');
+    await setStages(false);
+  });
+
+  it('refuses to remove the last approval step', async () => {
+    // A scratch definition of one step, inactive so no request ever resolves
+    // to it. Cascade removes the step with it.
+    const hr = await prisma.client.role.findFirstOrThrow({
+      where: { companyId: s.superAdmin.user.companyId, key: 'HR' },
+      select: { id: true },
+    });
+    const scratch = await prisma.client.workflowDefinition.create({
+      data: {
+        companyId: s.superAdmin.user.companyId,
+        key: `single-step-${Date.now()}`,
+        name: 'Single step (test)',
+        isActive: false,
+        steps: {
+          create: { stepOrder: 1, name: 'Only step', approverType: 'ROLE', approverRoleId: hr.id },
+        },
+      },
+    });
+    try {
+      const only = (await stepsOf(scratch.id))[0]!;
+      expect(only.canRemove).toBe(false);
+      const res = await api(app)
+        .delete(`/api/v1/workflows/steps/${only.id}`)
+        .set(auth(s.superAdmin));
+      expect(res.status).toBe(422);
+      expect(JSON.stringify(res.body)).toContain('at least one approval step');
+      expect(await prisma.client.workflowStep.count({ where: { id: only.id } })).toBe(1);
+    } finally {
+      await prisma.client.workflowDefinition.delete({ where: { id: scratch.id } });
+    }
+  });
+
+  it('a request already waiting on a removed step keeps it; new requests skip it', async () => {
+    const inFlight = await raiseCheapRequest();
+    const chainBefore = (await api(app).get(`/api/v1/requests/${inFlight}`).set(auth(s.superAdmin)))
+      .body.data.approvals as { stepName: string; decision: string }[];
+    expect(chainBefore.map((a) => a.stepName)).toContain(ADDED_STEP);
+
+    const removed = await api(app)
+      .delete(`/api/v1/workflows/steps/${addedStepId}`)
+      .set(auth(s.superAdmin));
+    expect(removed.status, JSON.stringify(removed.body)).toBeLessThan(300);
+    const steps = await stepsOf(definitionId);
+    expect(steps.map((x) => x.name)).toEqual([
+      'Manager review',
+      'HR confirmation',
+      'IT review',
+      'Finance approval',
+    ]);
+    contiguous(steps);
+
+    // The snapshot is untouched...
+    const chainAfter = (await api(app).get(`/api/v1/requests/${inFlight}`).set(auth(s.superAdmin)))
+      .body.data.approvals as { stepName: string; decision: string }[];
+    expect(chainAfter.find((a) => a.stepName === ADDED_STEP)?.decision).toBe('WAITING');
+
+    // ...and the request still walks it: the removed step comes up next and
+    // is decided by the role it was given.
+    const manager = await api(app)
+      .post(`/api/v1/requests/${inFlight}/decision`)
+      .set(auth(s.manager))
+      .send({ decision: 'APPROVED' });
+    expect(manager.status, JSON.stringify(manager.body)).toBeLessThan(300);
+    const current = (manager.body.data.approvals as { stepName: string; decision: string }[]).find(
+      (a) => a.decision === 'PENDING',
+    );
+    expect(current?.stepName).toBe(ADDED_STEP);
+    const director = await api(app)
+      .post(`/api/v1/requests/${inFlight}/decision`)
+      .set(auth(s.hr))
+      .send({ decision: 'APPROVED' });
+    expect(director.status, JSON.stringify(director.body)).toBeLessThan(300);
+    expect(
+      (director.body.data.approvals as { stepName: string; decision: string }[]).find(
+        (a) => a.decision === 'PENDING',
+      )?.stepName,
+    ).toBe('HR confirmation');
+
+    // A request raised now never sees it.
+    const fresh = await raiseCheapRequest();
+    const freshChain = (await api(app).get(`/api/v1/requests/${fresh}`).set(auth(s.superAdmin)))
+      .body.data.approvals as { stepName: string }[];
+    expect(freshChain.map((a) => a.stepName)).not.toContain(ADDED_STEP);
+
+    // The trail says how far the removal did NOT reach.
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowStep', entityId: addedStepId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const newValues = trail!.newValues as { removed: boolean; inFlightRequestsKeepingStep: number };
+    expect(newValues.removed).toBe(true);
+    expect(newValues.inFlightRequestsKeepingStep).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * v2.28 - the On/Off switch.
+ *
+ * Removing a step throws away its name, role and threshold; switching it off
+ * keeps them for the day it is wanted back. Same reach as a removal: the
+ * next chain built leaves it out, and requests already in flight keep theirs.
+ */
+describe('switching a step off', () => {
+  const chainOf = async (id: string) =>
+    (
+      (await api(app).get(`/api/v1/requests/${id}`).set(auth(s.superAdmin))).body.data
+        .approvals as { stepName: string; decision: string }[]
+    ).map((a) => a.stepName);
+
+  const toggle = (stepId: string, isEnabled: boolean, as: Session = s.superAdmin) =>
+    api(app).patch(`/api/v1/workflows/steps/${stepId}`).set(auth(as)).send({ isEnabled });
+
+  afterAll(async () => {
+    await prisma.client.workflowStep.updateMany({
+      where: { workflowDefinitionId: definitionId, isEnabled: false },
+      data: { isEnabled: true },
+    });
+  });
+
+  it('needs workflows:configure', async () => {
+    const hr = (await stepsOf(definitionId)).find((x) => x.name === 'HR confirmation')!;
+    expect((await toggle(hr.id, false, s.officeAdmin)).status).toBe(403);
+    expect((await stepsOf(definitionId)).find((x) => x.id === hr.id)?.isEnabled).toBe(true);
+  });
+
+  it('a new request skips the step, an older one keeps it, and switching on restores it', async () => {
+    const older = await raiseCheapRequest();
+    expect(await chainOf(older)).toContain('HR confirmation');
+
+    const hr = (await stepsOf(definitionId)).find((x) => x.name === 'HR confirmation')!;
+    expect(hr.canDisable).toBe(true);
+    const off = await toggle(hr.id, false);
+    expect(off.status, JSON.stringify(off.body)).toBeLessThan(300);
+    const view = (await stepsOf(definitionId)).find((x) => x.id === hr.id)!;
+    expect(view.isEnabled).toBe(false);
+    expect(view.canDisable).toBe(false);
+
+    const newer = await raiseCheapRequest();
+    expect(await chainOf(newer)).not.toContain('HR confirmation');
+    // The request submitted before the switch still carries the step.
+    expect(await chainOf(older)).toContain('HR confirmation');
+
+    const trail = await prisma.client.auditLog.findFirst({
+      where: { entityType: 'WorkflowStep', entityId: hr.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect((trail!.previousValues as { isEnabled: boolean }).isEnabled).toBe(true);
+    expect((trail!.newValues as { isEnabled: boolean }).isEnabled).toBe(false);
+
+    expect((await toggle(hr.id, true)).status).toBeLessThan(300);
+    expect(await chainOf(await raiseCheapRequest())).toContain('HR confirmation');
+  });
+
+  it('refuses to switch off, or remove, the last step still on', async () => {
+    const steps = (await stepsOf(definitionId)).filter((x) => x.kind === 'APPROVAL');
+    const [keep, ...others] = steps;
+    for (const step of others) expect((await toggle(step.id, false)).status).toBeLessThan(300);
+
+    const last = (await stepsOf(definitionId)).find((x) => x.id === keep!.id)!;
+    expect(last.canDisable).toBe(false);
+    expect(last.canRemove).toBe(false);
+    const refusedOff = await toggle(keep!.id, false);
+    expect(refusedOff.status).toBe(422);
+    expect(JSON.stringify(refusedOff.body)).toContain('only step still switched on');
+    const refusedRemove = await api(app)
+      .delete(`/api/v1/workflows/steps/${keep!.id}`)
+      .set(auth(s.superAdmin));
+    expect(refusedRemove.status).toBe(422);
+    expect(JSON.stringify(refusedRemove.body)).toContain('only step still switched on');
+
+    // A step already off can still be removed - the chain loses nothing on.
+    const offStep = (await stepsOf(definitionId)).find((x) => x.id === others[0]!.id)!;
+    expect(offStep.canRemove).toBe(true);
+
+    for (const step of others) expect((await toggle(step.id, true)).status).toBeLessThan(300);
+  });
+
+  it('the assessment stages are not switchable', async () => {
+    await api(app)
+      .patch(`/api/v1/workflows/${definitionId}/assessment-stages`)
+      .set(auth(s.superAdmin))
+      .send({ enabled: true });
+    try {
+      const stage = (await stepsOf(definitionId)).find((x) => x.kind === 'INVENTORY_CHECK')!;
+      expect(stage.canDisable).toBe(false);
+      expect((await toggle(stage.id, false)).status).toBe(422);
+    } finally {
+      await api(app)
+        .patch(`/api/v1/workflows/${definitionId}/assessment-stages`)
+        .set(auth(s.superAdmin))
+        .send({ enabled: false });
+    }
   });
 });

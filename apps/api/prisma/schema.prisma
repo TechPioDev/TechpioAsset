@@ -2271,6 +2271,11 @@ model WorkflowStep {
   costThreshold Decimal? @db.Decimal(14, 2)
   isSkippable   Boolean  @default(false)
   slaHours      Int?
+  /// v2.28 - switched off, the step is left out when a chain is built for a
+  /// new request; requests already in flight keep their snapshot. Kept as a
+  /// switch rather than a delete so the step's name, role and threshold
+  /// survive to be switched back on.
+  isEnabled     Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,7 +1,17 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { AuthUser } from '@techpioasset/contracts';
-import { setAssessmentStagesSchema, updateWorkflowStepSchema } from '@techpioasset/contracts';
+import type {
+  AuthUser,
+  CreateWorkflowStepInput,
+  ReorderWorkflowStepsInput,
+  UpdateWorkflowStepInput,
+} from '@techpioasset/contracts';
+import {
+  createWorkflowStepSchema,
+  reorderWorkflowStepsSchema,
+  setAssessmentStagesSchema,
+  updateWorkflowStepSchema,
+} from '@techpioasset/contracts';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
@@ -41,20 +51,64 @@ export class WorkflowsController {
     return this.workflows.setAssessmentStages(actor, id, body);
   }
 
+  @Post(':id/steps')
+  @RequirePermissions(PERMISSIONS.WORKFLOWS_CONFIGURE)
+  @ApiOperation({
+    summary: 'Add an approval step',
+    description:
+      'Inserted at `position` among the approval steps (default last). The assessment stages, ' +
+      'if present, are re-placed by their rule. Requests already in flight keep their chain.',
+  })
+  addStep(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(createWorkflowStepSchema)) body: CreateWorkflowStepInput,
+  ) {
+    return this.workflows.addStep(actor, id, body);
+  }
+
+  @Put(':id/steps/order')
+  @RequirePermissions(PERMISSIONS.WORKFLOWS_CONFIGURE)
+  @ApiOperation({
+    summary: 'Reorder the approval steps',
+    description:
+      'Every approval step id exactly once, in the wanted order. The assessment stages follow ' +
+      'their rule: adjacent, immediately before the first thresholded step, else last.',
+  })
+  reorderSteps(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(reorderWorkflowStepsSchema)) body: ReorderWorkflowStepsInput,
+  ) {
+    return this.workflows.reorderSteps(actor, id, body);
+  }
+
   @Patch('steps/:id')
   @RequirePermissions(PERMISSIONS.WORKFLOWS_CONFIGURE)
   @ApiOperation({
-    summary: 'Change when a step applies',
+    summary: 'Change a step: name, cost threshold, skippability, SLA, or role',
     description:
-      'Cost threshold, skippability and SLA. A null threshold means the step applies to every ' +
-      'request. Adding, removing or reordering steps is not offered here.',
+      'A null threshold means the step applies to every request. Moving the role also moves ' +
+      'the requests already waiting on the step; a rename reaches future requests only.',
   })
   updateStep(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
-    @Body(zodBody(updateWorkflowStepSchema))
-    body: { costThreshold?: string | null; isSkippable?: boolean; slaHours?: number | null },
+    @Body(zodBody(updateWorkflowStepSchema)) body: UpdateWorkflowStepInput,
   ) {
     return this.workflows.updateStep(actor, id, body);
+  }
+
+  @Delete('steps/:id')
+  @RequirePermissions(PERMISSIONS.WORKFLOWS_CONFIGURE)
+  @ApiOperation({
+    summary: 'Remove an approval step',
+    description:
+      'Refused for the last approval step and for the assessment stages (which leave as a pair ' +
+      'via assessment-stages). Requests already waiting on the step keep their current chain; ' +
+      'new requests skip it.',
+  })
+  removeStep(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.workflows.removeStep(actor, id);
   }
 }
