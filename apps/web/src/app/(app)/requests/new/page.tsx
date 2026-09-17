@@ -23,6 +23,7 @@ import { apiFetch, ApiError } from '@/lib/api-client';
 import { DRAFT_IMAGES_FAILED_MESSAGE, MAX_COMMENT_IMAGES, submittedMessage } from '@/lib/comment-images';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
+import { defaultUpgradeSpec, refusalMessage } from '@/lib/upgrade-default';
 import { Button, Card, controlCls as inputCls } from '@/components/ui';
 import { AddImagesButton, postComment, usePendingImages } from '@/components/requests/conversation-images';
 import { InlineImageEditor, type InlineImageEditorHandle } from '@/components/requests/inline-image-editor';
@@ -343,6 +344,19 @@ function NewRequestForm() {
         ? gb(selectedAsset?.hardwareProfile?.storageTotalGb)
         : null;
 
+  // Offer the next size up as soon as the machine's own is known. Left empty,
+  // the box looked filled in (it named the current size) and the form refused
+  // a submit three times for the same person.
+  useEffect(() => {
+    if (type !== 'UPGRADE' || requestedSpec) return;
+    if (upgradeType !== 'RAM' && upgradeType !== 'STORAGE') return;
+    const next = defaultUpgradeSpec(
+      upgradeType === 'RAM' ? RAM_UPGRADE_OPTIONS : STORAGE_UPGRADE_OPTIONS,
+      currentSpec,
+    );
+    if (next) form.setValue('requestedSpec', next, { shouldValidate: true });
+  }, [type, upgradeType, currentSpec, requestedSpec]);
+
   // Keep the first item's description in step with the upgrade selections so
   // nobody retypes what the form already knows - until they edit it by hand.
   const itemTouched = useRef(false);
@@ -579,10 +593,13 @@ function NewRequestForm() {
               // and bring the first problem into view.
               (errors) => {
                 const first = Object.keys(errors)[0];
-                toast.error('Not submitted yet — fill in the highlighted field');
-                document
-                  .querySelector<HTMLElement>(first ? `[name="${first}"], [data-field="${first}"]` : 'form')
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                const detail = first ? (errors as Record<string, { message?: string }>)[first]?.message : undefined;
+                toast.error(refusalMessage(first, detail));
+                const el = document.querySelector<HTMLElement>(
+                  first ? `[name="${first}"], [data-field="${first}"]` : 'form',
+                );
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                (el?.querySelector<HTMLElement>('button, input, textarea, [contenteditable]') ?? el)?.focus?.();
               },
             )}
             className="grid content-start gap-4"
