@@ -72,3 +72,13 @@ export function isCompleteReorder(
   }
   return true;
 }
+
+/**
+ * The comment written on an approval row when its step was switched off or
+ * removed in workflow settings while the request was in progress. A row that
+ * carries it is left out of the chain a request shows - the owner switched
+ * HR off and did not want to see "HR confirmation - Skipped" on every request
+ * - while the row itself stays for the audit trail.
+ */
+export const RETIRED_STEP_REASON = 'Step switched off in workflow settings';
+

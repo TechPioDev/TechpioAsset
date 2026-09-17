@@ -722,8 +722,12 @@ describe('restructuring a chain', () => {
 
     // Current copy: skipped with the reason on it, and the request moved on
     // to the next step, whose approvers were told.
+    // Hidden from the chain the request shows; kept in the database with the reason.
     const currentChain = await chainOf(current);
-    const skipped = currentChain.find((a) => a.stepName === ADDED_STEP)!;
+    expect(currentChain.find((a) => a.stepName === ADDED_STEP)).toBeUndefined();
+    const skipped = await prisma.client.requestApproval.findFirstOrThrow({
+      where: { requestId: current, stepName: ADDED_STEP },
+    });
     expect(skipped.decision).toBe('SKIPPED');
     expect(skipped.comment).toContain('switched off in workflow settings');
     expect(await currentStepOf(current)).toBe('HR confirmation');
@@ -862,7 +866,10 @@ describe('switching a step off', () => {
     expect((await toggle(hr.id, false)).status).toBeLessThan(300);
 
     const chain = await chainOf(id);
-    const skipped = chain.find((a) => a.stepName === 'HR confirmation')!;
+    expect(chain.find((a) => a.stepName === 'HR confirmation')).toBeUndefined();
+    const skipped = await prisma.client.requestApproval.findFirstOrThrow({
+      where: { requestId: id, stepName: 'HR confirmation' },
+    });
     expect(skipped.decision).toBe('SKIPPED');
     expect(skipped.comment).toBe('Step switched off in workflow settings');
     expect(chain.find((a) => a.stepName === 'Manager review')?.decision).toBe('APPROVED');
@@ -898,7 +905,8 @@ describe('switching a step off', () => {
     expect(await currentStepOf(id)).toBeNull();
     expect(await statusOf(id)).toBe('APPROVED');
     const chain = await chainOf(id);
-    expect(chain.find((a) => a.stepName === 'IT review')?.decision).toBe('SKIPPED');
+    // IT was switched off, so it is hidden; Finance was skipped on cost, and stays.
+    expect(chain.find((a) => a.stepName === 'IT review')).toBeUndefined();
     expect(chain.find((a) => a.stepName === 'Finance approval')?.decision).toBe('SKIPPED');
 
     await toggle(it.id, true);

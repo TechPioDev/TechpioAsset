@@ -18,6 +18,7 @@ import {
   resolvePendingImages,
   stripImageTokens,
   type RequestCreationPolicy,
+  RETIRED_STEP_REASON,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { signDownloadLink, verifyDownloadLink } from '../common/signed-download-link.js';
@@ -266,6 +267,9 @@ export class RequestsService {
           // Capped like every other nested collection: a request's chain is
           // short by design, but "short by design" is not a guarantee.
           take: 50,
+          // A step retired by workflow settings is not part of this request's
+          // flow any more; the row stays for the audit trail, not the chain.
+          where: { NOT: { decision: 'SKIPPED', comment: RETIRED_STEP_REASON } },
           orderBy: { stepOrder: 'asc' },
           select: {
             id: true,

@@ -11,10 +11,11 @@ import { assessmentInsertIndex, isCompleteReorder, orderWorkflowSteps } from '@t
 import { AppError } from '../common/errors/app-error.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RETIRED_STEP_REASON } from '@techpioasset/domain';
 import { RequestsService, type RetiredStepAdvance } from './requests.service.js';
 
 /** Written on the skipped step of every request the change moved on. */
-const RETIRED_REASON = 'Step switched off in workflow settings';
+const RETIRED_REASON = RETIRED_STEP_REASON;
 
 /**
  * Taking a step out of in-flight requests walks every request sitting on it,
