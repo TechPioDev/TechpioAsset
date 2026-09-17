@@ -42,7 +42,7 @@ export interface DisposalDto {
 }
 
 /** Statuses the machine lets move to DISPOSED/DONATED. Kept in sync by tests. */
-const DISPOSABLE_FROM: readonly AssetStatus[] = ['AVAILABLE', 'IN_STORAGE', 'RETIRED'];
+export const DISPOSABLE_FROM: readonly AssetStatus[] = ['AVAILABLE', 'IN_STORAGE', 'RETIRED'];
 
 const selectCls =
   'h-9 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 text-sm';

@@ -365,6 +365,28 @@ export class AssetsService {
         notes: true,
         manufacturerPartNumber: true,
         expectedReplacementDate: true,
+        // v2.61 - the unit's own picture, if somebody photographed it. The
+        // bytes come through the condition-photo route, which serves any
+        // attachment hung off the asset.
+        photo: { select: { id: true, mimeType: true, createdAt: true } },
+        // v2.61 - the listing's primary image id, so the detail page can lead
+        // with the catalogue picture. Only here, not in the list selection:
+        // one join per row is not worth paying on every asset list. Gated
+        // with the vendor, like the rest of the listing.
+        ...(canSeeVendor(actor)
+          ? {
+              vendorProduct: {
+                select: {
+                  id: true,
+                  name: true,
+                  brand: true,
+                  model: true,
+                  warrantyMonths: true,
+                  images: { where: { isPrimary: true }, select: { id: true }, take: 1 },
+                },
+              },
+            }
+          : {}),
         assignments: {
           orderBy: { assignedAt: 'desc' },
           take: 20,
@@ -453,6 +475,21 @@ export class AssetsService {
 
     if (!asset) throw AppError.notFound('Asset', id);
 
+    // The image list collapses to one id: `primaryImageId` is what the
+    // catalogue endpoints already call it, so the web reads one shape.
+    const listing = (asset as { vendorProduct?: { images?: { id: string }[] } | null })
+      .vendorProduct;
+    const vendorProduct =
+      listing === undefined
+        ? {}
+        : {
+            vendorProduct: listing
+              ? (({ images, ...rest }) => ({ ...rest, primaryImageId: images?.[0]?.id ?? null }))(
+                  listing,
+                )
+              : null,
+          };
+
     // Counted, not measured: `assignments` is capped at 20 above, so deriving
     // the total from its length reported a device assigned 30 times as 20.
     // "This device has been assigned N times" is the one number an employee
@@ -470,6 +507,7 @@ export class AssetsService {
     if (actor.scope === 'OWN') {
       return {
         ...asset,
+        ...vendorProduct,
         // Notes stay visible to the device's holder (owner decision,
         // 2026-08-12): they carry the device's specs and known problems, and
         // an OWN-scope viewer can only ever fetch their own asset. The flip
@@ -490,7 +528,7 @@ export class AssetsService {
         ),
       };
     }
-    return { ...asset, assignmentCount };
+    return { ...asset, ...vendorProduct, assignmentCount };
   }
 
   /** v2.5 H4 — the discovered software inventory, paginated (Software tab). */

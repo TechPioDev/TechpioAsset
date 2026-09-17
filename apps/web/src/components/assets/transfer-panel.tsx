@@ -28,7 +28,7 @@ export interface OpenTransferDto {
 }
 
 /** Unheld, on-site statuses the state machine lets move to IN_TRANSIT. */
-const DISPATCHABLE_FROM: readonly AssetStatus[] = ['AVAILABLE', 'RESERVED', 'IN_STORAGE'];
+export const DISPATCHABLE_FROM: readonly AssetStatus[] = ['AVAILABLE', 'RESERVED', 'IN_STORAGE'];
 
 const selectCls =
   'h-9 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 text-sm';

@@ -1269,6 +1269,12 @@ model Asset {
   ownershipType     OwnershipType?
   notes             String?
 
+  /// v2.61 - a picture of the unit itself, for the detail page's image card
+  /// when the unit did not come through the catalogue. An Attachment row like
+  /// the condition photos, so it carries a hash, size and uploader; nullable
+  /// and additive, so the phone and every existing asset are untouched.
+  photoAttachmentId String? @unique
+
   /// Set only when an authorised user records a documented duplicate exception
   /// (spec section 6). Null means the uniqueness rule was satisfied normally.
   duplicateExceptionReason String?
@@ -1301,6 +1307,7 @@ model Asset {
   room          Room?             @relation(fields: [roomId], references: [id], onDelete: SetNull)
   department    Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   assignedUser  User?             @relation("AssetCurrentAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  photo         Attachment?       @relation("AssetPhoto", fields: [photoAttachmentId], references: [id], onDelete: SetNull)
 
   assignments           AssetAssignment[]
   transfers             AssetTransfer[]
@@ -2522,6 +2529,8 @@ model Attachment {
   /// whoever may not read that message.
   comment             RequestComment?    @relation(fields: [commentId], references: [id], onDelete: Cascade)
   commentId           String?
+  /// v2.61 - the asset whose own picture this is (Asset.photoAttachmentId).
+  photoOfAsset        Asset?             @relation("AssetPhoto")
 
   @@index([companyId, entityType, entityId])
   @@index([sha256])

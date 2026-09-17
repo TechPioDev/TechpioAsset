@@ -42,6 +42,13 @@ const ENTITY_TYPE: Record<PhotoStage, string> = {
 };
 
 /**
+ * The asset's own picture (v2.61) - not evidence of anything, just what the
+ * unit looks like, for the detail page's image card. Filed under its own
+ * entity type so the condition-photo list and its removal rules never see it.
+ */
+const ASSET_PHOTO_ENTITY = 'AssetPhoto';
+
+/**
  * Photos only. The generic attachment endpoint takes spreadsheets and PDFs;
  * this one is evidence a person will look at and compare, and a PDF cannot be
  * put side by side with a photograph.
@@ -410,7 +417,16 @@ export class AssetPhotosService {
     await this.assetOr404(actor, assetId);
 
     const photo = await this.prisma.client.attachment.findFirst({
-      where: { id: photoId, assetId, deletedAt: null, ...tenantFilter(actor) },
+      where: {
+        id: photoId,
+        assetId,
+        deletedAt: null,
+        // Condition evidence only: the asset's own picture has its own route
+        // and rules, and removing it here would leave the asset pointing at a
+        // deleted row.
+        entityType: { in: [ENTITY_TYPE.HANDOVER, ENTITY_TYPE.RETURN] },
+        ...tenantFilter(actor),
+      },
       select: { id: true, entityType: true, entityId: true, uploadedById: true },
     });
     if (!photo) throw AppError.notFound('Photo not found');
@@ -457,6 +473,126 @@ export class AssetPhotosService {
       entityId: assetId,
       previousValues: { conditionPhoto: photo.id },
       newValues: { conditionPhotoRemoved: true },
+    });
+
+    return { id: photo.id, removed: true };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // The asset's own picture (v2.61)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** The asset with its current picture, tenant-scoped; 404 outside it. */
+  private async assetWithPhotoOr404(actor: AuthUser, assetId: string) {
+    const asset = await this.prisma.client.asset.findFirst({
+      where: { id: assetId, deletedAt: null, ...tenantFilter(actor) },
+      select: {
+        id: true,
+        assetTag: true,
+        photo: { select: { id: true, storageKey: true } },
+      },
+    });
+    if (!asset) throw AppError.notFound('Asset not found');
+    return asset;
+  }
+
+  /**
+   * Set or replace the asset's picture. One per asset: a replacement retires
+   * the previous row (soft, so its hash stays in the audit trail) and drops its
+   * bytes, which are not evidence of anything. Authorisation is assets:update
+   * at the controller - this is an edit to the record, not a custody act.
+   */
+  async setAssetPhoto(
+    actor: AuthUser,
+    assetId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    const asset = await this.assetWithPhotoOr404(actor, assetId);
+
+    const configured = this.config.get('ALLOWED_UPLOAD_MIME');
+    const allowed = PHOTO_MIMES.filter((m) => configured.includes(m));
+    const { contentType } = validateUpload({
+      data: file.buffer,
+      declaredMime: file.mimetype,
+      allowedMimes: allowed,
+      maxBytes: this.config.get('MAX_UPLOAD_MB') * 1024 * 1024,
+    });
+
+    const stored = await this.storage.put({
+      prefix: `asset-photos/${actor.companyId}/${assetId}`,
+      originalName: file.originalname,
+      contentType,
+      data: file.buffer,
+    });
+
+    const previous = asset.photo;
+    const photo = await this.prisma.client.$transaction(async (tx) => {
+      const created = await tx.attachment.create({
+        data: {
+          companyId: actor.companyId,
+          entityType: ASSET_PHOTO_ENTITY,
+          entityId: assetId,
+          assetId,
+          storageKey: stored.key,
+          originalName: file.originalname,
+          mimeType: contentType,
+          sizeBytes: stored.sizeBytes,
+          sha256: stored.sha256,
+          scanStatus: 'SKIPPED',
+          uploadedById: actor.id,
+        },
+        select: { id: true, mimeType: true, sizeBytes: true, createdAt: true },
+      });
+      await tx.asset.update({
+        where: { id: assetId },
+        data: { photoAttachmentId: created.id, updatedById: actor.id },
+      });
+      if (previous) {
+        await tx.attachment.update({ where: { id: previous.id }, data: { deletedAt: new Date() } });
+      }
+      return created;
+    });
+    if (previous) await this.storage.delete(previous.storageKey).catch(() => undefined);
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'Asset',
+      entityId: assetId,
+      previousValues: previous ? { photo: previous.id } : undefined,
+      newValues: { photo: photo.id, asset: asset.assetTag, sha256: stored.sha256 },
+    });
+
+    return photo;
+  }
+
+  /** Remove the asset's picture. 404 when there is none - nothing to remove. */
+  async removeAssetPhoto(actor: AuthUser, assetId: string) {
+    const asset = await this.assetWithPhotoOr404(actor, assetId);
+    const photo = asset.photo;
+    if (!photo) throw AppError.notFound('Photo not found');
+
+    await this.prisma.client.$transaction([
+      this.prisma.client.asset.update({
+        where: { id: assetId },
+        data: { photoAttachmentId: null, updatedById: actor.id },
+      }),
+      this.prisma.client.attachment.update({
+        where: { id: photo.id },
+        data: { deletedAt: new Date() },
+      }),
+    ]);
+    await this.storage.delete(photo.storageKey).catch(() => undefined);
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'Asset',
+      entityId: assetId,
+      previousValues: { photo: photo.id },
+      newValues: { photoRemoved: true, asset: asset.assetTag },
     });
 
     return { id: photo.id, removed: true };

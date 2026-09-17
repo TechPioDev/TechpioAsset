@@ -539,6 +539,49 @@ export class AssetsController {
     return this.photos.remove(actor, id, photoId);
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // The asset's own picture (v2.61) — what the unit looks like, for the image
+  // card. One per asset; a second upload replaces the first.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  @Post(':id/photo')
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PHOTO_BYTES } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: "Set or replace the asset's picture",
+    description:
+      'JPG/PNG/WEBP/HEIC, decided by the file signature. Replaces any picture already ' +
+      'there. Shown on the detail page unless the unit came through the catalogue, whose ' +
+      'listing picture takes precedence.',
+  })
+  setPhoto(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [new MaxFileSizeValidator({ maxSize: MAX_PHOTO_BYTES })],
+        fileIsRequired: true,
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    if (!file?.buffer) throw new AppError('FILE_REJECTED', 'No photo was received');
+    return this.photos.setAssetPhoto(actor, id, {
+      buffer: file.buffer,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+    });
+  }
+
+  @Delete(':id/photo')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @ApiOperation({ summary: "Remove the asset's picture" })
+  removeAssetPhoto(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.photos.removeAssetPhoto(actor, id);
+  }
+
   @Post('assignments/:assignmentId/acknowledge')
   @ApiOperation({
     summary: 'Confirm receipt of an assigned asset',
