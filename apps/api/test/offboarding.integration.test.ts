@@ -206,7 +206,217 @@ describe('offboarding completion gate (spec section 13)', () => {
   });
 });
 
+/**
+ * The Offboard flow on the person page (web + mobile) drives these endpoints:
+ * start once (idempotent), work through returns, finish. Each rule the screen
+ * leans on is proved here rather than assumed.
+ */
+describe('offboarding as the person page drives it', () => {
+  it('starting a second time reuses the open task instead of creating another', async () => {
+    const suffix = `F${Date.now().toString().slice(-8)}`;
+    const asset = await assignFreshAsset(s.employee3.user.id, suffix);
+
+    const first = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+    const second = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.data.id).toBe(first.body.data.id);
+    expect(second.body.data.status).toBe('OPEN');
+
+    // Exactly one OPEN offboarding for this person, which is what the
+    // "Offboarding in progress" badge keys on.
+    const open = await api(app)
+      .get('/api/v1/lifecycle/tasks?direction=OFFBOARDING&status=OPEN')
+      .set(auth(s.hr));
+    expect(open.status).toBe(200);
+    const mine = open.body.data.filter(
+      (t: { subjectUserId: string }) => t.subjectUserId === s.employee3.user.id,
+    );
+    expect(mine).toHaveLength(1);
+    expect(mine[0].id).toBe(first.body.data.id);
+
+    await api(app)
+      .post(`/api/v1/assets/${asset.id}/return`)
+      .set(auth(s.itAdmin))
+      .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+  });
+
+  it('refuses completion with the outstanding count in the message', async () => {
+    const suffix = `G${Date.now().toString().slice(-8)}`;
+    const a = await assignFreshAsset(s.employee3.user.id, suffix);
+    const b = await assignFreshAsset(s.employee3.user.id, `${suffix}b`);
+
+    const started = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+    const task = started.body.data;
+    const count = task.outstandingAssets.length;
+    expect(count).toBeGreaterThanOrEqual(2);
+
+    const blocked = await api(app)
+      .post(`/api/v1/lifecycle/offboarding/${task.id}/complete`)
+      .set(auth(s.hr))
+      .send({});
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.detail).toContain(`${count} asset(s) are still assigned`);
+    expect(blocked.body.detail).toContain(a.assetTag);
+    expect(blocked.body.detail).toContain(b.assetTag);
+
+    // Nothing changed: the task is still open and the person can still sign in.
+    const subject = await api(app).get(`/api/v1/users/${s.employee3.user.id}`).set(auth(s.superAdmin));
+    expect(subject.body.data.status).toBe('ACTIVE');
+
+    for (const asset of [a, b]) {
+      await api(app)
+        .post(`/api/v1/assets/${asset.id}/return`)
+        .set(auth(s.itAdmin))
+        .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+    }
+  });
+
+  it('completes after the returns, deactivates the account and writes the audit row', async () => {
+    const suffix = `H${Date.now().toString().slice(-8)}`;
+    const asset = await assignFreshAsset(s.employee3.user.id, suffix);
+
+    const started = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+    const taskId = started.body.data.id;
+
+    // Hand one over to a colleague rather than back to the pool - the panel
+    // offers both, and either resolves the asset.
+    const reassigned = await api(app)
+      .post(`/api/v1/assets/${asset.id}/reassign`)
+      .set(auth(s.itAdmin))
+      .send({ userId: s.employee2.user.id, conditionIn: 'GOOD' });
+    expect(reassigned.status).toBe(201);
+
+    const refreshed = await api(app).get(`/api/v1/lifecycle/tasks/${taskId}`).set(auth(s.hr));
+    for (const outstanding of refreshed.body.data.outstandingAssets) {
+      await api(app)
+        .post(`/api/v1/assets/${outstanding.assetId}/return`)
+        .set(auth(s.itAdmin))
+        .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+    }
+    const ready = await api(app).get(`/api/v1/lifecycle/tasks/${taskId}`).set(auth(s.hr));
+    expect(ready.body.data.canComplete).toBe(true);
+
+    const completed = await api(app)
+      .post(`/api/v1/lifecycle/offboarding/${taskId}/complete`)
+      .set(auth(s.hr))
+      .send({});
+    expect(completed.status, JSON.stringify(completed.body)).toBe(201);
+    expect(completed.body.data.status).toBe('COMPLETED');
+    expect(completed.body.data.exceptionReason).toBeNull();
+
+    const subject = await api(app).get(`/api/v1/users/${s.employee3.user.id}`).set(auth(s.superAdmin));
+    expect(subject.body.data.status).toBe('DEACTIVATED');
+
+    // The account change is attributed to the offboarding, not to a bare status edit.
+    const audit = await api(app)
+      .get(`/api/v1/audit?entityType=User&entityId=${s.employee3.user.id}&pageSize=10`)
+      .set(auth(s.superAdmin));
+    expect(audit.status).toBe(200);
+    expect(
+      audit.body.data.some(
+        (row: { newValues: { status?: string; reason?: string } | null }) =>
+          row.newValues?.status === 'DEACTIVATED' && row.newValues?.reason === 'Offboarding completed',
+      ),
+    ).toBe(true);
+
+    // Once completed, a fresh start opens a NEW task (the old one is closed).
+    const again = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+    expect(again.status).toBe(201);
+    expect(again.body.data.id).not.toBe(taskId);
+    await api(app)
+      .post(`/api/v1/lifecycle/offboarding/${again.body.data.id}/complete`)
+      .set(auth(s.hr))
+      .send({});
+
+    // Tidy the colleague's borrowed asset.
+    await api(app)
+      .post(`/api/v1/assets/${asset.id}/return`)
+      .set(auth(s.itAdmin))
+      .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+  });
+
+  it('with an exception the asset stays recorded against the leaver', async () => {
+    const suffix = `I${Date.now().toString().slice(-8)}`;
+    const asset = await assignFreshAsset(s.employee3.user.id, suffix);
+
+    const started = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: s.employee3.user.id });
+
+    const completed = await api(app)
+      .post(`/api/v1/lifecycle/offboarding/${started.body.data.id}/complete`)
+      .set(auth(s.hr))
+      .send({ exceptionReason: 'Left the country with the laptop; written off by Finance.' });
+    expect(completed.status).toBe(201);
+    expect(completed.body.data.status).toBe('COMPLETED');
+
+    // The warning on the screen is true: custody is untouched.
+    const still = await api(app)
+      .get(`/api/v1/assets?assignedUserId=${s.employee3.user.id}&pageSize=100`)
+      .set(auth(s.itAdmin));
+    const row = still.body.data.find((a: { id: string }) => a.id === asset.id);
+    expect(row?.status).toBe('ASSIGNED');
+
+    await api(app)
+      .post(`/api/v1/assets/${asset.id}/return`)
+      .set(auth(s.itAdmin))
+      .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+  });
+
+  it('answers 404 for a subject or task outside the tenant', async () => {
+    const start = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.hr))
+      .send({ subjectUserId: 'usr_from_some_other_company' });
+    expect(start.status).toBe(404);
+
+    const read = await api(app)
+      .get('/api/v1/lifecycle/tasks/task_from_some_other_company')
+      .set(auth(s.hr));
+    expect(read.status).toBe(404);
+
+    const complete = await api(app)
+      .post('/api/v1/lifecycle/offboarding/task_from_some_other_company/complete')
+      .set(auth(s.hr))
+      .send({});
+    expect(complete.status).toBe(404);
+  });
+});
+
 describe('offboarding authorisation', () => {
+  it('refuses IT starting one (offboarding:manage is HR’s)', async () => {
+    const response = await api(app)
+      .post('/api/v1/lifecycle/offboarding')
+      .set(auth(s.itAdmin))
+      .send({ subjectUserId: s.employee2.user.id });
+    expect(response.status).toBe(403);
+  });
+
+  it('refuses an employee reading the task list the badge is built from', async () => {
+    const response = await api(app)
+      .get('/api/v1/lifecycle/tasks?direction=OFFBOARDING&status=OPEN')
+      .set(auth(s.employee));
+    expect(response.status).toBe(403);
+  });
+
   it('refuses an employee starting an offboarding', async () => {
     const response = await api(app)
       .post('/api/v1/lifecycle/offboarding')

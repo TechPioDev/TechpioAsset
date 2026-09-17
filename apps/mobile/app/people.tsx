@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme, type ThemeColors } from '../src/theme';
+import { openOffboardingFor, type OpenTaskRow } from '../src/lib/offboarding';
 import { Avatar, Button, Card, Chevron, EmptyState, StatusPill } from '../src/components/ui';
 import { InviteSheet } from '../src/components/people/invite-sheet';
 import { ManageSheet } from '../src/components/people/manage-sheet';
@@ -28,11 +30,14 @@ function statusTone(status: string, c: ThemeColors): { bg: string; fg: string } 
 
 export default function PeopleScreen() {
   const { api, user } = useSession();
-  const { c, radius, spacing } = useTheme();
+  const { c, radius, scheme, spacing } = useTheme();
+  const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
   const router = useRouter();
   const gates = peopleGates(user);
 
   const [rows, setRows] = useState<UserRow[]>([]);
+  // Who is mid-offboarding, so the row says so before anyone opens Manage.
+  const [openTasks, setOpenTasks] = useState<OpenTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -65,9 +70,14 @@ export default function PeopleScreen() {
     setLoading(true);
     setError(null);
     try {
-      const data = (await fetchPage(1)) ?? [];
+      const [data, tasks] = await Promise.all([
+        fetchPage(1).then((d) => d ?? []),
+        // Optional: a refusal or a slow answer must not blank the list.
+        api.request<OpenTaskRow[]>('/lifecycle/tasks?direction=OFFBOARDING&status=OPEN').catch(() => []),
+      ]);
       if (token !== latest.current) return;
       setRows(data);
+      setOpenTasks(tasks ?? []);
       setPage(1);
       // The client drops the page meta, so a full page is what says "more".
       setHasMore(data.length === PAGE_SIZE);
@@ -76,7 +86,7 @@ export default function PeopleScreen() {
     } finally {
       if (token === latest.current) setLoading(false);
     }
-  }, [fetchPage]);
+  }, [api, fetchPage]);
 
   useEffect(() => void load(), [load]);
 
@@ -249,6 +259,9 @@ export default function PeopleScreen() {
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                   {item.status !== 'ACTIVE' ? (
                     <StatusPill label={statusLabel(item.status)} bg={tone.bg} fg={tone.fg} />
+                  ) : null}
+                  {openOffboardingFor(openTasks, item.id) ? (
+                    <StatusPill label="Offboarding in progress" bg={palette.warning.bg} fg={palette.warning.fg} />
                   ) : null}
                   {role ? <StatusPill label={role} bg={c.brandSoft} fg={c.brand} /> : null}
                   {item.profile?.department?.name ? (

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetStatus } from '@techpioasset/domain';
+import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../../src/providers/session';
 import { statusColor, statusLabel, useTheme } from '../../src/theme';
 import {
@@ -19,6 +20,12 @@ import {
 import { ChangeEmailRow } from '../../src/components/people/change-email';
 import { ManageSheet } from '../../src/components/people/manage-sheet';
 import { peopleGates, statusLabel as accountStatusLabel, type UserRow } from '../../src/lib/people-admin';
+import {
+  offboardActionLabel,
+  offboardGates,
+  openOffboardingFor,
+  type OpenTaskRow,
+} from '../../src/lib/offboarding';
 
 /**
  * What one person holds.
@@ -91,12 +98,14 @@ export default function PersonScreen() {
   const { api, user } = useSession();
   const gates = peopleGates(user);
   const { c, scheme, spacing } = useTheme();
+  const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
   const router = useRouter();
 
   const [person, setPerson] = useState<Person | null>(null);
   const [assets, setAssets] = useState<HeldAsset[]>([]);
   const [consumables, setConsumables] = useState<HeldConsumable[]>([]);
   const [requests, setRequests] = useState<PersonRequest[]>([]);
+  const [openTasks, setOpenTasks] = useState<OpenTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   // The Manage sheet needs the list row: GET /users/:id does not carry the
   // request override, and the web opens the same panel from the list too.
@@ -109,22 +118,31 @@ export default function PersonScreen() {
     try {
       // Held stock and requests are secondary: a missing one should not blank
       // the page, so each falls back to empty rather than rejecting the lot.
-      const [p, a, s, r] = await Promise.all([
+      const [p, a, s, r, t] = await Promise.all([
         api.request<Person>(`/users/${id}`),
         api.request<HeldAsset[]>(`/assets?assignedUserId=${id}&pageSize=${MAX_PAGE_SIZE}`).catch(() => []),
         api.request<HeldConsumable[]>(`/stock/held-by/${id}`).catch(() => []),
         api.request<PersonRequest[]>(`/requests?requesterId=${id}&pageSize=10`).catch(() => []),
+        // Open offboardings, for the "in progress" pill. Same query as People.
+        api.request<OpenTaskRow[]>('/lifecycle/tasks?direction=OFFBOARDING&status=OPEN').catch(() => []),
       ]);
       setPerson(p);
       setAssets(a ?? []);
       setConsumables(s ?? []);
       setRequests(r ?? []);
+      setOpenTasks(t ?? []);
     } finally {
       setLoading(false);
     }
   }, [api, id]);
 
-  useEffect(() => void load(), [load]);
+  // On focus rather than on mount: coming back from the Offboarding screen
+  // must show the Deactivated pill and the emptied kit without a pull.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const openManage = async () => {
     if (!person) return;
@@ -154,6 +172,8 @@ export default function PersonScreen() {
 
   const role = person.roles?.map((r) => r.role?.name ?? r.name).filter(Boolean)[0];
   const name = nameOf(person);
+  const openTask = openOffboardingFor(openTasks, person.id);
+  const offboard = offboardGates(user, person);
 
   return (
     <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
@@ -173,6 +193,9 @@ export default function PersonScreen() {
           {role ? <StatusPill label={role} bg={c.brandSoft} fg={c.brand} /> : null}
           {person.status !== 'ACTIVE' ? (
             <StatusPill label={accountStatusLabel(person.status)} bg={c.dangerSoft} fg={c.danger} />
+          ) : null}
+          {openTask ? (
+            <StatusPill label="Offboarding in progress" bg={palette.warning.bg} fg={palette.warning.fg} />
           ) : null}
           {person.profile?.jobTitle ? (
             <StatusPill label={person.profile.jobTitle} bg={c.surface} fg={c.muted} />
@@ -206,6 +229,17 @@ export default function PersonScreen() {
             <ChangeEmailRow userId={person.id} current={person.email} onChanged={() => void load()} />
           </View>
         ) : null}
+        {/* The one management action that lives here rather than in Manage:
+            it works through the kit below, so it belongs beside it. */}
+        {offboard.canOffboard ? (
+          <Button
+            label={offboardActionLabel(Boolean(openTask))}
+            icon="log-out-outline"
+            variant={openTask ? 'primary' : 'secondary'}
+            onPress={() => router.push(`/person/offboard?id=${person.id}`)}
+            style={{ marginTop: spacing.md }}
+          />
+        ) : null}
         {gates.canManage ? (
           <Button
             label="Manage"
@@ -213,7 +247,7 @@ export default function PersonScreen() {
             variant="secondary"
             loading={opening}
             onPress={() => void openManage()}
-            style={{ marginTop: spacing.md }}
+            style={{ marginTop: gates.canManage && offboard.canOffboard ? spacing.sm : spacing.md }}
           />
         ) : null}
       </Card>

@@ -54,6 +54,7 @@ function RootShell() {
             options={{ headerShown: true, title: 'Pending invitations' }}
           />
           <Stack.Screen name="person/[id]" options={{ headerShown: true, title: 'Person' }} />
+          <Stack.Screen name="person/offboard" options={{ headerShown: true, title: 'Offboarding' }} />
           <Stack.Screen name="my-equipment" options={{ headerShown: true, title: 'My equipment' }} />
           <Stack.Screen name="help" options={{ headerShown: true, title: 'Help' }} />
           <Stack.Screen name="request/[id]" options={{ headerShown: true, title: 'Request' }} />

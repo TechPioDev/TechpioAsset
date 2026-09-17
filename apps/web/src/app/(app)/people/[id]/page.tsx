@@ -1,17 +1,21 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { Mail, Phone, ShieldCheck, ShieldOff } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { LogOut, Mail, Phone, ShieldCheck, ShieldOff } from 'lucide-react';
+import { PERMISSIONS } from '@techpioasset/domain';
 import { REQUEST_STATUS_TOKENS } from '@techpioasset/ui-tokens';
 
 import { apiFetch, apiFetchPage } from '@/lib/api-client';
+import { canOffboard, offboardButtonLabel, openOffboardingFor, type OpenTaskRow } from '@/lib/offboarding';
+import { useAuth } from '@/providers/auth-provider';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { StatusBadge } from '@/components/status-badge';
 import { EquipmentKit } from '@/components/assets/equipment-kit';
-import { Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
 import { ChangeEmail } from '@/components/people/change-email';
+import { OffboardingPanel } from '@/components/people/offboarding-panel';
 
 /**
  * A person's profile (v2.15) - the people-side counterpart of the asset
@@ -71,6 +75,9 @@ function Row({ label: l, value }: { label: string; value: React.ReactNode }) {
 
 export default function PersonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { can, user: me } = useAuth();
+  const qc = useQueryClient();
+  const [offboarding, setOffboarding] = useState(false);
 
   const person = useQuery({
     queryKey: ['person', id],
@@ -80,6 +87,14 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
     queryKey: ['person-requests', id],
     queryFn: () => apiFetchPage<PersonRequest>(`/requests?requesterId=${id}&pageSize=10`),
   });
+  // Open offboardings, so the header can say one is under way. Same query the
+  // People list uses, so the two never disagree.
+  const openTasks = useQuery({
+    queryKey: ['offboarding-open'],
+    queryFn: () => apiFetch<OpenTaskRow[]>('/lifecycle/tasks?direction=OFFBOARDING&status=OPEN'),
+    enabled: can(PERMISSIONS.EMPLOYEES_READ),
+    retry: false,
+  });
 
   if (person.isPending) return <Skeleton className="h-96" />;
   if (person.isError)
@@ -87,6 +102,8 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
 
   const p = person.data;
   const name = p.profile ? `${p.profile.firstName} ${p.profile.lastName}` : p.email;
+  const openTask = openOffboardingFor(openTasks.data, id);
+  const offerOffboard = canOffboard({ can, meId: me?.id, person: p });
 
   return (
     <div className="grid gap-4">
@@ -99,6 +116,18 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
             <span className="rounded-full border border-[var(--color-border-strong)] px-2 py-0.5 text-[11px] font-medium">
               {label(p.status)}
             </span>
+            {openTask ? (
+              <span
+                className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                style={{
+                  color: 'var(--tone-warning-fg)',
+                  backgroundColor: 'var(--tone-warning-bg)',
+                  borderColor: 'var(--tone-warning-border)',
+                }}
+              >
+                Offboarding in progress
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--color-content-muted)]">
             <span className="inline-flex items-center gap-1">
@@ -111,13 +140,43 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
             ) : null}
           </p>
         </div>
-        <Link
-          href={`/people?q=${encodeURIComponent(p.email)}&manage=1`}
-          className="inline-flex h-9 items-center rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]"
-        >
-          Manage
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The one management action that lives here rather than in Manage:
+              it works through the kit below, so it belongs beside it. */}
+          {offerOffboard ? (
+            <Button variant={openTask ? 'primary' : 'secondary'} onClick={() => setOffboarding(true)}>
+              <LogOut aria-hidden="true" className="size-4" />
+              {offboardButtonLabel(Boolean(openTask))}
+            </Button>
+          ) : null}
+          <Link
+            href={`/people?q=${encodeURIComponent(p.email)}&manage=1`}
+            className="inline-flex h-9 items-center rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]"
+          >
+            Manage
+          </Link>
+        </div>
       </header>
+
+      {offboarding ? (
+        <OffboardingPanel
+          personId={id}
+          personName={name}
+          onClose={() => {
+            setOffboarding(false);
+            void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
+            void qc.invalidateQueries({ queryKey: ['equipment-kit', id] });
+          }}
+          onCompleted={() => {
+            // The page underneath now shows the Deactivated badge, and the
+            // "in progress" one goes.
+            void qc.invalidateQueries({ queryKey: ['person', id] });
+            void qc.invalidateQueries({ queryKey: ['people'] });
+            void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
+            void qc.invalidateQueries({ queryKey: ['equipment-kit', id] });
+          }}
+        />
+      ) : null}
 
       <Card className="p-5">
         <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-3">

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { REQUEST_OVERRIDE_LABELS } from '@techpioasset/domain';
+import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
+import { REQUEST_OVERRIDE_LABELS, deactivateWithAssetsWarning } from '@techpioasset/domain';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import {
@@ -186,15 +187,28 @@ export function ManageSheet({
     }
   };
 
-  const deactivate = () =>
+  // When equipment is still out the confirm says so and points at Offboard,
+  // which records each return; the server still allows a plain deactivate.
+  const deactivate = async () => {
+    const assetsOut = await api
+      .request<{ id: string }[]>(`/assets?assignedUserId=${user.id}&pageSize=${MAX_PAGE_SIZE}`)
+      .then((rows) => rows?.length ?? 0)
+      .catch(() => 0);
+    const warning = deactivateWithAssetsWarning(assetsOut);
     Alert.alert(
       `Deactivate ${name}?`,
-      'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
+      (warning ? `${warning}\n\n` : '') +
+        'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Deactivate', style: 'destructive', onPress: () => void setStatus('DEACTIVATED') },
+        {
+          text: warning ? 'Deactivate anyway' : 'Deactivate',
+          style: 'destructive',
+          onPress: () => void setStatus('DEACTIVATED'),
+        },
       ],
     );
+  };
 
   // A fresh 7-day link; the old one dies. Shown inline once.
   const resend = async () => {
@@ -395,7 +409,7 @@ export function ManageSheet({
                 />
               ) : null}
               {user.status !== 'DEACTIVATED' ? (
-                <Button label="Deactivate" variant="danger" disabled={busy !== null} onPress={deactivate} />
+                <Button label="Deactivate" variant="danger" disabled={busy !== null} onPress={() => void deactivate()} />
               ) : null}
               <Button
                 label="Delete"

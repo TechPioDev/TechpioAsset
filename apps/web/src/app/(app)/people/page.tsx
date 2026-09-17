@@ -10,8 +10,10 @@ import {
   PERMISSIONS,
   REQUEST_OVERRIDE_LABELS,
   SYSTEM_ROLES,
+  deactivateWithAssetsWarning,
   findSodConflicts,
 } from '@techpioasset/domain';
+import { openOffboardingFor, type OpenTaskRow } from '@/lib/offboarding';
 import { apiFetch, apiFetchPage, ApiError } from '@/lib/api-client';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
@@ -186,11 +188,19 @@ function ManageUserModal({ user, onClose }: { user: UserRow; onClose: () => void
   });
 
   // Deactivating removes someone's access — gate it behind an explicit confirm.
+  // When equipment is still out the confirm says so and points at Offboard,
+  // which records each return; the server still allows a plain deactivate.
   const deactivate = async () => {
+    const assetsOut = await apiFetchPage(`/assets?assignedUserId=${user.id}&pageSize=1`)
+      .then((r) => r.meta.page.totalItems)
+      .catch(() => 0);
+    const warning = deactivateWithAssetsWarning(assetsOut);
     const ok = await confirm({
       title: `Deactivate ${name}?`,
-      body: 'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
-      confirmLabel: 'Deactivate',
+      body:
+        (warning ? `${warning} ` : '') +
+        'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
+      confirmLabel: warning ? 'Deactivate anyway' : 'Deactivate',
       destructive: true,
     });
     if (ok) setStatus.mutate('DEACTIVATED');
@@ -1030,6 +1040,14 @@ function PeopleTable() {
     queryKey: ['people', q, role, view, page, sort, order],
     queryFn: () => apiFetchPage<UserRow>(`/users?${query.toString()}`),
   });
+  // Who is mid-offboarding, so the row says so before anyone opens Manage and
+  // deactivates over the top of a checklist somebody else is working through.
+  const openTasks = useQuery({
+    queryKey: ['offboarding-open'],
+    queryFn: () => apiFetch<OpenTaskRow[]>('/lifecycle/tasks?direction=OFFBOARDING&status=OPEN'),
+    enabled: can(PERMISSIONS.EMPLOYEES_READ),
+    retry: false,
+  });
 
   // Open the Manage panel for the person the URL asked about - once, and only
   // when the filter resolves them unambiguously.
@@ -1271,6 +1289,17 @@ function PeopleTable() {
                       >
                         {statusLabel(person.status)}
                       </span>
+                      {openOffboardingFor(openTasks.data, person.id) ? (
+                        <span
+                          className="ml-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                          style={{
+                            color: 'var(--tone-warning-fg)',
+                            backgroundColor: 'var(--tone-warning-bg)',
+                          }}
+                        >
+                          Offboarding in progress
+                        </span>
+                      ) : null}
                     </td>
                     {canManage ? (
                       <td className="px-4 py-2.5 text-right">
