@@ -214,6 +214,11 @@ export function AssetImageCard({
   /** The photograph the file being chosen will replace; null adds a new one. */
   const replacing = useRef<string | null>(null);
   const mayAdd = canAddAssetPhoto(ownPhotos.length);
+  // v2.67 - the handover and return photos, which may also be made the primary
+  // picture. The owner looked under the box for that choice on a laptop with
+  // handover photos only, and found nothing: the panel listed unit photos alone.
+  const custodyPhotos = slides.filter((s) => s.id.startsWith('condition:'));
+  const manageable = ownPhotos.length + custodyPhotos.length;
   const primary = usePrimaryPhoto(assetId);
   /** The slide on screen in the viewer, by id - the list grows as pictures load. */
   const [viewing, setViewing] = useState<string | null>(null);
@@ -404,7 +409,7 @@ export function AssetImageCard({
               <ImagePlus aria-hidden="true" className="size-3.5" />
               Add photo
             </Button>
-            {ownPhotos.length > 0 ? (
+            {manageable > 0 ? (
               <Button
                 size="sm"
                 variant="ghost"
@@ -416,7 +421,7 @@ export function AssetImageCard({
                 }}
               >
                 <Images aria-hidden="true" className="size-3.5" />
-                {managing ? 'Done' : `Manage photos (${ownPhotos.length})`}
+                {managing ? 'Done' : `Manage photos (${manageable})`}
               </Button>
             ) : null}
           </span>
@@ -430,101 +435,179 @@ export function AssetImageCard({
         </p>
       ) : null}
 
-      {canManage && managing && ownPhotos.length > 0 ? (
+      {canManage && managing && manageable > 0 ? (
         <div className="border-t border-[var(--color-border)] px-4 py-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">Photos of this unit</h3>
-            <span className="text-xs text-[var(--color-content-subtle)]">
-              {assetPhotoCountLabel(ownPhotos.length)}
-            </span>
-          </div>
-          {source.kind === 'catalogue' ? (
-            <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
-              The catalogue picture leads the box; these follow it in the slideshow.
-            </p>
+          <p className="mb-3 text-xs text-[var(--color-content-muted)]">
+            <Star aria-hidden="true" className="mr-1 inline size-3.5 align-[-2px]" />
+            The primary image leads this box, the page header and the slideshow. Any photo here can
+            be it.
+          </p>
+          {ownPhotos.length > 0 ? (
+            <>
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold">Photos of this unit</h3>
+                <span className="text-xs text-[var(--color-content-subtle)]">
+                  {assetPhotoCountLabel(ownPhotos.length)}
+                </span>
+              </div>
+              {source.kind === 'catalogue' ? (
+                <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+                  The catalogue picture leads the box; these follow it in the slideshow.
+                </p>
+              ) : null}
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {ownPhotos.map((photo, i) => {
+                  const thumb = urls[`/assets/${assetId}/photos/${photo.id}`];
+                  const size = photoSizeLabel(photo.sizeBytes);
+                  const busy =
+                    (upload.isPending && replacing.current === photo.id) ||
+                    (remove.isPending && remove.variables === photo.id) ||
+                    primary.busy;
+                  return (
+                    <li
+                      key={photo.id}
+                      className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)]"
+                    >
+                      <div className="relative aspect-[2/1] bg-[var(--color-surface-sunken)]">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={thumb}
+                            alt={`Photo ${i + 1} of ${assetName}`}
+                            className="size-full object-contain"
+                          />
+                        ) : (
+                          <Skeleton className="size-full rounded-none" />
+                        )}
+                        {photo.id === primaryPhotoId ? (
+                          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
+                            <Star aria-hidden="true" className="size-3" />
+                            Primary
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
+                        <span className="text-xs text-[var(--color-content-subtle)]">
+                          Photo {i + 1}
+                          {size ? ` · ${size}` : ''}
+                        </span>
+                        <span className="flex items-center">
+                          {photo.id !== primaryPhotoId ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => primary.setPrimary(photo.id)}
+                            >
+                              <Star aria-hidden="true" className="size-3.5" />
+                              Set as primary
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            loading={upload.isPending && replacing.current === photo.id}
+                            disabled={busy}
+                            title="Upload a new picture in its place; the old one is deleted"
+                            onClick={() => choose(photo.id)}
+                          >
+                            <RefreshCw aria-hidden="true" className="size-3.5" />
+                            Replace
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            aria-label={`Remove photo ${i + 1}`}
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: 'Remove this photo?',
+                                body: 'The file is deleted. It cannot be brought back.',
+                                confirmLabel: 'Remove',
+                                destructive: true,
+                              });
+                              if (ok) remove.mutate(photo.id);
+                            }}
+                          >
+                            <Trash2 aria-hidden="true" className="size-3.5" />
+                          </Button>
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           ) : null}
-          <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {ownPhotos.map((photo, i) => {
-              const thumb = urls[`/assets/${assetId}/photos/${photo.id}`];
-              const size = photoSizeLabel(photo.sizeBytes);
-              const busy =
-                (upload.isPending && replacing.current === photo.id) ||
-                (remove.isPending && remove.variables === photo.id) ||
-                primary.busy;
-              return (
-                <li
-                  key={photo.id}
-                  className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)]"
-                >
-                  <div className="relative aspect-[2/1] bg-[var(--color-surface-sunken)]">
-                    {thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={thumb}
-                        alt={`Photo ${i + 1} of ${assetName}`}
-                        className="size-full object-contain"
-                      />
-                    ) : (
-                      <Skeleton className="size-full rounded-none" />
-                    )}
-                    {photo.id === primaryPhotoId ? (
-                      <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
-                        <Star aria-hidden="true" className="size-3" />
-                        Primary
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
-                    <span className="text-xs text-[var(--color-content-subtle)]">
-                      Photo {i + 1}
-                      {size ? ` · ${size}` : ''}
-                    </span>
-                    <span className="flex items-center">
-                      {photo.id !== primaryPhotoId ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => primary.setPrimary(photo.id)}
-                        >
-                          <Star aria-hidden="true" className="size-3.5" />
-                          Set as primary
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        loading={upload.isPending && replacing.current === photo.id}
-                        disabled={busy}
-                        title="Upload a new picture in its place; the old one is deleted"
-                        onClick={() => choose(photo.id)}
-                      >
-                        <RefreshCw aria-hidden="true" className="size-3.5" />
-                        Replace
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy}
-                        aria-label={`Remove photo ${i + 1}`}
-                        onClick={async () => {
-                          const ok = await confirm({
-                            title: 'Remove this photo?',
-                            body: 'The file is deleted. It cannot be brought back.',
-                            confirmLabel: 'Remove',
-                            destructive: true,
-                          });
-                          if (ok) remove.mutate(photo.id);
-                        }}
-                      >
-                        <Trash2 aria-hidden="true" className="size-3.5" />
-                      </Button>
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+
+          {custodyPhotos.length > 0 ? (
+            <>
+              <h3 className={`text-sm font-semibold ${ownPhotos.length > 0 ? 'mt-5' : ''}`}>
+                Handover and return photos
+              </h3>
+              <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+                Evidence of condition: they can lead the page, and are added or removed in the
+                Condition photos section below.
+              </p>
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {custodyPhotos.map((slide) => {
+                  const photoId = slidePhotoId(slide);
+                  const thumb = urls[slide.path];
+                  const isPrimary = photoId !== null && photoId === primaryPhotoId;
+                  return (
+                    <li
+                      key={slide.id}
+                      className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)]"
+                    >
+                      <div className="relative aspect-[2/1] bg-[var(--color-surface-sunken)]">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={thumb}
+                            alt={slide.caption ?? slide.stageLabel}
+                            className="size-full object-contain"
+                          />
+                        ) : (
+                          <Skeleton className="size-full rounded-none" />
+                        )}
+                        {isPrimary ? (
+                          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
+                            <Star aria-hidden="true" className="size-3" />
+                            Primary
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
+                        <span className="min-w-0 truncate text-xs text-[var(--color-content-subtle)]">
+                          {slide.stageLabel}
+                        </span>
+                        {isPrimary ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={primary.busy}
+                            onClick={() => primary.setPrimary(null)}
+                          >
+                            Clear
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={primary.busy}
+                            onClick={() => primary.setPrimary(photoId)}
+                          >
+                            <Star aria-hidden="true" className="size-3.5" />
+                            Set as primary
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : null}
         </div>
       ) : null}
       {notice ? (
