@@ -93,7 +93,8 @@ import {
   DISPATCHABLE_FROM,
   type OpenTransferDto,
 } from '@/components/assets/transfer-panel';
-import { AssetImageCard, DeviceIcon } from '@/components/assets/asset-image-card';
+import { AssetHeaderThumb, AssetImageCard } from '@/components/assets/asset-image-card';
+import { useAssetCover } from '@/lib/use-asset-cover';
 import { AssetNotes } from '@/components/assets/asset-notes';
 import { MoreActionsMenu, type MenuGroup } from '@/components/assets/more-actions-menu';
 import {
@@ -372,6 +373,8 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
     queryKey: ['asset', id],
     queryFn: () => apiFetch<AssetDetail>(`/assets/${id}`),
   });
+  // One download of the cover picture, for the header thumbnail and the lead box.
+  const cover = useAssetCover(id, data);
 
   const recordPrice = useMutation({
     mutationFn: (purchaseCost: string) =>
@@ -607,9 +610,11 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
       {/* Header: who this device is, in one glance. */}
       <Card className="p-5">
         <div className="flex flex-wrap items-start gap-4">
-          <div className="grid size-14 shrink-0 place-items-center rounded-[var(--radius-card)] bg-[var(--color-surface-sunken)] text-[var(--color-content-muted)]">
-            <DeviceIcon typeKey={data.subcategory?.key} className="size-7" />
-          </div>
+          <AssetHeaderThumb
+            assetName={data.name}
+            typeKey={data.subcategory?.key}
+            coverUrl={cover.coverFailed ? null : cover.coverUrl}
+          />
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold tracking-tight">
               {data.name}
@@ -743,6 +748,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
               lastReport={lastReport}
               warrantyExpired={warrantyExpired}
               summary={summary}
+              cover={cover}
               setTab={setTab}
             />
           ) : null}
@@ -910,6 +916,7 @@ function OverviewTab({
   lastReport,
   warrantyExpired,
   summary,
+  cover,
   setTab,
 }: {
   id: string;
@@ -920,6 +927,7 @@ function OverviewTab({
   lastReport: { at: string; source: string } | null;
   warrantyExpired: boolean;
   summary: string | null;
+  cover: ReturnType<typeof useAssetCover>;
   setTab: (tab: AssetTab) => void;
 }) {
   const holder = data.assignedUser;
@@ -948,12 +956,10 @@ function OverviewTab({
             typeKey={data.subcategory?.key}
             brand={data.brand}
             source={imageSource}
-            ownPhoto={data.photo ? { id: data.photo.id, createdAt: data.photo.createdAt } : null}
-            catalogue={
-              data.vendorProduct?.primaryImageId
-                ? { productId: data.vendorProduct.id, imageId: data.vendorProduct.primaryImageId }
-                : null
-            }
+            hasOwnPhoto={Boolean(data.photo)}
+            slides={cover.slides}
+            coverUrl={cover.coverUrl}
+            coverFailed={cover.coverFailed}
             canManage={canUpdate}
           />
 

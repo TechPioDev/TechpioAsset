@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Camera,
@@ -20,9 +20,9 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react';
-import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
+import { API_BASE, getAccessToken } from '@/lib/api-client';
 import { useAuthedBlobs } from '@/lib/use-authed-blob';
-import { assetSlides, slideCountLabel, type SlideCustodyGroup } from '@/lib/asset-slides';
+import { slideCountLabel, type AssetSlide } from '@/lib/asset-slides';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/assets/photo-lightbox';
 import {
   illustrationIcon,
@@ -103,14 +103,45 @@ function Illustration({
   );
 }
 
+/**
+ * The small picture in the page header (v2.64): the same cover the lead box
+ * shows, so an asset somebody has photographed reads as that device from the
+ * first line of the page. The type's glyph stands in while it loads, when it
+ * fails, and for an asset with no picture at all.
+ */
+export function AssetHeaderThumb({
+  assetName,
+  typeKey,
+  coverUrl,
+}: {
+  assetName: string;
+  typeKey: string | null | undefined;
+  coverUrl: string | null;
+}) {
+  return (
+    <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-surface-sunken)] text-[var(--color-content-muted)]">
+      {coverUrl ? (
+        // An in-memory blob: URL from an authenticated fetch; next/image cannot
+        // serve it (see condition-photos.tsx for the full reasoning).
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={coverUrl} alt={assetName} className="size-full object-cover" />
+      ) : (
+        <DeviceIcon typeKey={typeKey} className="size-7" />
+      )}
+    </div>
+  );
+}
+
 export function AssetImageCard({
   assetId,
   assetName,
   typeKey,
   brand,
   source,
-  ownPhoto,
-  catalogue,
+  hasOwnPhoto,
+  slides,
+  coverUrl,
+  coverFailed,
   canManage,
 }: {
   assetId: string;
@@ -118,13 +149,18 @@ export function AssetImageCard({
   typeKey: string | null | undefined;
   brand: string | null;
   source: AssetImageSource;
-  /** The photo uploaded of this unit, whatever is being shown. */
-  ownPhoto: { id: string; createdAt: string } | null;
-  /** The catalogue listing's primary image, when the unit came through one. */
-  catalogue: { productId: string; imageId: string } | null;
+  /** Whether the asset carries an uploaded photo, whatever is being shown. */
+  hasOwnPhoto: boolean;
+  /**
+   * The asset's pictures in slideshow order, and the first of them already
+   * downloaded - from the page's useAssetCover, which the header thumbnail
+   * reads too, so the cover is fetched once for both (v2.64).
+   */
+  slides: readonly AssetSlide[];
+  coverUrl: string | null;
+  coverFailed: boolean;
   canManage: boolean;
 }) {
-  const hasOwnPhoto = Boolean(ownPhoto);
   const toast = useToast();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -135,26 +171,17 @@ export function AssetImageCard({
   /** Set by the first click: only then are the pictures behind the cover fetched. */
   const [wantAll, setWantAll] = useState(false);
 
-  // The same query, under the same key, as the condition-photos card further
-  // down the page: one request serves both. Somebody who may not read them gets
-  // an error here, which simply means no condition photos in the slideshow.
-  const { data: groups } = useQuery<SlideCustodyGroup[]>({
-    queryKey: ['asset-photos', assetId],
-    queryFn: () => apiFetch(`/assets/${assetId}/photos`),
-  });
-
-  const slides = useMemo(
-    () => assetSlides({ assetId, source, ownPhoto, catalogue, groups: groups ?? [] }),
-    [assetId, source, ownPhoto, catalogue, groups],
-  );
   const cover = slides[0] ?? null;
+  // Everything behind the cover, and only once somebody has opened the viewer.
   const paths = useMemo(
-    () => (wantAll ? slides.map((s) => s.path) : cover ? [cover.path] : []),
-    [wantAll, slides, cover],
+    () => (wantAll ? slides.slice(1).map((s) => s.path) : []),
+    [wantAll, slides],
   );
-  const { urls, failed: failedPaths } = useAuthedBlobs(paths);
-  const url = cover ? (urls[cover.path] ?? null) : null;
-  const failed = cover ? failedPaths.has(cover.path) : false;
+  const { urls: restUrls } = useAuthedBlobs(paths);
+  const url = cover ? coverUrl : null;
+  const failed = coverFailed;
+  const urls: Record<string, string> =
+    cover && coverUrl ? { ...restUrls, [cover.path]: coverUrl } : restUrls;
 
   const viewable: LightboxPhoto[] = slides
     .filter((s) => urls[s.path])

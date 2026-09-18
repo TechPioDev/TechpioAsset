@@ -15,6 +15,7 @@ import {
   PERMISSIONS,
   assetDetailNav,
   assetIdentifier,
+  assetSlides,
   assetSpecRows,
   conditionSentence,
   custodyHistory,
@@ -46,7 +47,6 @@ import { DISPOSABLE_FROM, transferView } from '../../src/lib/asset-admin';
 import { holderDisplayName, warrantyCheckNotice } from '../../src/lib/asset-detail';
 import {
   agentPill,
-  assetImagePath,
   keyInformationSummary,
   assetNavIcon,
   healthScoreTile,
@@ -249,6 +249,8 @@ export default function AssetDetailScreen() {
   // lead picture box shows the same photographs as a slideshow, and one
   // request serves both (web: the two cards share one query).
   const { groups: photoGroups, reload: reloadPhotos } = useConditionPhotoGroups(id, photoVersion);
+  /** The header thumbnail's path, once it has failed to load: the glyph takes over. */
+  const [failedThumb, setFailedThumb] = useState<string | null>(null);
 
   async function confirmReceipt() {
     if (!openAssignment) return;
@@ -353,10 +355,21 @@ export default function AssetDetailScreen() {
   const { events } = deviceLifecycle(asset, fmtDate);
   const standing = warrantyStanding(asset.warrantyEndDate);
   const summary = noteSummary(asset.notes);
-  // The header thumbnail is the same picture the card leads with; the device
-  // glyph stands in when there is none, so both read as the same device.
-  const thumbPath = assetImagePath(imageSource, asset.id);
-  const thumb = thumbPath ? api.imageSource(thumbPath) : null;
+  // The header thumbnail is the lead box's cover (v2.64) - the first of the
+  // domain's slides, so an asset with only handover photos shows one of them
+  // here too. The device glyph stands in when there is no picture, or when
+  // this one cannot be loaded.
+  const thumbPath =
+    assetSlides({
+      assetId: asset.id,
+      source: imageSource,
+      ownPhoto: asset.photo ? { id: asset.photo.id, createdAt: asset.photo.createdAt } : null,
+      catalogue: asset.vendorProduct?.primaryImageId
+        ? { productId: asset.vendorProduct.id, imageId: asset.vendorProduct.primaryImageId }
+        : null,
+      groups: photoGroups ?? [],
+    })[0]?.path ?? null;
+  const thumb = thumbPath && thumbPath !== failedThumb ? api.imageSource(thumbPath) : null;
 
   function checkWarranty() {
     if (!warranty) return;
@@ -427,6 +440,7 @@ export default function AssetDetailScreen() {
               headers={thumb.headers}
               style={{ width: 48, height: 48, borderRadius: 12 }}
               accessibilityLabel={asset.name}
+              onError={() => setFailedThumb(thumbPath)}
             />
           ) : (
             <View
