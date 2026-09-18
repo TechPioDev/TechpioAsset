@@ -88,6 +88,11 @@ afterAll(async () => {
     assetId,
   );
   await prisma.client.$executeRawUnsafe('DELETE FROM attachments WHERE "assetId" = $1', assetId);
+  // v2.66 - the primary-picture tests hand the asset over to photograph it.
+  await prisma.client.$executeRawUnsafe(
+    'DELETE FROM asset_assignments WHERE "assetId" = $1',
+    assetId,
+  );
   await prisma.client.$executeRawUnsafe('DELETE FROM assets WHERE id = $1', assetId);
   if (foreignCompanyId) {
     // Company cascades to its category and asset.
@@ -307,5 +312,95 @@ describe('up to five photographs of the unit (v2.65)', () => {
     expect(asset.photo.id).toBe(res.body.data.id);
     expect(asset.photos).toHaveLength(5);
     expect((await readBytes(coverBefore)).status).toBe(404);
+  });
+});
+
+describe('choosing the primary picture (v2.66)', () => {
+  const setPrimary = (photoId: string | null, who: AccountKey = 'itAdmin') =>
+    api(app)
+      .patch(`/api/v1/assets/${assetId}/primary-photo`)
+      .set(auth(s[who]))
+      .send({ photoId });
+
+  let handoverPhotoId: string;
+  let unitPhotoIds: string[];
+
+  it('sets up: the asset is handed over and photographed', async () => {
+    const assigned = await api(app)
+      .post(`/api/v1/assets/${assetId}/assign`)
+      .set(auth(s.itAdmin))
+      .send({ userId: s.employee.user.id, conditionOut: 'GOOD' });
+    expect(assigned.status).toBeLessThan(300);
+    const shot = await api(app)
+      .post(`/api/v1/assets/${assetId}/photos`)
+      .set(auth(s.itAdmin))
+      .field('stage', 'HANDOVER')
+      .attach('file', PNG, 'handover.png');
+    expect(shot.status).toBeLessThan(300);
+    handoverPhotoId = shot.body.data.id;
+    unitPhotoIds = ((await getAsset()).body.data.photos as { id: string }[]).map((p) => p.id);
+    expect(unitPhotoIds.length).toBeGreaterThan(1);
+  });
+
+  it('refuses a caller without assets:update', async () => {
+    expect((await setPrimary(handoverPhotoId, 'employee')).status).toBe(403);
+  });
+
+  it('lets a handover photo lead the asset, and says which kind it is', async () => {
+    expect((await setPrimary(handoverPhotoId)).status).toBe(200);
+    const asset = (await getAsset()).body.data;
+    expect(asset.photo.id).toBe(handoverPhotoId);
+    expect(asset.photo.entityType).toBe('AssetAssignment');
+    // The unit's own photographs are all still there.
+    expect(asset.photos.map((p: { id: string }) => p.id).sort()).toEqual([...unitPhotoIds].sort());
+  });
+
+  it('lets one of the unit photographs lead instead, and lists it first', async () => {
+    expect((await setPrimary(unitPhotoIds[1]!)).status).toBe(200);
+    const asset = (await getAsset()).body.data;
+    expect(asset.photo.id).toBe(unitPhotoIds[1]);
+    expect(asset.photo.entityType).toBe('AssetPhoto');
+    expect(asset.photos[0].id).toBe(unitPhotoIds[1]);
+  });
+
+  it('will not take a photo from somewhere else, or nonsense', async () => {
+    expect((await setPrimary('no-such-photo')).status).toBe(404);
+    const bad = await api(app)
+      .patch(`/api/v1/assets/${assetId}/primary-photo`)
+      .set(auth(s.itAdmin))
+      .send({ photoId: 42 });
+    expect(bad.status).toBe(422);
+  });
+
+  it('never deletes a condition photo through the old replace route', async () => {
+    await setPrimary(handoverPhotoId);
+    // Make room: the old route adds beside a condition photo rather than replacing it.
+    const spare = unitPhotoIds[0]!;
+    await api(app).delete(`/api/v1/assets/${assetId}/unit-photos/${spare}`).set(auth(s.itAdmin));
+    const res = await setPhoto('itAdmin');
+    expect(res.status).toBeLessThan(300);
+    expect((await getAsset()).body.data.photo.id).toBe(res.body.data.id);
+    expect((await readBytes(handoverPhotoId)).status).toBe(200);
+  });
+
+  it('only un-chooses a condition photo through the old remove route', async () => {
+    await setPrimary(handoverPhotoId);
+    const res = await api(app).delete(`/api/v1/assets/${assetId}/photo`).set(auth(s.itAdmin));
+    expect(res.status).toBe(200);
+    expect((await getAsset()).body.data.photo).toBeNull();
+    expect((await readBytes(handoverPhotoId)).status).toBe(200);
+  });
+
+  it('clears the choice when asked, and when the chosen condition photo is removed', async () => {
+    await setPrimary(handoverPhotoId);
+    expect((await setPrimary(null)).status).toBe(200);
+    expect((await getAsset()).body.data.photo).toBeNull();
+
+    await setPrimary(handoverPhotoId);
+    const removed = await api(app)
+      .delete(`/api/v1/assets/${assetId}/photos/${handoverPhotoId}`)
+      .set(auth(s.itAdmin));
+    expect(removed.status).toBe(200);
+    expect((await getAsset()).body.data.photo).toBeNull();
   });
 });

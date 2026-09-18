@@ -27,6 +27,7 @@ import {
 import { API_BASE, getAccessToken } from '@/lib/api-client';
 import { useAuthedBlobs } from '@/lib/use-authed-blob';
 import { slideCountLabel, type AssetSlide } from '@/lib/asset-slides';
+import { usePrimaryPhoto } from '@/lib/use-primary-photo';
 import {
   assetPhotoCountLabel,
   assetPhotoFitNotice,
@@ -34,6 +35,7 @@ import {
   assetPhotoLimitMessage,
   canAddAssetPhoto,
   photoSizeLabel,
+  slidePhotoId,
   type AssetOwnPhoto,
 } from '@techpioasset/domain';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/assets/photo-lightbox';
@@ -176,6 +178,7 @@ export function AssetImageCard({
   brand,
   source,
   ownPhotos,
+  primaryPhotoId,
   slides,
   coverUrl,
   coverFailed,
@@ -188,6 +191,8 @@ export function AssetImageCard({
   source: AssetImageSource;
   /** The photographs uploaded of this unit (up to five), the cover first. */
   ownPhotos: readonly AssetOwnPhoto[];
+  /** v2.66 - the attachment chosen as the primary picture, of any kind; null for none. */
+  primaryPhotoId: string | null;
   /**
    * The asset's pictures in slideshow order, and the first of them already
    * downloaded - from the page's useAssetCover, which the header thumbnail
@@ -209,6 +214,7 @@ export function AssetImageCard({
   /** The photograph the file being chosen will replace; null adds a new one. */
   const replacing = useRef<string | null>(null);
   const mayAdd = canAddAssetPhoto(ownPhotos.length);
+  const primary = usePrimaryPhoto(assetId);
   /** The slide on screen in the viewer, by id - the list grows as pictures load. */
   const [viewing, setViewing] = useState<string | null>(null);
   /** Set by the first click: only then are the pictures behind the cover fetched. */
@@ -220,17 +226,20 @@ export function AssetImageCard({
     () => (wantAll ? slides.slice(1).map((s) => s.path) : []),
     [wantAll, slides],
   );
-  const { urls: restUrls } = useAuthedBlobs(paths);
+  const { urls: restUrls, failed: restFailed } = useAuthedBlobs(paths);
   const url = cover ? coverUrl : null;
   const failed = coverFailed;
   const urls: Record<string, string> =
     cover && coverUrl ? { ...restUrls, [cover.path]: coverUrl } : restUrls;
 
+  // Every slide has its place from the first click - one still downloading
+  // shows as loading - so the arrows and the count are right at once. Only a
+  // picture that could not be fetched is left out.
   const viewable: LightboxPhoto[] = slides
-    .filter((s) => urls[s.path])
+    .filter((s) => !restFailed.has(s.path))
     .map((s) => ({
       id: s.id,
-      url: urls[s.path]!,
+      url: urls[s.path] ?? null,
       caption: s.caption,
       takenAt: s.takenAt,
       by: s.by,
@@ -286,21 +295,6 @@ export function AssetImageCard({
       setError(null);
       setNotice(null);
       toast.success('Photo removed');
-      void refresh();
-    },
-    onError: (e: Error) => setError(e.message),
-  });
-
-  const makeCover = useMutation({
-    mutationFn: (photoId: string) =>
-      send(
-        `/assets/${assetId}/unit-photos/${photoId}/cover`,
-        { method: 'POST' },
-        'Could not change the cover',
-      ),
-    onSuccess: () => {
-      setError(null);
-      toast.success('Cover changed');
       void refresh();
     },
     onError: (e: Error) => setError(e.message),
@@ -456,7 +450,7 @@ export function AssetImageCard({
               const busy =
                 (upload.isPending && replacing.current === photo.id) ||
                 (remove.isPending && remove.variables === photo.id) ||
-                (makeCover.isPending && makeCover.variables === photo.id);
+                primary.busy;
               return (
                 <li
                   key={photo.id}
@@ -473,10 +467,10 @@ export function AssetImageCard({
                     ) : (
                       <Skeleton className="size-full rounded-none" />
                     )}
-                    {i === 0 ? (
+                    {photo.id === primaryPhotoId ? (
                       <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
                         <Star aria-hidden="true" className="size-3" />
-                        Cover
+                        Primary
                       </span>
                     ) : null}
                   </div>
@@ -486,15 +480,15 @@ export function AssetImageCard({
                       {size ? ` · ${size}` : ''}
                     </span>
                     <span className="flex items-center">
-                      {i > 0 ? (
+                      {photo.id !== primaryPhotoId ? (
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
-                          onClick={() => makeCover.mutate(photo.id)}
+                          onClick={() => primary.setPrimary(photo.id)}
                         >
                           <Star aria-hidden="true" className="size-3.5" />
-                          Make cover
+                          Set as primary
                         </Button>
                       ) : null}
                       <Button
@@ -547,6 +541,16 @@ export function AssetImageCard({
           index={viewingIndex}
           onClose={() => setViewing(null)}
           onIndexChange={(next) => setViewing(viewable[next]?.id ?? null)}
+          primary={
+            canManage
+              ? {
+                  currentId: primaryPhotoId,
+                  idOf: slidePhotoId,
+                  busy: primary.busy,
+                  onSet: primary.setPrimary,
+                }
+              : undefined
+          }
         />
       ) : null}
       {error ? (

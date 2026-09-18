@@ -460,10 +460,18 @@ export class AssetPhotosService {
       });
     }
 
-    await this.prisma.client.attachment.update({
-      where: { id: photo.id },
-      data: { deletedAt: new Date() },
-    });
+    await this.prisma.client.$transaction([
+      this.prisma.client.attachment.update({
+        where: { id: photo.id },
+        data: { deletedAt: new Date() },
+      }),
+      // v2.66 - it may have been made the asset's primary picture; a removed
+      // photo cannot lead the page, so the asset goes back to the default.
+      this.prisma.client.asset.updateMany({
+        where: { id: assetId, photoAttachmentId: photo.id },
+        data: { photoAttachmentId: null },
+      }),
+    ]);
 
     await this.audit.record({
       companyId: actor.companyId,
@@ -489,7 +497,7 @@ export class AssetPhotosService {
       select: {
         id: true,
         assetTag: true,
-        photo: { select: { id: true, storageKey: true } },
+        photo: { select: { id: true, storageKey: true, entityType: true } },
       },
     });
     if (!asset) throw AppError.notFound('Asset not found');
@@ -523,6 +531,8 @@ export class AssetPhotosService {
     assetId: string,
     file: { buffer: Buffer; originalname: string; mimetype: string },
     replaceId?: string | null,
+    /** The v2.61 route's meaning: whatever is uploaded leads the page. */
+    forceCover = false,
   ) {
     const asset = await this.assetWithPhotoOr404(actor, assetId);
     const existing = await this.unitPhotos(assetId, actor.companyId);
@@ -550,7 +560,10 @@ export class AssetPhotosService {
     });
 
     const coverId = asset.photo?.id ?? null;
-    const becomesCover = !coverId || coverId === previous?.id;
+    // The first photograph of the unit leads unless somebody has chosen
+    // otherwise; a replacement of the primary picture stays the primary.
+    const becomesCover =
+      forceCover || (coverId ? coverId === previous?.id : existing.length === 0);
     const photo = await this.prisma.client.$transaction(async (tx) => {
       const created = await tx.attachment.create({
         data: {
@@ -597,25 +610,50 @@ export class AssetPhotosService {
 
   /**
    * The v2.61 route, kept for the phones still in people's pockets: set the
-   * picture, or replace the cover when there is one.
+   * picture, or replace the primary one. A primary picture that is a condition
+   * photo (v2.66) is never replaced through here - it is evidence - so the
+   * upload is added beside it and takes the lead instead.
    */
-  setAssetPhoto(
+  async setAssetPhoto(
     actor: AuthUser,
     assetId: string,
     file: { buffer: Buffer; originalname: string; mimetype: string },
   ) {
-    return this.assetWithPhotoOr404(actor, assetId).then((asset) =>
-      this.addAssetPhoto(actor, assetId, file, asset.photo?.id ?? null),
-    );
+    const asset = await this.assetWithPhotoOr404(actor, assetId);
+    const replaceId = asset.photo?.entityType === ASSET_PHOTO_ENTITY ? asset.photo.id : null;
+    return this.addAssetPhoto(actor, assetId, file, replaceId, true);
   }
 
-  /** Make one of the unit's photographs the cover. */
-  async setAssetCover(actor: AuthUser, assetId: string, photoId: string) {
+  /**
+   * Choose the asset's primary picture - the one the detail page leads with and
+   * the slideshow opens on (v2.66). Any photograph on the asset qualifies: one
+   * of the unit, or a handover or return photo, because the best picture of a
+   * laptop is often the one taken when it was handed over. `null` clears the
+   * choice, and the page goes back to its default: the catalogue picture, else
+   * the unit's photographs, else the newest condition photo.
+   *
+   * Only the pointer moves. A condition photo stays where it is filed and
+   * keeps its removal rules; being the primary picture protects nothing and
+   * deletes nothing.
+   */
+  async setPrimaryPhoto(actor: AuthUser, assetId: string, photoId: string | null) {
     const asset = await this.assetWithPhotoOr404(actor, assetId);
-    const existing = await this.unitPhotos(assetId, actor.companyId);
-    if (!existing.some((row) => row.id === photoId)) throw AppError.notFound('Photo not found');
 
-    if (asset.photo?.id !== photoId) {
+    if (photoId) {
+      const photo = await this.prisma.client.attachment.findFirst({
+        where: {
+          id: photoId,
+          assetId,
+          deletedAt: null,
+          entityType: { in: [ASSET_PHOTO_ENTITY, ENTITY_TYPE.HANDOVER, ENTITY_TYPE.RETURN] },
+          ...tenantFilter(actor),
+        },
+        select: { id: true },
+      });
+      if (!photo) throw AppError.notFound('Photo not found');
+    }
+
+    if ((asset.photo?.id ?? null) !== photoId) {
       await this.prisma.client.asset.update({
         where: { id: assetId },
         data: { photoAttachmentId: photoId, updatedById: actor.id },
@@ -626,11 +664,16 @@ export class AssetPhotosService {
         action: AuditAction.ASSET_UPDATED,
         entityType: 'Asset',
         entityId: assetId,
-        previousValues: asset.photo ? { cover: asset.photo.id } : undefined,
-        newValues: { cover: photoId, asset: asset.assetTag },
+        previousValues: asset.photo ? { primaryPhoto: asset.photo.id } : undefined,
+        newValues: { primaryPhoto: photoId, asset: asset.assetTag },
       });
     }
-    return { id: photoId, isCover: true };
+    return { id: photoId, isCover: photoId !== null };
+  }
+
+  /** v2.65's name for it, which the 0.3.24 phones call. */
+  setAssetCover(actor: AuthUser, assetId: string, photoId: string) {
+    return this.setPrimaryPhoto(actor, assetId, photoId);
   }
 
   /**
@@ -674,10 +717,18 @@ export class AssetPhotosService {
     return { id: photo.id, removed: true };
   }
 
-  /** The v2.61 route: remove the cover. 404 when there is none. */
+  /**
+   * The v2.61 route: remove the primary picture. 404 when there is none. A
+   * condition photo in that place is evidence and is not deleted - it only
+   * stops leading the page.
+   */
   async removeAssetPhoto(actor: AuthUser, assetId: string) {
     const asset = await this.assetWithPhotoOr404(actor, assetId);
     if (!asset.photo) throw AppError.notFound('Photo not found');
+    if (asset.photo.entityType !== ASSET_PHOTO_ENTITY) {
+      await this.setPrimaryPhoto(actor, assetId, null);
+      return { id: asset.photo.id, removed: true };
+    }
     return this.removeAssetPhotoById(actor, assetId, asset.photo.id);
   }
 }

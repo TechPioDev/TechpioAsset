@@ -46,6 +46,7 @@ export function useAssetCover(
   const photoAt = asset?.photo?.createdAt ?? null;
   // One string for the whole list, so the memo below can key on its value.
   const unitKey = (asset?.photos ?? []).map((p) => `${p.id}@${p.createdAt}`).join('|');
+  const listed = Array.isArray(asset?.photos);
   const typeKey = asset?.subcategory?.key ?? null;
   const brand = asset?.brand ?? null;
   const known = Boolean(asset);
@@ -65,16 +66,21 @@ export function useAssetCover(
         brand,
       }),
       ownPhoto: photo,
-      ownPhotos: unitKey
-        ? unitKey.split('|').map((entry) => {
-            const at = entry.indexOf('@');
-            return { id: entry.slice(0, at), createdAt: entry.slice(at + 1) };
-          })
+      // An empty list is still a list: the primary picture may then be a
+      // condition photo, and `photo` must not be read as one of the unit.
+      ownPhotos: listed
+        ? unitKey
+            .split('|')
+            .filter(Boolean)
+            .map((entry) => {
+              const at = entry.indexOf('@');
+              return { id: entry.slice(0, at), createdAt: entry.slice(at + 1) };
+            })
         : undefined,
       catalogue: productId && imageId ? { productId, imageId } : null,
       groups: groups ?? [],
     });
-  }, [known, assetId, productId, imageId, photoId, photoAt, typeKey, brand, unitKey, groups]);
+  }, [known, assetId, productId, imageId, photoId, photoAt, typeKey, brand, listed, unitKey, groups]);
 
   const { url, failed } = useAuthedBlob(slides[0]?.path ?? null);
   return { slides, coverUrl: url, coverFailed: failed };

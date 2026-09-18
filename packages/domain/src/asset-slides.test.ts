@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assetSlides, conditionSlides, slideCountLabel } from './asset-slides';
+import { assetSlides, conditionSlides, slideCountLabel, slidePhotoId } from './asset-slides';
 
 const groups = [
   {
@@ -106,5 +106,53 @@ describe('an asset with several photographs of the unit (v2.65)', () => {
     });
     expect(slides.map((s) => s.id)).toEqual(['photo:own2', 'photo:own1', 'condition:h1']);
     expect(slides[0]!.stageLabel).toBe('Photo of this unit · 1 of 2');
+  });
+});
+
+describe('a primary picture somebody chose (v2.66)', () => {
+  const custody = [
+    {
+      holder: 'Rohit',
+      handover: [
+        { id: 'h1', caption: null, takenAt: '2026-08-13T10:00:00Z', by: null },
+        { id: 'h2', caption: null, takenAt: '2026-08-13T10:05:00Z', by: null },
+      ],
+      returned: [],
+    },
+  ];
+
+  it('opens on a handover photo when that is the one chosen, ahead of the catalogue', () => {
+    const slides = assetSlides({
+      assetId: 'a1',
+      source: { kind: 'photo', photoId: 'h1' },
+      ownPhoto: { id: 'h1', createdAt: '2026-08-13T10:00:00Z' },
+      ownPhotos: [{ id: 'own1', createdAt: '2026-09-17T00:00:00Z' }],
+      catalogue: { productId: 'p1', imageId: 'i1' },
+      groups: custody,
+    });
+    expect(slides.map((s) => s.id)).toEqual([
+      'condition:h1',
+      'photo:own1',
+      'catalogue:i1',
+      'condition:h2',
+    ]);
+  });
+
+  it('does not show a chosen condition photo twice when the unit has no photos of its own', () => {
+    const slides = assetSlides({
+      assetId: 'a1',
+      source: { kind: 'photo', photoId: 'h2' },
+      ownPhoto: { id: 'h2', createdAt: '2026-08-13T10:05:00Z' },
+      ownPhotos: [],
+      catalogue: null,
+      groups: custody,
+    });
+    expect(slides.map((s) => s.id)).toEqual(['condition:h2', 'condition:h1']);
+  });
+
+  it('names the attachment behind a slide, and none for the catalogue picture', () => {
+    expect(slidePhotoId({ id: 'condition:h1' })).toBe('h1');
+    expect(slidePhotoId({ id: 'photo:own1' })).toBe('own1');
+    expect(slidePhotoId({ id: 'catalogue:i1' })).toBeNull();
   });
 });

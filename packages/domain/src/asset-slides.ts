@@ -81,7 +81,10 @@ export function assetSlides(input: {
 }): AssetSlide[] {
   const { assetId, source, ownPhoto, ownPhotos, catalogue, groups } = input;
 
-  const units = ownPhotos && ownPhotos.length > 0 ? ownPhotos : ownPhoto ? [ownPhoto] : [];
+  // `ownPhotos` is the list of unit photographs when the server sends one
+  // (even empty: the primary picture may then be a condition photo, which is
+  // already among the groups). `ownPhoto` alone is an older caller's.
+  const units = ownPhotos ?? (ownPhoto ? [ownPhoto] : []);
   const own: AssetSlide[] = units.map((p, i) => ({
     id: `photo:${p.id}`,
     path: `/assets/${assetId}/photos/${p.id}`,
@@ -107,13 +110,31 @@ export function assetSlides(input: {
   const condition = conditionSlides(assetId, groups);
 
   const leading = lead.filter((s): s is AssetSlide => s !== null);
-  if (leading.length > 0) return [...leading, ...condition];
+  const all = [...leading, ...condition];
+
+  // v2.66 - the primary picture may be any photograph on the asset, a
+  // condition photo included: whichever it is opens the set, and the rest keep
+  // their order behind it.
+  const primary =
+    source.kind === 'photo' ? all.find((s) => slidePhotoId(s) === source.photoId) : undefined;
+  if (primary) return [primary, ...all.filter((s) => s !== primary)];
+  if (leading.length > 0) return all;
 
   // No lead picture: the newest condition photo covers the box, and the rest
   // keep their custody order behind it.
   if (condition.length === 0) return [];
   const newest = condition.reduce((a, b) => (b.takenAt > a.takenAt ? b : a));
   return [newest, ...condition.filter((s) => s.id !== newest.id)];
+}
+
+/**
+ * The attachment behind a slide, or null for the catalogue picture, which is
+ * not one. What "make this the primary picture" sends to the server.
+ */
+export function slidePhotoId(slide: Pick<AssetSlide, 'id'>): string | null {
+  const at = slide.id.indexOf(':');
+  const kind = slide.id.slice(0, at);
+  return kind === 'photo' || kind === 'condition' ? slide.id.slice(at + 1) : null;
 }
 
 /** "1 photo" / "7 photos", for the badge on the cover. */

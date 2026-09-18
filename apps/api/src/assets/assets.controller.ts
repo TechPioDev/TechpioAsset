@@ -631,6 +631,29 @@ export class AssetsController {
     return this.photos.setAssetCover(actor, id, photoId);
   }
 
+  @Patch(':id/primary-photo')
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @ApiOperation({
+    summary: "Choose the asset's primary picture",
+    description:
+      'Body `{ photoId }`: any photograph on the asset - of the unit, or a handover or ' +
+      'return photo. It leads the detail page and the slideshow. `{ photoId: null }` ' +
+      'clears the choice. Nothing is moved or deleted.',
+  })
+  setPrimaryPhoto(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { photoId?: unknown },
+  ) {
+    const photoId = body?.photoId ?? null;
+    if (photoId !== null && (typeof photoId !== 'string' || photoId.length > 64)) {
+      throw new AppError('VALIDATION_FAILED', 'Expected a photo id or null', {
+        fieldErrors: [{ path: 'photoId', message: 'Expected a photo id or null' }],
+      });
+    }
+    return this.photos.setPrimaryPhoto(actor, id, photoId);
+  }
+
   @Delete(':id/unit-photos/:photoId')
   @HttpCode(200)
   @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)

@@ -8,6 +8,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { PERMISSIONS, conditionPhotosEmptyMessage } from '@techpioasset/domain';
 import { Button, Card, Skeleton } from '@/components/ui';
 import { PhotoLightbox, type LightboxPhoto } from './photo-lightbox';
+import { usePrimaryPhoto } from '@/lib/use-primary-photo';
 
 /**
  * Condition photos, before and after (v2.32).
@@ -186,8 +187,11 @@ function PhotoColumn({
 export function ConditionPhotos({
   assetId,
   holderName,
+  primaryPhotoId = null,
 }: {
   assetId: string;
+  /** v2.66 - the asset's primary picture, so the viewer can mark it and offer the rest. */
+  primaryPhotoId?: string | null;
   /** Who currently holds it, if anyone. Only used to explain an empty state. */
   holderName?: string | null;
 }) {
@@ -211,6 +215,9 @@ export function ConditionPhotos({
   // Either custody right is enough - the person issuing kit and the person
   // taking it back are often not the same person.
   const canCapture = can(PERMISSIONS.ASSETS_ASSIGN) || can(PERMISSIONS.ASSETS_RETURN);
+  // Choosing the primary picture is an edit to the record, not a custody act.
+  const canChoosePrimary = can(PERMISSIONS.ASSETS_UPDATE);
+  const primary = usePrimaryPhoto(assetId);
 
   const { data, isPending, isError } = useQuery<CustodyGroup[]>({
     queryKey: ['asset-photos', assetId],
@@ -305,10 +312,17 @@ export function ConditionPhotos({
    * edge of one handover would force a close-and-reopen at exactly the moment
    * someone is going back and forth between before and after.
    */
-  const viewable: LightboxPhoto[] = withPhotos.flatMap((g) => [
-    ...g.handover.map((p) => ({ ...p, stageLabel: `At handover · ${g.holder ?? 'unknown holder'}` })),
-    ...g.returned.map((p) => ({ ...p, stageLabel: `On return · ${g.holder ?? 'unknown holder'}` })),
-  ])
+  const viewable: LightboxPhoto[] = withPhotos
+    .flatMap((g) => [
+      ...g.handover.map((p) => ({
+        ...p,
+        stageLabel: `At handover · ${g.holder ?? 'unknown holder'}`,
+      })),
+      ...g.returned.map((p) => ({
+        ...p,
+        stageLabel: `On return · ${g.holder ?? 'unknown holder'}`,
+      })),
+    ])
     .filter((p) => urls[p.id])
     .map((p) => ({
       id: p.id,
@@ -390,7 +404,9 @@ export function ConditionPhotos({
                 <p className="text-sm font-medium">{g.holder ?? 'Unknown holder'}</p>
                 <p className="text-xs text-[var(--color-content-subtle)]">
                   {new Date(g.assignedAt).toLocaleDateString()}
-                  {g.returnedAt ? ` → ${new Date(g.returnedAt).toLocaleDateString()}` : ' → still out'}
+                  {g.returnedAt
+                    ? ` → ${new Date(g.returnedAt).toLocaleDateString()}`
+                    : ' → still out'}
                 </p>
               </div>
 
@@ -440,6 +456,17 @@ export function ConditionPhotos({
           index={viewingIndex}
           onClose={() => setViewing(null)}
           onIndexChange={(next) => setViewing(viewable[next]?.id ?? null)}
+          primary={
+            canChoosePrimary
+              ? {
+                  currentId: primaryPhotoId,
+                  // Here a viewer photo's id is the attachment's own.
+                  idOf: (photo) => photo.id,
+                  busy: primary.busy,
+                  onSet: primary.setPrimary,
+                }
+              : undefined
+          }
         />
       ) : null}
     </Card>

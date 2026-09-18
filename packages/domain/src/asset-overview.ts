@@ -113,10 +113,14 @@ export type AssetImageSource =
   | { kind: 'illustration'; icon: IllustrationIcon; brand: string | null };
 
 /**
- * Catalogue first, then the unit's own photo, then an illustration. The
- * listing wins because it is the better picture of what was bought; the
- * unit's own photo is the fallback for everything that never went through
- * the catalogue, which is most of the register.
+ * The primary picture somebody chose first (v2.66), then the catalogue
+ * listing's, then an illustration.
+ *
+ * Until v2.66 the listing always won. The owner asked to be able to make any
+ * image the primary one, so `photo` - the asset's primary picture, which may
+ * be a photograph of the unit or a handover or return photo - now leads when
+ * it is set. With none chosen the listing still wins, because it is the better
+ * picture of what was bought.
  */
 export function resolveAssetImageSource(asset: {
   vendorProduct?: { id: string; primaryImageId?: string | null } | null;
@@ -124,6 +128,7 @@ export function resolveAssetImageSource(asset: {
   subcategory?: { key: string } | null;
   brand: string | null;
 }): AssetImageSource {
+  if (asset.photo) return { kind: 'photo', photoId: asset.photo.id };
   if (asset.vendorProduct?.primaryImageId) {
     return {
       kind: 'catalogue',
@@ -131,7 +136,6 @@ export function resolveAssetImageSource(asset: {
       imageId: asset.vendorProduct.primaryImageId,
     };
   }
-  if (asset.photo) return { kind: 'photo', photoId: asset.photo.id };
   return {
     kind: 'illustration',
     icon: illustrationIcon(asset.subcategory?.key),

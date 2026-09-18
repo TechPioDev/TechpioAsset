@@ -369,7 +369,9 @@ export class AssetsService {
         // v2.61 - the unit's own picture, if somebody photographed it. The
         // bytes come through the condition-photo route, which serves any
         // attachment hung off the asset.
-        photo: { select: { id: true, mimeType: true, createdAt: true } },
+        // v2.66 - `entityType` says which kind the primary picture is: one of
+        // the unit ('AssetPhoto') or a condition photo somebody chose to lead.
+        photo: { select: { id: true, mimeType: true, createdAt: true, entityType: true } },
         // v2.61 - the listing's primary image id, so the detail page can lead
         // with the catalogue picture. Only here, not in the list selection:
         // one join per row is not worth paying on every asset list. Gated

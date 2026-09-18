@@ -819,7 +819,11 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           {tab === 'attachments' ? (
             <div className="grid gap-4">
               {/* v2.32 - condition evidence, before and after. */}
-              <ConditionPhotos assetId={id} holderName={holderName} />
+              <ConditionPhotos
+                assetId={id}
+                holderName={holderName}
+                primaryPhotoId={data.photo?.id ?? null}
+              />
               <Card className="p-5">
                 <h2 className="text-[15px] font-semibold">Documents</h2>
                 <p className="mt-2 text-sm text-[var(--color-content-muted)]">
@@ -959,6 +963,7 @@ function OverviewTab({
             brand={data.brand}
             source={imageSource}
             ownPhotos={data.photos ?? (data.photo ? [data.photo] : [])}
+            primaryPhotoId={data.photo?.id ?? null}
             slides={cover.slides}
             coverUrl={cover.coverUrl}
             coverFailed={cover.coverFailed}
@@ -1108,7 +1113,11 @@ function OverviewTab({
           {/* v2.32 - condition evidence, before and after. Shown whether or not
               the asset is currently out: the comparison that matters most is
               usually a past handover. */}
-          <ConditionPhotos assetId={id} holderName={holderName} />
+          <ConditionPhotos
+            assetId={id}
+            holderName={holderName}
+            primaryPhotoId={data.photo?.id ?? null}
+          />
 
           <Card className="p-5">
             <SectionTitle

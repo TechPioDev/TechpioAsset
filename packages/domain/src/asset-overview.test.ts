@@ -50,14 +50,24 @@ describe('assetDetailNav', () => {
 describe('resolveAssetImageSource', () => {
   const base = { brand: 'Lenovo', subcategory: { key: 'laptop' } };
 
-  it('prefers the catalogue picture when the unit came through procurement', () => {
+  it('leads with the catalogue picture when nobody has chosen a primary one', () => {
+    expect(
+      resolveAssetImageSource({
+        ...base,
+        vendorProduct: { id: 'vp1', primaryImageId: 'img1' },
+        photo: null,
+      }),
+    ).toEqual({ kind: 'catalogue', productId: 'vp1', imageId: 'img1' });
+  });
+
+  it('leads with the chosen primary picture, even over the catalogue (v2.66)', () => {
     expect(
       resolveAssetImageSource({
         ...base,
         vendorProduct: { id: 'vp1', primaryImageId: 'img1' },
         photo: { id: 'ph1' },
       }),
-    ).toEqual({ kind: 'catalogue', productId: 'vp1', imageId: 'img1' });
+    ).toEqual({ kind: 'photo', photoId: 'ph1' });
   });
 
   it('falls back to the uploaded photo when the listing has no picture', () => {
