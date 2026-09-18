@@ -1,9 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
-import { illustrationIcon, type AssetImageSource, type IllustrationIcon } from '@techpioasset/domain';
+import {
+  assetSlides,
+  illustrationIcon,
+  slideCountLabel,
+  type AssetImageSource,
+  type IllustrationIcon,
+  type SlideCustodyGroup,
+} from '@techpioasset/domain';
 import { problemMessage } from '../../lib/asset-admin';
-import { assetImageCaption, assetImagePath, illustrationIonicon } from '../../lib/asset-overview';
+import { assetImageCaption, illustrationIonicon } from '../../lib/asset-overview';
 import {
   PICKER_UNAVAILABLE_MESSAGE,
   pickImageFromCamera,
@@ -13,6 +20,7 @@ import {
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { AuthImage } from '../auth-image';
+import { PhotoViewer } from '../photo-viewer';
 import { Button, Card } from '../ui';
 import { AssetSheet } from './sheet';
 
@@ -24,6 +32,13 @@ import { AssetSheet } from './sheet';
  * failing both, a clean illustration by type with the brand name. The rule is
  * resolveAssetImageSource in the domain package; this only draws the result
  * and offers add / replace / remove to people who may edit the record.
+ *
+ * v2.63 (web: v2.62): the box shows the asset's attached pictures, filling it,
+ * and a tap opens all of them as a slideshow - the lead picture first, then
+ * every condition photo. With no lead picture the newest condition photo is
+ * the cover; the illustration is only for an asset nobody has photographed.
+ * The order is the domain's assetSlides, shared with the web. Only the cover
+ * is downloaded with the screen; the viewer fetches the rest as it is opened.
  *
  * Adding a photo goes through the pickers the request composer already uses
  * (system camera or gallery) rather than the condition-photo viewfinder: this
@@ -64,7 +79,9 @@ export function AssetImageCard({
   typeKey,
   brand,
   source,
-  hasOwnPhoto,
+  ownPhoto,
+  catalogue,
+  groups,
   canManage,
   onViewListing,
   onChanged,
@@ -74,8 +91,17 @@ export function AssetImageCard({
   typeKey: string | null | undefined;
   brand: string | null;
   source: AssetImageSource;
-  /** Whether the asset carries an uploaded photo, whatever is being shown. */
-  hasOwnPhoto: boolean;
+  /** The photo uploaded of this unit, whatever is being shown. */
+  ownPhoto: { id: string; createdAt: string } | null;
+  /** The catalogue listing's primary image, when the unit came through one. */
+  catalogue: { productId: string; imageId: string } | null;
+  /**
+   * The custody events with their condition photos - the list the screen
+   * already loads for the Condition photos section, so the slideshow costs no
+   * second request. null while it loads, or for someone who may not read it:
+   * either way, no condition photos in the slideshow.
+   */
+  groups: readonly SlideCustodyGroup[] | null;
   canManage: boolean;
   /** Opens the catalogue listing; absent for viewers who may not open the catalogue. */
   onViewListing?: () => void;
@@ -88,12 +114,27 @@ export function AssetImageCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [viewing, setViewing] = useState(false);
+  const hasOwnPhoto = Boolean(ownPhoto);
 
-  const path = assetImagePath(source, assetId);
+  // The parent builds `source`, `ownPhoto` and `catalogue` afresh on every
+  // render, so the list is rebuilt each time (it is cheap) and its identity
+  // held while the pictures in it are the same: the viewer resolves its image
+  // sources once per list, and a new list on every render would re-fetch them.
+  const fresh = assetSlides({ assetId, source, ownPhoto, catalogue, groups: groups ?? [] });
+  const signature = fresh.map((slide) => slide.id).join('|');
+  const slides = useMemo(() => fresh, [signature]);
+  const cover = slides[0] ?? null;
+  const coverPath = cover?.path ?? null;
+  // Held steady between renders: AuthImage re-fetches on the browser build
+  // whenever its headers object changes identity.
+  const src = useMemo(() => (coverPath ? api.imageSource(coverPath) : null), [api, coverPath]);
+  // A different cover (a photo added, the condition photos arriving) gets its
+  // own chance to load.
+  useEffect(() => setFailed(false), [coverPath]);
   // A picture that will not load (permission, deleted file) falls back to the
   // illustration rather than a broken-image box.
-  const showIllustration = source.kind === 'illustration' || failed || !path;
-  const src = path ? api.imageSource(path) : null;
+  const showIllustration = !cover || failed || !src;
 
   async function upload(outcome: PickOutcome) {
     if (outcome.kind === 'cancelled') return;
@@ -147,7 +188,7 @@ export function AssetImageCard({
     ]);
   }
 
-  const caption = assetImageCaption(source, failed);
+  const caption = assetImageCaption(cover, failed);
 
   return (
     <Card style={{ padding: 0, overflow: 'hidden', marginBottom: spacing.lg }}>
@@ -155,14 +196,42 @@ export function AssetImageCard({
         {showIllustration || !src ? (
           <Illustration icon={illustrationIcon(typeKey)} brand={brand} name={assetName} />
         ) : (
-          <AuthImage
-            uri={src.uri}
-            headers={src.headers}
-            resizeMode="contain"
-            style={{ width: '100%', height: '100%', backgroundColor: c.background }}
-            accessibilityLabel={assetName}
-            onError={() => setFailed(true)}
-          />
+          <Pressable
+            onPress={() => setViewing(true)}
+            accessibilityRole="imagebutton"
+            accessibilityLabel={`View ${slideCountLabel(slides.length)} of ${assetName}`}
+            style={{ width: '100%', height: '100%' }}
+          >
+            {/* cover: the owner asked for the picture to fill the box; the
+                viewer shows it uncropped. */}
+            <AuthImage
+              uri={src.uri}
+              headers={src.headers}
+              resizeMode="cover"
+              style={{ width: '100%', height: '100%', backgroundColor: c.background }}
+              accessibilityLabel={assetName}
+              onError={() => setFailed(true)}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                right: 10,
+                bottom: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 5,
+                backgroundColor: 'rgba(0,0,0,0.65)',
+                borderRadius: 999,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+              }}
+            >
+              <Ionicons name="expand-outline" size={13} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>
+                {slideCountLabel(slides.length)}
+              </Text>
+            </View>
+          </Pressable>
         )}
         {brand ? (
           <View
@@ -268,6 +337,14 @@ export function AssetImageCard({
           {error}
         </Text>
       ) : null}
+
+      {/* Every picture, from the cover on. Shut again if the cover is lost
+          while it is open, so it never sits over an illustration. */}
+      <PhotoViewer
+        photos={slides}
+        startIndex={viewing && !showIllustration ? 0 : null}
+        onClose={() => setViewing(false)}
+      />
 
       {/* Where the picture comes from - a sheet rather than an Alert, which
           Android caps at three buttons. */}

@@ -7,6 +7,7 @@ import {
   assetNavIcon,
   healthScoreTile,
   illustrationIonicon,
+  keyInformationSummary,
   lastSyncLine,
   moreActions,
   notesPayload,
@@ -36,17 +37,29 @@ describe('product image card', () => {
     expect(assetImagePath({ kind: 'illustration', icon: 'laptop', brand: null }, 'a1')).toBeNull();
   });
 
-  it('captions the picture by where it came from, and honestly after a failed load', () => {
-    expect(assetImageCaption({ kind: 'catalogue', productId: 'vp1', imageId: 'im1' }, false)).toBe(
-      'Catalogue picture',
+  it('captions the picture in the words of the cover slide, and honestly after a failed load', () => {
+    expect(assetImageCaption({ stageLabel: 'Catalogue picture' }, false)).toBe('Catalogue picture');
+    expect(assetImageCaption({ stageLabel: 'At handover · Rohit Chaudhary' }, false)).toBe(
+      'At handover · Rohit Chaudhary',
     );
-    expect(assetImageCaption({ kind: 'photo', photoId: 'ph1' }, false)).toBe('Photo of this unit');
-    expect(assetImageCaption({ kind: 'photo', photoId: 'ph1' }, true)).toBe(
+    expect(assetImageCaption({ stageLabel: 'Photo of this unit' }, true)).toBe(
       'No picture on file — illustration by type',
     );
-    expect(assetImageCaption({ kind: 'illustration', icon: 'other', brand: 'Dell' }, false)).toBe(
-      'No picture on file — illustration by type',
-    );
+    expect(assetImageCaption(null, false)).toBe('No picture on file — illustration by type');
+  });
+});
+
+describe('key information, while it is shut', () => {
+  it('shows serial, tag and office on one line', () => {
+    expect(
+      keyInformationSummary({ serialNumber: 'PF3ABC12', assetTag: 'PIO-0042', office: { name: 'MOHALI' } }),
+    ).toBe('PF3ABC12 · PIO-0042 · MOHALI');
+  });
+
+  it('drops what is not recorded rather than leaving a stray dot', () => {
+    expect(keyInformationSummary({ serialNumber: null, assetTag: 'PIO-0042', office: null })).toBe('PIO-0042');
+    expect(keyInformationSummary({ serialNumber: '  ', assetTag: '', office: { name: 'MOHALI' } })).toBe('MOHALI');
+    expect(keyInformationSummary({})).toBe('');
   });
 });
 

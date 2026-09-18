@@ -47,6 +47,7 @@ import { holderDisplayName, warrantyCheckNotice } from '../../src/lib/asset-deta
 import {
   agentPill,
   assetImagePath,
+  keyInformationSummary,
   assetNavIcon,
   healthScoreTile,
   lastSyncLine,
@@ -58,7 +59,7 @@ import { useSession } from '../../src/providers/session';
 import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { ConditionPhotoSheet, type PhotoStage } from '../../src/components/condition-photo-sheet';
-import { ConditionPhotoStrip } from '../../src/components/condition-photo-strip';
+import { ConditionPhotoStrip, useConditionPhotoGroups } from '../../src/components/condition-photo-strip';
 import { AssetImageCard, DeviceIcon } from '../../src/components/assets/asset-image-card';
 import { AssetNotes } from '../../src/components/assets/asset-notes';
 import { DisposalCard, type DisposalRecord } from '../../src/components/assets/disposal-card';
@@ -244,6 +245,10 @@ export default function AssetDetailScreen() {
   const [photoStage, setPhotoStage] = useState<PhotoStage | null>(null);
   /** Bumped after a photo is saved, so the photo section reloads. */
   const [photoVersion, setPhotoVersion] = useState(0);
+  // v2.63 - loaded once here, not inside the Condition photos section: the
+  // lead picture box shows the same photographs as a slideshow, and one
+  // request serves both (web: the two cards share one query).
+  const { groups: photoGroups, reload: reloadPhotos } = useConditionPhotoGroups(id, photoVersion);
 
   async function confirmReceipt() {
     if (!openAssignment) return;
@@ -520,13 +525,21 @@ export default function AssetDetailScreen() {
             typeKey={asset.subcategory?.key}
             brand={asset.brand}
             source={imageSource}
-            hasOwnPhoto={Boolean(asset.photo)}
+            ownPhoto={asset.photo ? { id: asset.photo.id, createdAt: asset.photo.createdAt } : null}
+            catalogue={
+              asset.vendorProduct?.primaryImageId
+                ? { productId: asset.vendorProduct.id, imageId: asset.vendorProduct.primaryImageId }
+                : null
+            }
+            groups={photoGroups}
             canManage={mayEdit}
             onViewListing={openListing}
             onChanged={() => void load()}
           />
 
-          <ListCard title="Key information">
+          {/* Keyed by asset so it is shut again if this screen is ever handed
+              a different asset without remounting. */}
+          <CollapsibleListCard key={asset.id} title="Key information" summary={keyInformationSummary(asset)}>
             <InfoRow label="Serial number" value={asset.serialNumber} copy={asset.serialNumber} mono />
             <InfoRow label="Asset tag" value={asset.assetTag} copy={asset.assetTag} mono />
             <InfoRow label="Category" value={asset.category?.name} />
@@ -579,7 +592,7 @@ export default function AssetDetailScreen() {
                 {...(openListing ? { onPress: openListing } : {})}
               />
             ) : null}
-          </ListCard>
+          </CollapsibleListCard>
 
           {tiles.length > 0 ? (
             <Card style={{ marginBottom: spacing.lg }}>
@@ -611,7 +624,8 @@ export default function AssetDetailScreen() {
               custody event. Shown whether or not the asset is out now. */}
           <ConditionPhotoStrip
             assetId={asset.id}
-            refreshKey={photoVersion}
+            groups={photoGroups}
+            onReload={reloadPhotos}
             canCapture={canCapture}
             holderName={holderName}
             onAdd={setPhotoStage}
@@ -863,7 +877,8 @@ export default function AssetDetailScreen() {
           {/* v2.32 - condition evidence, before and after. */}
           <ConditionPhotoStrip
             assetId={asset.id}
-            refreshKey={photoVersion}
+            groups={photoGroups}
+            onReload={reloadPhotos}
             canCapture={canCapture}
             holderName={holderName}
             onAdd={setPhotoStage}
@@ -955,6 +970,65 @@ function ListCard({
       </View>
       {children}
       {footer ? <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>{footer}</View> : null}
+    </Card>
+  );
+}
+
+/**
+ * A ListCard that opens on a tap, closed to begin with (v2.63; web: v2.62's
+ * CollapsibleCard).
+ *
+ * The owner asked for Key information hidden by default: the header above
+ * already carries the name, serial, brand, type and holder, so the full list
+ * pushed the photographs and health down the screen to repeat most of it. It
+ * is closed on every visit rather than remembered - "hidden by default" that
+ * stays open after one tap reads as the setting not having worked. The one
+ * line under the title keeps the identifiers in view while it is shut.
+ */
+function CollapsibleListCard({
+  title,
+  summary,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  children: ReactNode;
+}) {
+  const { c, spacing } = useTheme();
+  const [open, setOpen] = useState(false);
+  return (
+    <Card style={{ padding: 0, marginBottom: spacing.lg }}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${title}, ${open ? 'hide' : 'show'}`}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: spacing.md,
+          paddingHorizontal: spacing.lg,
+          // The whole header is the target, so it carries the card's padding
+          // top and bottom while shut; open, the rows supply the bottom edge.
+          paddingTop: spacing.lg,
+          paddingBottom: open ? spacing.sm : spacing.lg,
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: c.text, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+          {!open && summary ? (
+            <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+              {summary}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Text style={{ color: c.muted, fontSize: 12, fontWeight: '600' }}>{open ? 'Hide' : 'Show'}</Text>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={c.muted} />
+        </View>
+      </Pressable>
+      {open ? children : null}
     </Card>
   );
 }

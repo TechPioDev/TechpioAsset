@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { conditionPhotosEmptyMessage } from '@techpioasset/domain';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { conditionPhotosEmptyMessage, conditionSlides } from '@techpioasset/domain';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
 import { AuthImage } from './auth-image';
+import { PhotoViewer } from './photo-viewer';
 import { Button, Card, SectionTitle } from './ui';
-import { Ionicons } from '@expo/vector-icons';
 
 /**
  * Condition photos for one asset, on a phone (v2.33).
@@ -27,7 +27,7 @@ interface Photo {
   by: string | null;
 }
 
-interface CustodyGroup {
+export interface CustodyGroup {
   assignmentId: string;
   holder: string | null;
   assignedAt: string;
@@ -51,14 +51,11 @@ function Thumb({
   headers: Record<string, string>;
   label: string;
   caption: string | null;
-  onOpen: (source: { uri: string; headers?: Record<string, string> }) => void;
+  onOpen: () => void;
 }) {
   const { radius } = useTheme();
   return (
-    <Pressable
-      onPress={() => onOpen({ uri, headers })}
-      accessibilityRole="imagebutton"
-    >
+    <Pressable onPress={onOpen} accessibilityRole="imagebutton">
       <AuthImage
         uri={uri}
         headers={headers}
@@ -70,7 +67,44 @@ function Thumb({
 }
 
 /**
+ * The asset's custody events with their photos (GET /assets/:id/photos), loaded
+ * once per screen (v2.63).
+ *
+ * The section below used to fetch this itself. The lead picture box now shows
+ * the same photographs as a slideshow, so the screen loads the list once and
+ * hands it to both - the web does the same with one shared query.
+ *
  * `refreshKey` changes to force a reload after the camera sheet saves one.
+ * `groups` is null until the first answer arrives.
+ */
+export function useConditionPhotoGroups(
+  assetId: string | undefined,
+  refreshKey = 0,
+): { groups: CustodyGroup[] | null; reload: () => Promise<void> } {
+  const { api } = useSession();
+  const [groups, setGroups] = useState<CustodyGroup[] | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!assetId) return;
+    try {
+      setGroups(await api.request<CustodyGroup[]>(`/assets/${assetId}/photos`));
+    } catch {
+      // A failed photo list must not blank the asset screen around it - the
+      // section simply stays empty, and the lead box keeps its own picture.
+      setGroups([]);
+    }
+  }, [api, assetId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload, refreshKey]);
+
+  return { groups, reload };
+}
+
+/**
+ * `groups` and `onReload` come from useConditionPhotoGroups, held by the
+ * screen so the lead picture box can read the same list.
  *
  * `canCapture` is the web's rule - either custody right - and turns on the add
  * button, the empty-state line and removal of an open handover's photos.
@@ -79,13 +113,17 @@ function Thumb({
  */
 export function ConditionPhotoStrip({
   assetId,
-  refreshKey = 0,
+  groups,
+  onReload,
   canCapture = false,
   holderName = null,
   onAdd,
 }: {
   assetId: string;
-  refreshKey?: number;
+  /** null while the first load is in flight. */
+  groups: CustodyGroup[] | null;
+  /** Re-reads the list after a photo is removed here. */
+  onReload: () => Promise<void>;
   canCapture?: boolean;
   holderName?: string | null;
   /** Opens the camera sheet for the stage that makes sense right now. */
@@ -93,34 +131,17 @@ export function ConditionPhotoStrip({
 }) {
   const { api } = useSession();
   const { c, spacing } = useTheme();
-  const [groups, setGroups] = useState<CustodyGroup[] | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   /**
-   * The photo being viewed full-screen. A 96px thumbnail shows that a photo
-   * exists; it does not show the scratch the photo was taken for, which is the
-   * only reason anyone opens this section.
+   * The photo being viewed full-screen, by id. A 96px thumbnail shows that a
+   * photo exists; it does not show the scratch the photo was taken for, which
+   * is the only reason anyone opens this section. The viewer holds every
+   * condition photo, in custody order, so a swipe goes from the handover shot
+   * to the return shot without closing it.
    */
-  const [viewing, setViewing] = useState<{
-    source: { uri: string; headers?: Record<string, string> };
-    label: string;
-    caption: string | null;
-    by: string | null;
-    takenAt: string;
-  } | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setGroups(await api.request<CustodyGroup[]>(`/assets/${assetId}/photos`));
-    } catch {
-      // A failed photo list must not blank the asset screen around it - the
-      // section simply stays empty.
-      setGroups([]);
-    }
-  }, [api, assetId]);
-
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const viewable = useMemo(() => conditionSlides(assetId, groups ?? []), [assetId, groups]);
+  const viewingIndex = viewing ? viewable.findIndex((p) => p.id === viewing) : -1;
 
   // Still loading renders nothing, as on the web: most assets have no photos,
   // and a placeholder that resolves to an absent section is worse than none.
@@ -140,7 +161,7 @@ export function ConditionPhotoStrip({
             setRemovingId(photoId);
             try {
               await api.request(`/assets/${assetId}/photos/${photoId}`, { method: 'DELETE' });
-              await load();
+              await onReload();
             } catch (e) {
               Alert.alert('Could not remove that photo', e instanceof Error ? e.message : '');
             } finally {
@@ -160,15 +181,7 @@ export function ConditionPhotoStrip({
           headers={src.headers}
           label={label}
           caption={photo.caption}
-          onOpen={(source) =>
-            setViewing({
-              source,
-              label,
-              caption: photo.caption,
-              by: photo.by,
-              takenAt: photo.takenAt,
-            })
-          }
+          onOpen={() => setViewing(`condition:${photo.id}`)}
         />
         <Text style={{ color: c.muted, fontSize: 11, marginTop: 4 }} numberOfLines={1}>
           {photo.caption ?? new Date(photo.takenAt).toLocaleDateString()}
@@ -254,54 +267,11 @@ export function ConditionPhotoStrip({
         </Card>
       ))}
 
-      <Modal
-        visible={viewing !== null}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setViewing(null)}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'flex-start',
-              padding: spacing.lg,
-              gap: spacing.md,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>
-                {viewing?.caption ?? viewing?.label}
-              </Text>
-              {/* A photograph proves nothing without when it was taken and by
-                  whom, so both travel with it into the full-size view. */}
-              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 }}>
-                {viewing?.label}
-                {viewing ? ` · ${new Date(viewing.takenAt).toLocaleString()}` : ''}
-                {viewing?.by ? ` · ${viewing.by}` : ''}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => setViewing(null)}
-              hitSlop={12}
-              accessibilityLabel="Close photo"
-            >
-              <Ionicons name="close" size={26} color="#fff" />
-            </Pressable>
-          </View>
-
-          <Pressable style={{ flex: 1 }} onPress={() => setViewing(null)}>
-            {viewing ? (
-              <Image
-                source={viewing.source}
-                style={{ flex: 1, width: '100%' }}
-                resizeMode="contain"
-                accessibilityLabel={viewing.caption ?? `${viewing.label} photo`}
-              />
-            ) : null}
-          </Pressable>
-        </View>
-      </Modal>
+      <PhotoViewer
+        photos={viewable}
+        startIndex={viewingIndex >= 0 ? viewingIndex : null}
+        onClose={() => setViewing(null)}
+      />
     </>
   );
 }

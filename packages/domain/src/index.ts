@@ -44,6 +44,7 @@ export * from './quality-check';
 export * from './spec-proposals';
 export * from './asset-detail';
 export * from './asset-overview';
+export * from './asset-slides';
 export * from './asset-receipt';
 export * from './expenses';
 export * from './device-agent';

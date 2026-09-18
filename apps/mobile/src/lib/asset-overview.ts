@@ -79,19 +79,32 @@ export function assetImagePath(source: AssetImageSource, assetId: string): strin
 }
 
 /**
- * The caption under the picture. A picture that failed to load reads as the
- * illustration it fell back to, not as the catalogue picture it was meant to be.
+ * The caption under the picture: what the cover is, in the slide's own words
+ * ("Catalogue picture", "Photo of this unit", "At handover · Rohit"). The web
+ * adds "click to view all 7 full size"; on a phone the row shares its width
+ * with the photo buttons, and the badge on the cover already carries the count.
+ * A picture that failed to load reads as the illustration it fell back to, not
+ * as the picture it was meant to be.
  */
-export function assetImageCaption(source: AssetImageSource, failed: boolean): string {
-  if (failed) return 'No picture on file — illustration by type';
-  switch (source.kind) {
-    case 'catalogue':
-      return 'Catalogue picture';
-    case 'photo':
-      return 'Photo of this unit';
-    default:
-      return 'No picture on file — illustration by type';
-  }
+export function assetImageCaption(cover: { stageLabel: string } | null, failed: boolean): string {
+  if (!cover || failed) return 'No picture on file — illustration by type';
+  return cover.stageLabel;
+}
+
+/**
+ * The one line under "Key information" while it is shut (web: the same three,
+ * the same separator): the identifiers somebody reads off a sticker, and where
+ * the unit lives. Blank parts drop out rather than leaving a stray dot.
+ */
+export function keyInformationSummary(asset: {
+  serialNumber?: string | null;
+  assetTag?: string | null;
+  office?: { name: string } | null;
+}): string {
+  return [asset.serialNumber, asset.assetTag, asset.office?.name]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
 }
 
 // ---------------------------------------------------------------------------
