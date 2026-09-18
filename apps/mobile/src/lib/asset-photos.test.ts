@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { assetPhotoLimitMessage, assetSlides, MAX_ASSET_PHOTOS } from '@techpioasset/domain';
 import {
   addPhotoRefusal,
+  primaryPhotoId,
   REPLACE_DELETES_OLD,
   removePhotoPrompt,
   unitPhotoActions,
@@ -10,6 +11,7 @@ import {
   unitPhotoLabel,
   unitPhotoRemovePath,
   unitPhotos,
+  unitPhotoStripHint,
   unitPhotoUploadPath,
   uploadedAlert,
   usesLegacyPhotoRoutes,
@@ -39,6 +41,22 @@ describe('reading the photos off GET /assets/:id', () => {
 
   it('believes an empty list over a stale cover', () => {
     expect(unitPhotos({ photo: photo('p1'), photos: [] })).toEqual([]);
+  });
+
+  it('never files a condition photo chosen as the primary under the unit photos (v2.66)', () => {
+    const handover = { ...photo('h1'), entityType: 'AssetAssignment' };
+    // The v2.66 API: an empty list, and a handover photo as the primary.
+    expect(unitPhotos({ photo: handover, photos: [] })).toEqual([]);
+    // Even with no list at all, a condition photo is not a photo of the unit.
+    expect(unitPhotos({ photo: handover })).toEqual([]);
+    expect(unitPhotos({ photo: { ...photo('p1'), entityType: 'AssetPhoto' } }).map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('reads the primary id off `photo`, of whichever kind, and null when none is chosen', () => {
+    expect(primaryPhotoId({ photo: photo('p2'), photos: [photo('p2'), photo('p1')] })).toBe('p2');
+    expect(primaryPhotoId({ photo: { ...photo('h1'), entityType: 'AssetReturn' }, photos: [] })).toBe('h1');
+    expect(primaryPhotoId({ photo: null, photos: [photo('p1')] })).toBeNull();
+    expect(primaryPhotoId({})).toBeNull();
   });
 
   it('knows an older API by the missing list, not by an empty one', () => {
@@ -96,20 +114,36 @@ describe('routes', () => {
 });
 
 describe('the per-photo sheet', () => {
-  it('offers replace, make cover and remove for a photo that is not the cover', () => {
-    expect(unitPhotoActions({ isCover: false }).map((a) => a.key)).toEqual(['replace', 'cover', 'remove']);
+  it('offers replace, set as primary and remove for a photo that is not the primary', () => {
+    const actions = unitPhotoActions({ isPrimary: false });
+    expect(actions.map((a) => a.key)).toEqual(['replace', 'primary', 'remove']);
+    expect(actions.find((a) => a.key === 'primary')?.label).toBe('Set as primary');
   });
 
-  it('does not offer the cover the chance to become the cover', () => {
-    expect(unitPhotoActions({ isCover: true }).map((a) => a.key)).toEqual(['replace', 'remove']);
+  it('does not offer the primary the chance to become the primary', () => {
+    expect(unitPhotoActions({ isPrimary: true }).map((a) => a.key)).toEqual(['replace', 'remove']);
   });
 
-  it('has no "make cover" against an older API', () => {
-    expect(unitPhotoActions({ isCover: false, legacy: true }).map((a) => a.key)).toEqual(['replace', 'remove']);
+  it('has no "set as primary" against an older API', () => {
+    expect(unitPhotoActions({ isPrimary: false, legacy: true }).map((a) => a.key)).toEqual(['replace', 'remove']);
+  });
+
+  it('says "primary" everywhere, never "cover" (v2.66)', () => {
+    const words = [
+      ...unitPhotoActions({ isPrimary: false }).flatMap((a) => [a.label, a.hint]),
+      unitPhotoLabel(0, 2, true),
+      unitPhotoStripHint(),
+      unitPhotoStripHint(true),
+      removePhotoPrompt({ isPrimary: true, count: 2 }).message,
+      removePhotoPrompt({ isPrimary: true, count: 1 }).message,
+    ].join(' ');
+    expect(words).not.toMatch(/cover/i);
+    expect(unitPhotoStripHint()).toMatch(/set it as the primary image/);
+    expect(unitPhotoStripHint(true)).not.toMatch(/primary/);
   });
 
   it('says what each action does to the stored file', () => {
-    const actions = unitPhotoActions({ isCover: false });
+    const actions = unitPhotoActions({ isPrimary: false });
     expect(actions.find((a) => a.key === 'replace')?.hint).toBe(REPLACE_DELETES_OLD);
     expect(REPLACE_DELETES_OLD).toMatch(/deleted automatically/);
     const remove = actions.find((a) => a.key === 'remove');
@@ -117,9 +151,12 @@ describe('the per-photo sheet', () => {
     expect(remove?.destructive).toBe(true);
   });
 
-  it('labels thumbnails for a screen reader, marking the cover', () => {
-    expect(unitPhotoLabel(0, 3)).toBe('Photo 1 of 3, cover');
-    expect(unitPhotoLabel(2, 3)).toBe('Photo 3 of 3');
+  it('labels thumbnails for a screen reader, marking the primary by id and not by position', () => {
+    expect(unitPhotoLabel(0, 3, true)).toBe('Photo 1 of 3, primary');
+    expect(unitPhotoLabel(2, 3, true)).toBe('Photo 3 of 3, primary');
+    // First in the strip, but a handover photo (or nothing) is the primary.
+    expect(unitPhotoLabel(0, 3)).toBe('Photo 1 of 3');
+    expect(unitPhotoLabel(2, 3, false)).toBe('Photo 3 of 3');
   });
 });
 
@@ -155,17 +192,23 @@ describe('after an upload', () => {
 describe('before a removal', () => {
   it('always says the file is deleted', () => {
     for (const input of [
-      { isCover: true, count: 1 },
-      { isCover: true, count: 3 },
-      { isCover: false, count: 3 },
+      { isPrimary: true, count: 1 },
+      { isPrimary: true, count: 3 },
+      { isPrimary: false, count: 3 },
+      { isPrimary: false, count: 1 },
     ]) {
       expect(removePhotoPrompt(input).message).toMatch(/file is deleted/);
     }
   });
 
-  it('says where the cover goes', () => {
-    expect(removePhotoPrompt({ isCover: true, count: 3 }).message).toMatch(/oldest photo left becomes the cover/);
-    expect(removePhotoPrompt({ isCover: false, count: 3 }).message).not.toMatch(/cover/);
-    expect(removePhotoPrompt({ isCover: true, count: 1 }).message).toMatch(/catalogue picture or an illustration/);
+  it('says where the primary goes, and nothing when another picture leads', () => {
+    expect(removePhotoPrompt({ isPrimary: true, count: 3 }).message).toMatch(
+      /oldest photo left becomes the primary image/,
+    );
+    expect(removePhotoPrompt({ isPrimary: true, count: 1 }).message).toMatch(
+      /catalogue picture, a condition photo or an illustration/,
+    );
+    expect(removePhotoPrompt({ isPrimary: false, count: 3 }).message).not.toMatch(/primary|catalogue/);
+    expect(removePhotoPrompt({ isPrimary: false, count: 1 }).message).not.toMatch(/primary|catalogue/);
   });
 });

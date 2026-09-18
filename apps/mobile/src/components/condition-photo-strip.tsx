@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { conditionPhotosEmptyMessage, conditionSlides } from '@techpioasset/domain';
+import { usePrimaryPhoto } from '../lib/use-primary-photo';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
 import { AuthImage } from './auth-image';
@@ -19,6 +20,9 @@ import { Button, Card, SectionTitle } from './ui';
  * photographs of the same laptop says nothing about which were taken when,
  * which is the entire question.
  */
+
+/** Stands in for `onPrimaryChanged` when the viewer offers no choice, so the hook's identity holds. */
+const noop = () => undefined;
 
 interface Photo {
   id: string;
@@ -110,6 +114,13 @@ export function useConditionPhotoGroups(
  * button, the empty-state line and removal of an open handover's photos.
  * Without it the section stays out of the way unless photos exist, which is
  * what an employee looking at their own laptop should see.
+ *
+ * v2.66: the owner asked to make any image the asset's primary one, and the
+ * best picture of a laptop is often the one taken when it was handed over. So
+ * the full-size viewer here carries "Set as primary" too, for people who may
+ * edit the record (`onPrimaryChanged` given) - the same hook, route and words
+ * as the lead box's viewer. Only the asset's pointer moves: the photo stays
+ * filed under its handover and keeps its removal rules.
  */
 export function ConditionPhotoStrip({
   assetId,
@@ -118,6 +129,8 @@ export function ConditionPhotoStrip({
   canCapture = false,
   holderName = null,
   onAdd,
+  primaryPhotoId = null,
+  onPrimaryChanged,
 }: {
   assetId: string;
   /** null while the first load is in flight. */
@@ -128,9 +141,18 @@ export function ConditionPhotoStrip({
   holderName?: string | null;
   /** Opens the camera sheet for the stage that makes sense right now. */
   onAdd?: (stage: 'HANDOVER' | 'RETURN') => void;
+  /** v2.66 - the asset's primary picture (`asset.photo.id`), which may be one of these. */
+  primaryPhotoId?: string | null;
+  /**
+   * v2.66 - reloads the asset once a photo here is made its primary picture.
+   * Given only for people who may edit the record, against a server that has
+   * the route; without it the viewer offers nothing, as before.
+   */
+  onPrimaryChanged?: () => void;
 }) {
   const { api } = useSession();
   const { c, spacing } = useTheme();
+  const primary = usePrimaryPhoto(assetId, onPrimaryChanged ?? noop);
   const [removingId, setRemovingId] = useState<string | null>(null);
   /**
    * The photo being viewed full-screen, by id. A 96px thumbnail shows that a
@@ -267,10 +289,17 @@ export function ConditionPhotoStrip({
         </Card>
       ))}
 
+      {/* v2.66 - unlike the lead box's, this viewer stays open once the choice
+          is saved: its list is the condition photos in custody order, which
+          the primary does not reorder, so the picture on screen stays put and
+          simply gains its "Primary image" badge when the asset reloads. */}
       <PhotoViewer
         photos={viewable}
         startIndex={viewingIndex >= 0 ? viewingIndex : null}
         onClose={() => setViewing(null)}
+        primaryPhotoId={primaryPhotoId}
+        primaryBusy={primary.busy}
+        onSetPrimary={onPrimaryChanged ? (photoId) => void primary.setPrimary(photoId) : undefined}
       />
     </>
   );

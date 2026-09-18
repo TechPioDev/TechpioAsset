@@ -24,10 +24,13 @@ import {
   unitPhotoImagePath,
   unitPhotoLabel,
   unitPhotoRemovePath,
+  unitPhotoStripHint,
   unitPhotoUploadPath,
   uploadedAlert,
   type UnitPhotoActionKey,
 } from '../../lib/asset-photos';
+import { primaryChangedAlert } from '../../lib/primary-photo';
+import { usePrimaryPhoto } from '../../lib/use-primary-photo';
 import {
   PICKER_UNAVAILABLE_MESSAGE,
   pickImageFromCamera,
@@ -75,6 +78,20 @@ import { AssetSheet } from './sheet';
  *  - the exact size that fills the box (1600 × 800 px) is stated under the
  *    strip, and again - with the picture's own size - after uploading one that
  *    does not fit. An upload is never refused for its shape.
+ *
+ * v2.66: the owner asked to make ANY image the primary one - the picture this
+ * box leads with and the slideshow opens on - a handover or return photo
+ * included. So:
+ *  - a chosen primary leads AHEAD of the catalogue picture, which until now
+ *    always won (resolveAssetImageSource); with none chosen it still does;
+ *  - the full-size viewer carries "Set as primary" on every slide (and "Use
+ *    catalogue picture first" on the listing's, which clears the choice);
+ *  - the strip's mark follows the primary's id (`primaryPhotoId`), not "first
+ *    in the list": with a condition photo leading, or nothing chosen, no
+ *    thumbnail is marked;
+ *  - "Cover" / "Make cover" became "Primary" / "Set as primary", so the app
+ *    says one thing in the strip, the viewer and on the web.
+ * Nothing is moved or deleted by the choice; the server keeps one pointer.
  */
 
 /** A thumbnail in the photo strip: five of them and their gaps fit a 360 dp phone. */
@@ -124,6 +141,7 @@ export function AssetImageCard({
   brand,
   source,
   ownPhotos,
+  primaryPhotoId,
   legacyPhotoApi = false,
   catalogue,
   groups,
@@ -137,10 +155,16 @@ export function AssetImageCard({
   brand: string | null;
   source: AssetImageSource;
   /**
-   * v2.65 - every photo uploaded of this unit (up to five), the cover first,
-   * whatever is being shown in the box.
+   * v2.65 - every photo uploaded of this unit (up to five), whatever is being
+   * shown in the box. The server's list as sent, even when empty.
    */
   ownPhotos: readonly AssetOwnPhoto[];
+  /**
+   * v2.66 - the attachment id of the asset's primary picture (`asset.photo.id`),
+   * or null when none is chosen. It may be one of `ownPhotos` or a condition
+   * photo; the strip's "Primary" mark and the viewer's badge follow it.
+   */
+  primaryPhotoId: string | null;
   /**
    * The API that answered predates v2.65 (it sent no `photos` list): the strip
    * then keeps to that API's one-photo routes. False everywhere else.
@@ -168,6 +192,9 @@ export function AssetImageCard({
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<PhotoSheet | null>(null);
   const [viewing, setViewing] = useState(false);
+  // v2.66 - "Set as primary" in the full-size viewer. The same hook serves the
+  // condition-photo section's viewer, so both say and do one thing.
+  const primary = usePrimaryPhoto(assetId, onChanged);
 
   // The parent builds `source`, `ownPhotos` and `catalogue` afresh on every
   // render, so the list is rebuilt each time (it is cheap) and its identity
@@ -243,24 +270,26 @@ export function AssetImageCard({
     }
   }
 
-  async function makeCover(photoId: string) {
+  // From the strip. v2.65's route, which a v2.65 server has too and which on
+  // v2.66 does what the viewer's PATCH does; the words are the viewer's.
+  async function makePrimary(photoId: string) {
     setBusy(true);
     setError(null);
     try {
       await api.request(unitPhotoCoverPath(assetId, photoId), { method: 'POST' });
       setFailed(false);
       onChanged();
-      Alert.alert('Cover changed');
+      const done = primaryChangedAlert(photoId);
+      Alert.alert(done.title, done.message);
     } catch (e) {
-      setError(problemMessage(e, 'Could not change the cover'));
+      setError(problemMessage(e, 'Could not set the primary image'));
     } finally {
       setBusy(false);
     }
   }
 
   function remove(photoId: string) {
-    const index = ownPhotos.findIndex((p) => p.id === photoId);
-    const prompt = removePhotoPrompt({ isCover: index === 0, count: ownPhotos.length });
+    const prompt = removePhotoPrompt({ isPrimary: photoId === primaryPhotoId, count: ownPhotos.length });
     Alert.alert(prompt.title, prompt.message, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -291,7 +320,7 @@ export function AssetImageCard({
       return;
     }
     setSheet(null);
-    if (key === 'cover') void makeCover(photoId);
+    if (key === 'primary') void makePrimary(photoId);
     else remove(photoId);
   }
 
@@ -470,54 +499,59 @@ export function AssetImageCard({
 
           {thumbs.length > 0 ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-              {thumbs.map((p, i) => (
-                <Pressable
-                  key={p.id}
-                  onPress={() => setSheet({ step: 'actions', photoId: p.id })}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={unitPhotoLabel(i, thumbs.length)}
-                  accessibilityHint="Replace, make cover or remove"
-                  style={{ width: THUMB, alignItems: 'center', opacity: busy ? 0.5 : 1 }}
-                >
-                  <View
-                    style={{
-                      width: THUMB,
-                      height: THUMB,
-                      borderRadius: radius.md,
-                      overflow: 'hidden',
-                      borderWidth: i === 0 ? 2 : 1,
-                      borderColor: i === 0 ? c.brand : c.border,
-                    }}
+              {thumbs.map((p, i) => {
+                // v2.66 - by id, not by position: with a handover photo as the
+                // primary, or none chosen, no thumbnail here carries the mark.
+                const isPrimary = p.id === primaryPhotoId;
+                return (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => setSheet({ step: 'actions', photoId: p.id })}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={unitPhotoLabel(i, thumbs.length, isPrimary)}
+                    accessibilityHint={legacyPhotoApi ? 'Replace or remove' : 'Replace, set as primary or remove'}
+                    style={{ width: THUMB, alignItems: 'center', opacity: busy ? 0.5 : 1 }}
                   >
-                    <AuthImage
-                      uri={p.src.uri}
-                      headers={p.src.headers}
-                      style={{ width: '100%', height: '100%' }}
-                      accessibilityLabel=""
-                    />
-                    {i === 0 ? (
-                      <View
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          backgroundColor: 'rgba(0,0,0,0.65)',
-                          paddingVertical: 1,
-                        }}
-                      >
-                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
-                          Cover
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={{ color: c.subtle, fontSize: 10, marginTop: 2 }} numberOfLines={1}>
-                    {photoSizeLabel(p.sizeBytes) ?? ' '}
-                  </Text>
-                </Pressable>
-              ))}
+                    <View
+                      style={{
+                        width: THUMB,
+                        height: THUMB,
+                        borderRadius: radius.md,
+                        overflow: 'hidden',
+                        borderWidth: isPrimary ? 2 : 1,
+                        borderColor: isPrimary ? c.brand : c.border,
+                      }}
+                    >
+                      <AuthImage
+                        uri={p.src.uri}
+                        headers={p.src.headers}
+                        style={{ width: '100%', height: '100%' }}
+                        accessibilityLabel=""
+                      />
+                      {isPrimary ? (
+                        <View
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.65)',
+                            paddingVertical: 1,
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
+                            Primary
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: c.subtle, fontSize: 10, marginTop: 2 }} numberOfLines={1}>
+                      {photoSizeLabel(p.sizeBytes) ?? ' '}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           ) : null}
 
@@ -526,7 +560,7 @@ export function AssetImageCard({
           {/* The exact size that fills the box, and how many of five are used. */}
           <Text style={{ color: c.subtle, fontSize: 12, lineHeight: 17 }}>
             {assetPhotoHint(ownPhotos.length)}
-            {thumbs.length > 0 ? ' Tap a photo to replace it, make it the cover or remove it.' : ''}
+            {thumbs.length > 0 ? ` ${unitPhotoStripHint(legacyPhotoApi)}` : ''}
           </Text>
         </View>
       ) : null}
@@ -546,10 +580,30 @@ export function AssetImageCard({
 
       {/* Every picture, from the cover on. Shut again if the cover is lost
           while it is open, so it never sits over an illustration. */}
+      {/* v2.66 - "Set as primary", for people who may edit the record and a
+          server that has the route (a pre-v2.65 one has not). The viewer is
+          shut once the choice is saved: the primary moves to the front of
+          `slides` when the asset reloads, and a viewer left open would find a
+          different picture under the index it was holding. Shut, the person
+          sees the lead box change - the point of the exercise. A refusal
+          leaves it open, on the same picture. */}
       <PhotoViewer
         photos={slides}
         startIndex={viewing && !showIllustration ? 0 : null}
         onClose={() => setViewing(false)}
+        primaryPhotoId={primaryPhotoId}
+        primaryBusy={primary.busy}
+        onSetPrimary={
+          canManage && !legacyPhotoApi
+            ? (photoId) =>
+                void primary.setPrimary(photoId).then((saved) => {
+                  if (saved) {
+                    setFailed(false);
+                    setViewing(false);
+                  }
+                })
+            : undefined
+        }
       />
 
       {/* One sheet, two steps - a sheet rather than an Alert, which Android
@@ -558,7 +612,11 @@ export function AssetImageCard({
         visible={sheet !== null}
         title={
           shown?.step === 'actions'
-            ? unitPhotoLabel(Math.max(selectedIndex, 0), Math.max(ownPhotos.length, 1))
+            ? unitPhotoLabel(
+                Math.max(selectedIndex, 0),
+                Math.max(ownPhotos.length, 1),
+                shown.photoId === primaryPhotoId,
+              )
             : shown?.replaceId
               ? 'Replace this photo'
               : 'Add a photo'
@@ -567,7 +625,7 @@ export function AssetImageCard({
         onClose={() => setSheet(null)}
       >
         {shown?.step === 'actions' ? (
-          unitPhotoActions({ isCover: selectedIndex === 0, legacy: legacyPhotoApi }).map((action) => (
+          unitPhotoActions({ isPrimary: shown.photoId === primaryPhotoId, legacy: legacyPhotoApi }).map((action) => (
             <Pressable
               key={action.key}
               accessibilityRole="menuitem"

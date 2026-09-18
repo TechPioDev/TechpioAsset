@@ -55,7 +55,7 @@ import {
   warrantyStanding,
   type MoreActionKey,
 } from '../../src/lib/asset-overview';
-import { unitPhotos, usesLegacyPhotoRoutes } from '../../src/lib/asset-photos';
+import { primaryPhotoId, unitPhotos, usesLegacyPhotoRoutes } from '../../src/lib/asset-photos';
 import { useSession } from '../../src/providers/session';
 import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
@@ -120,8 +120,13 @@ interface AssetDetail {
   warrantyEndDate: string | null;
   expectedReplacementDate?: string | null;
   notes?: string | null;
-  /** v2.61 - the unit's own uploaded picture, if any. */
-  photo?: { id: string; mimeType: string; createdAt: string } | null;
+  /**
+   * v2.61 - the unit's own uploaded picture, if any. v2.66 - the asset's
+   * PRIMARY picture, which somebody may have chosen from any photograph on it:
+   * `entityType` is 'AssetPhoto' for a photo of the unit, 'AssetAssignment' or
+   * 'AssetReturn' for a handover or return photo. Absent from an older API.
+   */
+  photo?: { id: string; mimeType: string; createdAt: string; entityType?: string | null } | null;
   /**
    * v2.65 - every photograph of the unit (up to five), the cover first. Absent
    * from an API that predates it, where `photo` is then the whole list.
@@ -348,7 +353,24 @@ export default function AssetDetailScreen() {
   const imageSource = resolveAssetImageSource(asset);
   // v2.65 - all the photos of the unit, for the lead box's slideshow and its
   // photo strip; read once here so the header thumbnail agrees with both.
+  // v2.66 - the server's list is taken as sent even when EMPTY: the primary
+  // picture may be a handover photo, which is not a photo of the unit and is
+  // already among the condition photos. Only an API too old to send a list
+  // falls back to `photo` (unitPhotos, lib/asset-photos.ts).
   const ownPhotos = unitPhotos(asset);
+  // v2.66 - the picture somebody chose to lead the asset, of whichever kind;
+  // the strip's "Primary" mark and both viewers' badges follow this id.
+  const primaryId = primaryPhotoId(asset);
+  // Choosing it is an edit to the record (assets:update), and needs the v2.66
+  // route; a server too old to list `photos` certainly has not got it.
+  const maySetPrimary = mayEdit && !usesLegacyPhotoRoutes(asset);
+  // A handover photo removed from the Condition photos section may have been
+  // the primary; the server then clears the choice, so the asset is re-read as
+  // well or the lead box would go on asking for a picture that is gone.
+  const reloadConditionPhotos = async () => {
+    await reloadPhotos();
+    if (primaryId && !ownPhotos.some((p) => p.id === primaryId)) void load();
+  };
   const tiles: HealthTile[] = [
     ...(asset.health
       ? [healthScoreTile(asset.health, HEALTH_GRADE_TONE[asset.health.grade] as HealthTile['tone'])]
@@ -550,6 +572,7 @@ export default function AssetDetailScreen() {
             brand={asset.brand}
             source={imageSource}
             ownPhotos={ownPhotos}
+            primaryPhotoId={primaryId}
             legacyPhotoApi={usesLegacyPhotoRoutes(asset)}
             catalogue={
               asset.vendorProduct?.primaryImageId
@@ -650,7 +673,9 @@ export default function AssetDetailScreen() {
           <ConditionPhotoStrip
             assetId={asset.id}
             groups={photoGroups}
-            onReload={reloadPhotos}
+            onReload={reloadConditionPhotos}
+            primaryPhotoId={primaryId}
+            onPrimaryChanged={maySetPrimary ? () => void load() : undefined}
             canCapture={canCapture}
             holderName={holderName}
             onAdd={setPhotoStage}
@@ -903,7 +928,9 @@ export default function AssetDetailScreen() {
           <ConditionPhotoStrip
             assetId={asset.id}
             groups={photoGroups}
-            onReload={reloadPhotos}
+            onReload={reloadConditionPhotos}
+            primaryPhotoId={primaryId}
+            onPrimaryChanged={maySetPrimary ? () => void load() : undefined}
             canCapture={canCapture}
             holderName={holderName}
             onAdd={setPhotoStage}

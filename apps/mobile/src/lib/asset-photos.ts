@@ -22,21 +22,54 @@ import type { IconName } from '../components/ui';
 // Reading the list
 // ---------------------------------------------------------------------------
 
-/** The two fields of GET /assets/:id this reads; `photos` arrived with v2.65. */
+/**
+ * The two fields of GET /assets/:id this reads; `photos` arrived with v2.65.
+ *
+ * v2.66: `photo` is the asset's PRIMARY picture, and no longer always one of
+ * the unit's own photographs - the owner may choose a handover or return photo.
+ * `entityType` says which: 'AssetPhoto' for a photo of the unit, otherwise the
+ * custody record a condition photo is filed under.
+ */
 export interface AssetPhotoFields {
-  photo?: { id: string; createdAt: string; sizeBytes?: number | null } | null;
+  photo?: { id: string; createdAt: string; sizeBytes?: number | null; entityType?: string | null } | null;
   photos?: readonly { id: string; createdAt: string; sizeBytes?: number | null }[] | null;
 }
 
+/** What `photo.entityType` says for a photograph of the unit (v2.66). */
+const UNIT_PHOTO_ENTITY = 'AssetPhoto';
+
 /**
- * Every photograph of the unit, the cover first - the order the API sends and
- * the order the slideshow walks. An API that predates v2.65 sends only `photo`
- * (the app can reach a phone before the server is updated), and that one
- * picture is then the whole list.
+ * Every photograph of the unit, in the order the API sends - the primary first
+ * when it is one of them. An API that predates v2.65 sends only `photo` (the
+ * app can reach a phone before the server is updated), and that one picture is
+ * then the whole list.
+ *
+ * v2.66: the list is believed whenever the server sent one, EVEN EMPTY. With a
+ * handover photo chosen as the primary and no photos of the unit, `photos` is
+ * [] and `photo` is that handover photo; falling back to `[photo]` there would
+ * file a condition photo under "Photos of this unit", offer to replace or
+ * delete it through routes that do not own it, and show it twice in the
+ * slideshow. The fallback is for a missing list only, and only ever for a
+ * photo of the unit.
  */
 export function unitPhotos(asset: AssetPhotoFields): AssetOwnPhoto[] {
-  const list = asset.photos ?? (asset.photo ? [asset.photo] : []);
+  const legacy =
+    asset.photo && (asset.photo.entityType == null || asset.photo.entityType === UNIT_PHOTO_ENTITY)
+      ? [asset.photo]
+      : [];
+  const list = asset.photos ?? legacy;
   return list.map((p) => ({ id: p.id, createdAt: p.createdAt, sizeBytes: p.sizeBytes ?? null }));
+}
+
+/**
+ * The attachment id of the asset's primary picture, or null when nobody has
+ * chosen one (v2.66). It may be a photo of the unit or a condition photo; the
+ * "Primary" mark in the strip and the badge in the viewer both follow this id,
+ * never "first in the list" - with a condition photo as the primary, or none
+ * chosen, no thumbnail in the strip is marked.
+ */
+export function primaryPhotoId(asset: AssetPhotoFields): string | null {
+  return asset.photo?.id ?? null;
 }
 
 /**
@@ -84,7 +117,12 @@ export function unitPhotoRemovePath(assetId: string, photoId: string, legacy = f
   return legacy ? `/assets/${assetId}/photo` : `/assets/${assetId}/unit-photos/${photoId}`;
 }
 
-/** POST here makes the photograph the cover. */
+/**
+ * POST here makes a photograph of the unit the primary picture. v2.65's route,
+ * kept for the strip because a v2.65 server has it too; on v2.66 it does
+ * exactly what PATCH /assets/:id/primary-photo does (lib/primary-photo.ts),
+ * which the full-size viewer uses since it must also reach condition photos.
+ */
 export function unitPhotoCoverPath(assetId: string, photoId: string): string {
   return `/assets/${assetId}/unit-photos/${photoId}/cover`;
 }
@@ -98,7 +136,7 @@ export function unitPhotoImagePath(assetId: string, photoId: string): string {
 // The per-photo sheet
 // ---------------------------------------------------------------------------
 
-export type UnitPhotoActionKey = 'replace' | 'cover' | 'remove';
+export type UnitPhotoActionKey = 'replace' | 'primary' | 'remove';
 
 export interface UnitPhotoAction {
   key: UnitPhotoActionKey;
@@ -113,11 +151,12 @@ export interface UnitPhotoAction {
 export const REPLACE_DELETES_OLD = 'The old picture is deleted automatically when the new one is saved.';
 
 /**
- * What a tap on a thumbnail offers. "Make cover" is left out for the photo
- * that already is the cover, and against a legacy API, which has one photo and
- * no such route.
+ * What a tap on a thumbnail offers. "Set as primary" is left out for the photo
+ * that already is the primary, and against a legacy API, which has one photo
+ * and no such route. Until v2.66 this read "Make cover"; the app now says
+ * "primary" everywhere, the word the viewer and the web use.
  */
-export function unitPhotoActions(input: { isCover: boolean; legacy?: boolean }): UnitPhotoAction[] {
+export function unitPhotoActions(input: { isPrimary: boolean; legacy?: boolean }): UnitPhotoAction[] {
   const actions: UnitPhotoAction[] = [
     {
       key: 'replace',
@@ -126,10 +165,10 @@ export function unitPhotoActions(input: { isCover: boolean; legacy?: boolean }):
       hint: REPLACE_DELETES_OLD,
     },
   ];
-  if (!input.isCover && !input.legacy) {
+  if (!input.isPrimary && !input.legacy) {
     actions.push({
-      key: 'cover',
-      label: 'Make cover',
+      key: 'primary',
+      label: 'Set as primary',
       icon: 'star-outline',
       hint: 'Shown first on the asset, and as its thumbnail.',
     });
@@ -144,9 +183,20 @@ export function unitPhotoActions(input: { isCover: boolean; legacy?: boolean }):
   return actions;
 }
 
-/** "Photo 2 of 3, cover" - what a screen reader says for a thumbnail. */
-export function unitPhotoLabel(index: number, count: number): string {
-  return `Photo ${index + 1} of ${count}${index === 0 ? ', cover' : ''}`;
+/**
+ * "Photo 2 of 3, primary" - what a screen reader says for a thumbnail. The
+ * mark follows the primary id, not the position: the first photo in the strip
+ * is not the primary when a condition photo is, or when none is chosen.
+ */
+export function unitPhotoLabel(index: number, count: number, isPrimary = false): string {
+  return `Photo ${index + 1} of ${count}${isPrimary ? ', primary' : ''}`;
+}
+
+/** Under the strip: what a tap on a thumbnail offers, in one line. */
+export function unitPhotoStripHint(legacy = false): string {
+  return legacy
+    ? 'Tap the photo to replace or remove it.'
+    : 'Tap a photo to replace it, set it as the primary image or remove it.';
 }
 
 // ---------------------------------------------------------------------------
@@ -178,20 +228,24 @@ export function uploadedAlert(input: {
 
 /**
  * The question asked before a photograph is removed. It says the file goes,
- * and what the asset shows afterwards: the next photo as cover, or - with none
- * left - whatever the image rule falls back to.
+ * and what the asset shows afterwards: the oldest photo left as the primary
+ * (what the server does when the primary is removed), or - with none left -
+ * whatever the image rule falls back to. `isPrimary` follows the primary id
+ * (v2.66): removing a unit photo while a handover photo leads changes nothing
+ * at the top of the screen, so nothing is said about it.
  */
-export function removePhotoPrompt(input: { isCover: boolean; count: number }): Required<PhotoAlert> {
+export function removePhotoPrompt(input: { isPrimary: boolean; count: number }): Required<PhotoAlert> {
   const deleted = 'The file is deleted and cannot be brought back.';
   const remaining = input.count - 1;
+  if (!input.isPrimary) return { title: 'Remove this photo?', message: deleted };
   if (remaining <= 0) {
     return {
       title: 'Remove this photo?',
-      message: `${deleted} The asset goes back to its catalogue picture or an illustration.`,
+      message: `${deleted} The asset goes back to its catalogue picture, a condition photo or an illustration.`,
     };
   }
   return {
     title: 'Remove this photo?',
-    message: input.isCover ? `${deleted} The oldest photo left becomes the cover.` : deleted,
+    message: `${deleted} The oldest photo left becomes the primary image.`,
   };
 }
