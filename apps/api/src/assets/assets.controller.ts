@@ -582,6 +582,70 @@ export class AssetsController {
     return this.photos.removeAssetPhoto(actor, id);
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Up to five photographs of the unit (v2.65). The two routes above stay for
+  // the phones already installed: they set, replace and remove the cover.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  @Post(':id/unit-photos')
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PHOTO_BYTES } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Add a photograph of the unit, or replace one',
+    description:
+      'At most five per asset; a sixth is refused. `?replace=<photoId>` swaps that ' +
+      'photograph for the upload and deletes the old file. The first becomes the cover, ' +
+      'and a replacement of the cover stays the cover.',
+  })
+  addUnitPhoto(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Query('replace') replace: string | undefined,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [new MaxFileSizeValidator({ maxSize: MAX_PHOTO_BYTES })],
+        fileIsRequired: true,
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    if (!file?.buffer) throw new AppError('FILE_REJECTED', 'No photo was received');
+    return this.photos.addAssetPhoto(
+      actor,
+      id,
+      { buffer: file.buffer, originalname: file.originalname, mimetype: file.mimetype },
+      replace || null,
+    );
+  }
+
+  @Post(':id/unit-photos/:photoId/cover')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @ApiOperation({ summary: "Make one of the unit's photographs the cover" })
+  setUnitPhotoCover(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('photoId') photoId: string,
+  ) {
+    return this.photos.setAssetCover(actor, id, photoId);
+  }
+
+  @Delete(':id/unit-photos/:photoId')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.ASSETS_UPDATE)
+  @ApiOperation({
+    summary: "Remove one of the unit's photographs",
+    description: 'Deletes the file. Removing the cover hands the cover to the oldest one left.',
+  })
+  removeUnitPhoto(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Param('photoId') photoId: string,
+  ) {
+    return this.photos.removeAssetPhotoById(actor, id, photoId);
+  }
+
   @Post('assignments/:assignmentId/acknowledge')
   @ApiOperation({
     summary: 'Confirm receipt of an assigned asset',

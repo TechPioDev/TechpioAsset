@@ -55,6 +55,7 @@ import {
   warrantyStanding,
   type MoreActionKey,
 } from '../../src/lib/asset-overview';
+import { unitPhotos, usesLegacyPhotoRoutes } from '../../src/lib/asset-photos';
 import { useSession } from '../../src/providers/session';
 import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
@@ -121,6 +122,11 @@ interface AssetDetail {
   notes?: string | null;
   /** v2.61 - the unit's own uploaded picture, if any. */
   photo?: { id: string; mimeType: string; createdAt: string } | null;
+  /**
+   * v2.65 - every photograph of the unit (up to five), the cover first. Absent
+   * from an API that predates it, where `photo` is then the whole list.
+   */
+  photos?: { id: string; mimeType: string; sizeBytes?: number | null; createdAt: string }[];
   /** Sent only to holders of assets:cost:read - the API omits it for everyone else. */
   purchaseCost?: string | null;
   currency?: string | null;
@@ -340,6 +346,9 @@ export default function AssetDetailScreen() {
   const lastReport = latestAgentReport(asset.hardwareProfile, asset.osInfo);
   const agent = lastReport ? agentPill(reportFreshness(lastReport.at), lastReport.at) : null;
   const imageSource = resolveAssetImageSource(asset);
+  // v2.65 - all the photos of the unit, for the lead box's slideshow and its
+  // photo strip; read once here so the header thumbnail agrees with both.
+  const ownPhotos = unitPhotos(asset);
   const tiles: HealthTile[] = [
     ...(asset.health
       ? [healthScoreTile(asset.health, HEALTH_GRADE_TONE[asset.health.grade] as HealthTile['tone'])]
@@ -363,7 +372,8 @@ export default function AssetDetailScreen() {
     assetSlides({
       assetId: asset.id,
       source: imageSource,
-      ownPhoto: asset.photo ? { id: asset.photo.id, createdAt: asset.photo.createdAt } : null,
+      ownPhoto: ownPhotos[0] ?? null,
+      ownPhotos,
       catalogue: asset.vendorProduct?.primaryImageId
         ? { productId: asset.vendorProduct.id, imageId: asset.vendorProduct.primaryImageId }
         : null,
@@ -539,7 +549,8 @@ export default function AssetDetailScreen() {
             typeKey={asset.subcategory?.key}
             brand={asset.brand}
             source={imageSource}
-            ownPhoto={asset.photo ? { id: asset.photo.id, createdAt: asset.photo.createdAt } : null}
+            ownPhotos={ownPhotos}
+            legacyPhotoApi={usesLegacyPhotoRoutes(asset)}
             catalogue={
               asset.vendorProduct?.primaryImageId
                 ? { productId: asset.vendorProduct.id, imageId: asset.vendorProduct.primaryImageId }

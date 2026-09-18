@@ -11,6 +11,8 @@ import { resolveAssetImageSource } from '@/lib/asset-overview';
 export interface CoverAsset {
   vendorProduct?: { id: string; primaryImageId?: string | null } | null;
   photo?: { id: string; createdAt: string } | null;
+  /** v2.65 - every photograph of the unit, the cover first. Absent from an older API. */
+  photos?: readonly { id: string; createdAt: string }[] | null;
   subcategory?: { key: string } | null;
   brand: string | null;
 }
@@ -42,6 +44,8 @@ export function useAssetCover(
   const imageId = asset?.vendorProduct?.primaryImageId ?? null;
   const photoId = asset?.photo?.id ?? null;
   const photoAt = asset?.photo?.createdAt ?? null;
+  // One string for the whole list, so the memo below can key on its value.
+  const unitKey = (asset?.photos ?? []).map((p) => `${p.id}@${p.createdAt}`).join('|');
   const typeKey = asset?.subcategory?.key ?? null;
   const brand = asset?.brand ?? null;
   const known = Boolean(asset);
@@ -61,10 +65,16 @@ export function useAssetCover(
         brand,
       }),
       ownPhoto: photo,
+      ownPhotos: unitKey
+        ? unitKey.split('|').map((entry) => {
+            const at = entry.indexOf('@');
+            return { id: entry.slice(0, at), createdAt: entry.slice(at + 1) };
+          })
+        : undefined,
       catalogue: productId && imageId ? { productId, imageId } : null,
       groups: groups ?? [],
     });
-  }, [known, assetId, productId, imageId, photoId, photoAt, typeKey, brand, groups]);
+  }, [known, assetId, productId, imageId, photoId, photoAt, typeKey, brand, unitKey, groups]);
 
   const { url, failed } = useAuthedBlob(slides[0]?.path ?? null);
   return { slides, coverUrl: url, coverFailed: failed };

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AuthUser } from '@techpioasset/contracts';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { MAX_ASSET_PHOTOS, PERMISSIONS, assetPhotoLimitMessage } from '@techpioasset/domain';
 import { AuditAction } from '@prisma/client';
 import { AppConfig } from '../config/config.module.js';
 import { AppError } from '../common/errors/app-error.js';
@@ -496,18 +496,42 @@ export class AssetPhotosService {
     return asset;
   }
 
+  /** The unit's photographs still on file, oldest first. */
+  private unitPhotos(assetId: string, companyId: string) {
+    return this.prisma.client.attachment.findMany({
+      where: { assetId, companyId, entityType: ASSET_PHOTO_ENTITY, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      // The ceiling the add route enforces, so there are never more to read.
+      take: MAX_ASSET_PHOTOS,
+      select: { id: true, storageKey: true, mimeType: true, sizeBytes: true, createdAt: true },
+    });
+  }
+
   /**
-   * Set or replace the asset's picture. One per asset: a replacement retires
-   * the previous row (soft, so its hash stays in the audit trail) and drops its
-   * bytes, which are not evidence of anything. Authorisation is assets:update
-   * at the controller - this is an edit to the record, not a custody act.
+   * Add a photograph of the unit, or replace one (v2.65).
+   *
+   * An asset holds at most MAX_ASSET_PHOTOS. Naming `replaceId` swaps that
+   * photograph for the new one: the old row is retired (soft, so its hash
+   * stays in the audit trail) and its bytes are deleted - they are not
+   * evidence of anything, and the owner asked that an update never leaves the
+   * old file behind. The first photograph becomes the cover; a replacement of
+   * the cover stays the cover. Authorisation is assets:update at the
+   * controller - this is an edit to the record, not a custody act.
    */
-  async setAssetPhoto(
+  async addAssetPhoto(
     actor: AuthUser,
     assetId: string,
     file: { buffer: Buffer; originalname: string; mimetype: string },
+    replaceId?: string | null,
   ) {
     const asset = await this.assetWithPhotoOr404(actor, assetId);
+    const existing = await this.unitPhotos(assetId, actor.companyId);
+
+    const previous = replaceId ? existing.find((row) => row.id === replaceId) : undefined;
+    if (replaceId && !previous) throw AppError.notFound('Photo not found');
+    if (!previous && existing.length >= MAX_ASSET_PHOTOS) {
+      throw new AppError('FILE_REJECTED', assetPhotoLimitMessage());
+    }
 
     const configured = this.config.get('ALLOWED_UPLOAD_MIME');
     const allowed = PHOTO_MIMES.filter((m) => configured.includes(m));
@@ -525,7 +549,8 @@ export class AssetPhotosService {
       data: file.buffer,
     });
 
-    const previous = asset.photo;
+    const coverId = asset.photo?.id ?? null;
+    const becomesCover = !coverId || coverId === previous?.id;
     const photo = await this.prisma.client.$transaction(async (tx) => {
       const created = await tx.attachment.create({
         data: {
@@ -545,7 +570,10 @@ export class AssetPhotosService {
       });
       await tx.asset.update({
         where: { id: assetId },
-        data: { photoAttachmentId: created.id, updatedById: actor.id },
+        data: {
+          ...(becomesCover ? { photoAttachmentId: created.id } : {}),
+          updatedById: actor.id,
+        },
       });
       if (previous) {
         await tx.attachment.update({ where: { id: previous.id }, data: { deletedAt: new Date() } });
@@ -564,19 +592,67 @@ export class AssetPhotosService {
       newValues: { photo: photo.id, asset: asset.assetTag, sha256: stored.sha256 },
     });
 
-    return photo;
+    return { ...photo, isCover: becomesCover, replaced: previous?.id ?? null };
   }
 
-  /** Remove the asset's picture. 404 when there is none - nothing to remove. */
-  async removeAssetPhoto(actor: AuthUser, assetId: string) {
+  /**
+   * The v2.61 route, kept for the phones still in people's pockets: set the
+   * picture, or replace the cover when there is one.
+   */
+  setAssetPhoto(
+    actor: AuthUser,
+    assetId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    return this.assetWithPhotoOr404(actor, assetId).then((asset) =>
+      this.addAssetPhoto(actor, assetId, file, asset.photo?.id ?? null),
+    );
+  }
+
+  /** Make one of the unit's photographs the cover. */
+  async setAssetCover(actor: AuthUser, assetId: string, photoId: string) {
     const asset = await this.assetWithPhotoOr404(actor, assetId);
-    const photo = asset.photo;
+    const existing = await this.unitPhotos(assetId, actor.companyId);
+    if (!existing.some((row) => row.id === photoId)) throw AppError.notFound('Photo not found');
+
+    if (asset.photo?.id !== photoId) {
+      await this.prisma.client.asset.update({
+        where: { id: assetId },
+        data: { photoAttachmentId: photoId, updatedById: actor.id },
+      });
+      await this.audit.record({
+        companyId: actor.companyId,
+        actorId: actor.id,
+        action: AuditAction.ASSET_UPDATED,
+        entityType: 'Asset',
+        entityId: assetId,
+        previousValues: asset.photo ? { cover: asset.photo.id } : undefined,
+        newValues: { cover: photoId, asset: asset.assetTag },
+      });
+    }
+    return { id: photoId, isCover: true };
+  }
+
+  /**
+   * Remove one of the unit's photographs: the row is retired and the bytes
+   * deleted. Removing the cover hands the cover to the oldest one left.
+   */
+  async removeAssetPhotoById(actor: AuthUser, assetId: string, photoId: string) {
+    const asset = await this.assetWithPhotoOr404(actor, assetId);
+    const existing = await this.unitPhotos(assetId, actor.companyId);
+    const photo = existing.find((row) => row.id === photoId);
     if (!photo) throw AppError.notFound('Photo not found');
+
+    const wasCover = asset.photo?.id === photoId;
+    const nextCover = wasCover ? (existing.find((row) => row.id !== photoId)?.id ?? null) : undefined;
 
     await this.prisma.client.$transaction([
       this.prisma.client.asset.update({
         where: { id: assetId },
-        data: { photoAttachmentId: null, updatedById: actor.id },
+        data: {
+          ...(nextCover !== undefined ? { photoAttachmentId: nextCover } : {}),
+          updatedById: actor.id,
+        },
       }),
       this.prisma.client.attachment.update({
         where: { id: photo.id },
@@ -596,6 +672,13 @@ export class AssetPhotosService {
     });
 
     return { id: photo.id, removed: true };
+  }
+
+  /** The v2.61 route: remove the cover. 404 when there is none. */
+  async removeAssetPhoto(actor: AuthUser, assetId: string) {
+    const asset = await this.assetWithPhotoOr404(actor, assetId);
+    if (!asset.photo) throw AppError.notFound('Photo not found');
+    return this.removeAssetPhotoById(actor, assetId, asset.photo.id);
   }
 }
 

@@ -21,6 +21,7 @@ export function AuthImage({
   style,
   accessibilityLabel,
   resizeMode = 'cover',
+  blurRadius,
   onError,
 }: {
   uri: string;
@@ -29,6 +30,13 @@ export function AuthImage({
   accessibilityLabel: string;
   /** Product pictures are shown whole (`contain`); photos fill their frame. */
   resizeMode?: 'cover' | 'contain';
+  /**
+   * v2.65 - the asset card's backdrop: the same picture, blurred, filling the
+   * box behind the whole one. Native <Image> blurs it itself and
+   * react-native-web turns the prop into a CSS filter, so it is passed straight
+   * through rather than kept in a second copy of this component.
+   */
+  blurRadius?: number;
   /**
    * Told once when the bytes cannot be shown (permission, a deleted file), so a
    * caller with something better than a blank box - the asset card's
@@ -77,6 +85,7 @@ export function AuthImage({
       source={source ?? undefined}
       style={[{ backgroundColor: c.border }, style]}
       resizeMode={resizeMode}
+      blurRadius={blurRadius}
       accessibilityLabel={accessibilityLabel}
       onError={onError ? () => onError() : undefined}
     />

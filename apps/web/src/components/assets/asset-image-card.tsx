@@ -7,6 +7,10 @@ import {
   Box,
   Camera,
   Expand,
+  ImagePlus,
+  Images,
+  RefreshCw,
+  Star,
   Headphones,
   Keyboard,
   Laptop,
@@ -23,6 +27,15 @@ import {
 import { API_BASE, getAccessToken } from '@/lib/api-client';
 import { useAuthedBlobs } from '@/lib/use-authed-blob';
 import { slideCountLabel, type AssetSlide } from '@/lib/asset-slides';
+import {
+  assetPhotoCountLabel,
+  assetPhotoFitNotice,
+  assetPhotoHint,
+  assetPhotoLimitMessage,
+  canAddAssetPhoto,
+  photoSizeLabel,
+  type AssetOwnPhoto,
+} from '@techpioasset/domain';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/assets/photo-lightbox';
 import {
   illustrationIcon,
@@ -48,6 +61,14 @@ import { Button, Card, Skeleton } from '@/components/ui';
  * condition photo. With no lead picture the newest condition photo is the
  * cover; the illustration is only for an asset nobody has photographed. Only
  * the cover is downloaded with the page; the rest wait for the first click.
+ *
+ * v2.65: the owner saw a phone photo filling the box with the top of the
+ * laptop cut off, and asked for three things. The picture is now shown whole,
+ * over a blurred copy of itself that fills the box, so no shape of photo is
+ * cropped. The upload control states the exact size that fits (and says it
+ * again, with the picture's own size, after one that does not). And an asset
+ * holds up to five photographs of the unit, managed here; replacing one
+ * deletes the file it replaces.
  */
 
 const ILLUSTRATIONS: Record<IllustrationIcon, LucideIcon> = {
@@ -104,6 +125,22 @@ function Illustration({
 }
 
 /**
+ * A picture file's pixel size, or null when the browser cannot decode it
+ * (HEIC, outside Safari). Only ever used to word a notice, so a failure is
+ * not an error.
+ */
+async function pictureSize(file: File): Promise<{ width: number; height: number } | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return size;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The small picture in the page header (v2.64): the same cover the lead box
  * shows, so an asset somebody has photographed reads as that device from the
  * first line of the page. The type's glyph stands in while it loads, when it
@@ -138,7 +175,7 @@ export function AssetImageCard({
   typeKey,
   brand,
   source,
-  hasOwnPhoto,
+  ownPhotos,
   slides,
   coverUrl,
   coverFailed,
@@ -149,8 +186,8 @@ export function AssetImageCard({
   typeKey: string | null | undefined;
   brand: string | null;
   source: AssetImageSource;
-  /** Whether the asset carries an uploaded photo, whatever is being shown. */
-  hasOwnPhoto: boolean;
+  /** The photographs uploaded of this unit (up to five), the cover first. */
+  ownPhotos: readonly AssetOwnPhoto[];
   /**
    * The asset's pictures in slideshow order, and the first of them already
    * downloaded - from the page's useAssetCover, which the header thumbnail
@@ -166,6 +203,12 @@ export function AssetImageCard({
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What the last upload's size means for the box; stays until the next one. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [managing, setManaging] = useState(false);
+  /** The photograph the file being chosen will replace; null adds a new one. */
+  const replacing = useRef<string | null>(null);
+  const mayAdd = canAddAssetPhoto(ownPhotos.length);
   /** The slide on screen in the viewer, by id - the list grows as pictures load. */
   const [viewing, setViewing] = useState<string | null>(null);
   /** Set by the first click: only then are the pictures behind the cover fetched. */
@@ -197,48 +240,80 @@ export function AssetImageCard({
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['asset', assetId] });
 
+  const send = async (path: string, init: RequestInit, fallback: string) => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+    });
+    if (!res.ok) {
+      const problem = await res.json().catch(() => null);
+      throw new Error(problem?.detail ?? problem?.title ?? fallback);
+    }
+  };
+
   const upload = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, replaceId }: { file: File; replaceId: string | null }) => {
+      // Measured before it goes, so the answer can say what the box makes of
+      // it. A format the browser cannot decode (HEIC) simply has no size.
+      const size = await pictureSize(file);
       const body = new FormData();
       body.append('file', file);
-      const res = await fetch(`${API_BASE}/assets/${assetId}/photo`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
-        body,
-      });
-      if (!res.ok) {
-        const problem = await res.json().catch(() => null);
-        throw new Error(problem?.detail ?? problem?.title ?? 'Could not upload that photo');
-      }
+      await send(
+        `/assets/${assetId}/unit-photos${replaceId ? `?replace=${encodeURIComponent(replaceId)}` : ''}`,
+        { method: 'POST', body },
+        'Could not upload that photo',
+      );
+      return { size, replaced: Boolean(replaceId) };
     },
-    onSuccess: () => {
+    onSuccess: ({ size, replaced }) => {
       setError(null);
-      toast.success(hasOwnPhoto ? 'Photo replaced' : 'Photo added');
+      setNotice(size ? assetPhotoFitNotice(size.width, size.height) : null);
+      toast.success(replaced ? 'Photo replaced - the old one was deleted' : 'Photo added');
       void refresh();
     },
     onError: (e: Error) => setError(e.message),
   });
 
   const remove = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`${API_BASE}/assets/${assetId}/photo`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
-      });
-      if (!res.ok) {
-        const problem = await res.json().catch(() => null);
-        throw new Error(problem?.detail ?? problem?.title ?? 'Could not remove the photo');
-      }
-    },
+    mutationFn: (photoId: string) =>
+      send(
+        `/assets/${assetId}/unit-photos/${photoId}`,
+        { method: 'DELETE' },
+        'Could not remove the photo',
+      ),
     onSuccess: () => {
       setError(null);
+      setNotice(null);
       toast.success('Photo removed');
       void refresh();
     },
     onError: (e: Error) => setError(e.message),
   });
+
+  const makeCover = useMutation({
+    mutationFn: (photoId: string) =>
+      send(
+        `/assets/${assetId}/unit-photos/${photoId}/cover`,
+        { method: 'POST' },
+        'Could not change the cover',
+      ),
+    onSuccess: () => {
+      setError(null);
+      toast.success('Cover changed');
+      void refresh();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const choose = (replaceId: string | null) => {
+    if (!replaceId && !mayAdd) {
+      setError(assetPhotoLimitMessage());
+      return;
+    }
+    replacing.current = replaceId;
+    fileRef.current?.click();
+  };
 
   // A picture that will not load (permission, deleted file) falls back to the
   // illustration rather than a broken-image box.
@@ -246,7 +321,7 @@ export function AssetImageCard({
 
   return (
     <Card className="overflow-hidden">
-      <div className="relative aspect-[16/9] w-full sm:aspect-[2/1]">
+      <div className="relative aspect-[2/1] w-full">
         {showIllustration ? (
           <Illustration icon={illustrationIcon(typeKey)} brand={brand} name={assetName} />
         ) : url && cover ? (
@@ -257,17 +332,26 @@ export function AssetImageCard({
               setViewing(cover.id);
             }}
             aria-label={`View ${slideCountLabel(slides.length)} of ${assetName}`}
-            className="group block size-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-brand)]"
+            className="group relative block size-full cursor-zoom-in overflow-hidden bg-[var(--color-surface-sunken)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-brand)]"
           >
             {/* An in-memory blob: URL from an authenticated fetch; next/image
                 cannot serve it (see condition-photos.tsx for the full
-                reasoning). object-cover: the owner asked for the picture to
-                fill the box; the viewer shows it uncropped. */}
+                reasoning). Two copies of one picture: a blurred one fills
+                the box, and the real one sits whole on top of it. A 2:1
+                picture covers the blur entirely; a phone photo keeps its
+                top and bottom instead of losing them to a crop. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 size-full scale-110 object-cover opacity-70 blur-2xl"
+            />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={url}
               alt={assetName}
-              className="size-full bg-[var(--color-surface-sunken)] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              className="relative size-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
             />
             <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-xs font-medium text-white">
               <Expand aria-hidden="true" className="size-3.5" />
@@ -312,40 +396,151 @@ export function AssetImageCard({
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
-                if (file) upload.mutate(file);
+                if (file) upload.mutate({ file, replaceId: replacing.current });
               }}
             />
             <Button
               size="sm"
               variant="secondary"
-              loading={upload.isPending}
-              onClick={() => fileRef.current?.click()}
+              loading={upload.isPending && !replacing.current}
+              disabled={!mayAdd}
+              title={mayAdd ? undefined : assetPhotoLimitMessage()}
+              onClick={() => choose(null)}
             >
-              <Camera aria-hidden="true" className="size-3.5" />
-              {hasOwnPhoto ? 'Replace photo' : 'Add photo'}
+              <ImagePlus aria-hidden="true" className="size-3.5" />
+              Add photo
             </Button>
-            {hasOwnPhoto ? (
+            {ownPhotos.length > 0 ? (
               <Button
                 size="sm"
                 variant="ghost"
-                loading={remove.isPending}
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: 'Remove this photo?',
-                    body: 'The asset goes back to its catalogue picture or an illustration.',
-                    confirmLabel: 'Remove',
-                    destructive: true,
-                  });
-                  if (ok) remove.mutate();
+                aria-expanded={managing}
+                onClick={() => {
+                  // The thumbnails are the pictures behind the cover: fetched now.
+                  setWantAll(true);
+                  setManaging((m) => !m);
                 }}
               >
-                <Trash2 aria-hidden="true" className="size-3.5" />
-                Remove
+                <Images aria-hidden="true" className="size-3.5" />
+                {managing ? 'Done' : `Manage photos (${ownPhotos.length})`}
               </Button>
             ) : null}
           </span>
         ) : null}
       </div>
+
+      {canManage ? (
+        <p className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-content-subtle)]">
+          <Camera aria-hidden="true" className="mr-1.5 inline size-3.5 align-[-2px]" />
+          {assetPhotoHint(ownPhotos.length)}
+        </p>
+      ) : null}
+
+      {canManage && managing && ownPhotos.length > 0 ? (
+        <div className="border-t border-[var(--color-border)] px-4 py-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">Photos of this unit</h3>
+            <span className="text-xs text-[var(--color-content-subtle)]">
+              {assetPhotoCountLabel(ownPhotos.length)}
+            </span>
+          </div>
+          {source.kind === 'catalogue' ? (
+            <p className="mt-1 text-xs text-[var(--color-content-subtle)]">
+              The catalogue picture leads the box; these follow it in the slideshow.
+            </p>
+          ) : null}
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ownPhotos.map((photo, i) => {
+              const thumb = urls[`/assets/${assetId}/photos/${photo.id}`];
+              const size = photoSizeLabel(photo.sizeBytes);
+              const busy =
+                (upload.isPending && replacing.current === photo.id) ||
+                (remove.isPending && remove.variables === photo.id) ||
+                (makeCover.isPending && makeCover.variables === photo.id);
+              return (
+                <li
+                  key={photo.id}
+                  className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)]"
+                >
+                  <div className="relative aspect-[2/1] bg-[var(--color-surface-sunken)]">
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumb}
+                        alt={`Photo ${i + 1} of ${assetName}`}
+                        className="size-full object-contain"
+                      />
+                    ) : (
+                      <Skeleton className="size-full rounded-none" />
+                    )}
+                    {i === 0 ? (
+                      <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
+                        <Star aria-hidden="true" className="size-3" />
+                        Cover
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5">
+                    <span className="text-xs text-[var(--color-content-subtle)]">
+                      Photo {i + 1}
+                      {size ? ` · ${size}` : ''}
+                    </span>
+                    <span className="flex items-center">
+                      {i > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => makeCover.mutate(photo.id)}
+                        >
+                          <Star aria-hidden="true" className="size-3.5" />
+                          Make cover
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        loading={upload.isPending && replacing.current === photo.id}
+                        disabled={busy}
+                        title="Upload a new picture in its place; the old one is deleted"
+                        onClick={() => choose(photo.id)}
+                      >
+                        <RefreshCw aria-hidden="true" className="size-3.5" />
+                        Replace
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        aria-label={`Remove photo ${i + 1}`}
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Remove this photo?',
+                            body: 'The file is deleted. It cannot be brought back.',
+                            confirmLabel: 'Remove',
+                            destructive: true,
+                          });
+                          if (ok) remove.mutate(photo.id);
+                        }}
+                      >
+                        <Trash2 aria-hidden="true" className="size-3.5" />
+                      </Button>
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+      {notice ? (
+        <p
+          role="status"
+          className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-content-muted)]"
+        >
+          {notice}
+        </p>
+      ) : null}
       {viewingIndex >= 0 ? (
         <PhotoLightbox
           photos={viewable}

@@ -1,16 +1,33 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import {
+  ASSET_PHOTO_ASPECT,
+  assetPhotoHint,
   assetSlides,
   illustrationIcon,
+  photoSizeLabel,
   slideCountLabel,
   type AssetImageSource,
+  type AssetOwnPhoto,
   type IllustrationIcon,
   type SlideCustodyGroup,
 } from '@techpioasset/domain';
 import { problemMessage } from '../../lib/asset-admin';
 import { assetImageCaption, illustrationIonicon } from '../../lib/asset-overview';
+import {
+  addPhotoRefusal,
+  REPLACE_DELETES_OLD,
+  removePhotoPrompt,
+  unitPhotoActions,
+  unitPhotoCoverPath,
+  unitPhotoImagePath,
+  unitPhotoLabel,
+  unitPhotoRemovePath,
+  unitPhotoUploadPath,
+  uploadedAlert,
+  type UnitPhotoActionKey,
+} from '../../lib/asset-photos';
 import {
   PICKER_UNAVAILABLE_MESSAGE,
   pickImageFromCamera,
@@ -33,18 +50,45 @@ import { AssetSheet } from './sheet';
  * resolveAssetImageSource in the domain package; this only draws the result
  * and offers add / replace / remove to people who may edit the record.
  *
- * v2.63 (web: v2.62): the box shows the asset's attached pictures, filling it,
- * and a tap opens all of them as a slideshow - the lead picture first, then
- * every condition photo. With no lead picture the newest condition photo is
- * the cover; the illustration is only for an asset nobody has photographed.
- * The order is the domain's assetSlides, shared with the web. Only the cover
- * is downloaded with the screen; the viewer fetches the rest as it is opened.
+ * v2.63 (web: v2.62): the box shows the asset's attached pictures, and a tap
+ * opens all of them as a slideshow - the lead picture first, then every
+ * condition photo. With no lead picture the newest condition photo is the
+ * cover; the illustration is only for an asset nobody has photographed. The
+ * order is the domain's assetSlides, shared with the web. Only the cover is
+ * downloaded with the screen; the viewer fetches the rest as it is opened.
  *
  * Adding a photo goes through the pickers the request composer already uses
  * (system camera or gallery) rather than the condition-photo viewfinder: this
  * is a product shot, not evidence of a handover, and it goes to a different
- * endpoint (POST /assets/:id/photo, one per asset).
+ * endpoint (POST /assets/:id/unit-photos).
+ *
+ * v2.65: the owner looked at a phone photo filling this box, saw the top of the
+ * laptop cut off, and said the design was not good. Three answers:
+ *  - the cover is shown WHOLE, over a blurred, dimmed copy of itself that fills
+ *    the box, so nothing is cropped and the box still looks full whatever the
+ *    picture's shape. The slideshow was already uncropped;
+ *  - an asset holds up to five photos of the unit, managed from a strip under
+ *    the box: replace (the server deletes the old file, automatically), make
+ *    cover, remove. The limit and its wording are the domain's
+ *    asset-photo-rules, shared with the web and the API. The strip's
+ *    thumbnails are downloaded only for people who may edit the record;
+ *  - the exact size that fills the box (1600 × 800 px) is stated under the
+ *    strip, and again - with the picture's own size - after uploading one that
+ *    does not fit. An upload is never refused for its shape.
  */
+
+/** A thumbnail in the photo strip: five of them and their gaps fit a 360 dp phone. */
+const THUMB = 52;
+
+/**
+ * The one sheet the photo strip opens, in two steps so that "Replace" never has
+ * to open a second modal over a closing one: what to do with a photo, then
+ * where the new picture comes from.
+ */
+type PhotoSheet =
+  | { step: 'actions'; photoId: string }
+  /** `replaceId` null adds a photo; otherwise that photo is swapped. */
+  | { step: 'source'; replaceId: string | null };
 
 /** The device glyph, sized for the header thumbnail or the illustration. */
 export function DeviceIcon({
@@ -79,7 +123,8 @@ export function AssetImageCard({
   typeKey,
   brand,
   source,
-  ownPhoto,
+  ownPhotos,
+  legacyPhotoApi = false,
   catalogue,
   groups,
   canManage,
@@ -91,8 +136,16 @@ export function AssetImageCard({
   typeKey: string | null | undefined;
   brand: string | null;
   source: AssetImageSource;
-  /** The photo uploaded of this unit, whatever is being shown. */
-  ownPhoto: { id: string; createdAt: string } | null;
+  /**
+   * v2.65 - every photo uploaded of this unit (up to five), the cover first,
+   * whatever is being shown in the box.
+   */
+  ownPhotos: readonly AssetOwnPhoto[];
+  /**
+   * The API that answered predates v2.65 (it sent no `photos` list): the strip
+   * then keeps to that API's one-photo routes. False everywhere else.
+   */
+  legacyPhotoApi?: boolean;
   /** The catalogue listing's primary image, when the unit came through one. */
   catalogue: { productId: string; imageId: string } | null;
   /**
@@ -105,7 +158,7 @@ export function AssetImageCard({
   canManage: boolean;
   /** Opens the catalogue listing; absent for viewers who may not open the catalogue. */
   onViewListing?: () => void;
-  /** The asset is reloaded after a photo is added, replaced or removed. */
+  /** The asset is reloaded after a photo is added, replaced, promoted or removed. */
   onChanged: () => void;
 }) {
   const { api } = useSession();
@@ -113,15 +166,21 @@ export function AssetImageCard({
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [choosing, setChoosing] = useState(false);
+  const [sheet, setSheet] = useState<PhotoSheet | null>(null);
   const [viewing, setViewing] = useState(false);
-  const hasOwnPhoto = Boolean(ownPhoto);
 
-  // The parent builds `source`, `ownPhoto` and `catalogue` afresh on every
+  // The parent builds `source`, `ownPhotos` and `catalogue` afresh on every
   // render, so the list is rebuilt each time (it is cheap) and its identity
   // held while the pictures in it are the same: the viewer resolves its image
   // sources once per list, and a new list on every render would re-fetch them.
-  const fresh = assetSlides({ assetId, source, ownPhoto, catalogue, groups: groups ?? [] });
+  const fresh = assetSlides({
+    assetId,
+    source,
+    ownPhoto: ownPhotos[0] ?? null,
+    ownPhotos,
+    catalogue,
+    groups: groups ?? [],
+  });
   const signature = fresh.map((slide) => slide.id).join('|');
   const slides = useMemo(() => fresh, [signature]);
   const cover = slides[0] ?? null;
@@ -136,7 +195,23 @@ export function AssetImageCard({
   // illustration rather than a broken-image box.
   const showIllustration = !cover || failed || !src;
 
-  async function upload(outcome: PickOutcome) {
+  // The strip's thumbnails, their image sources held steady for the same
+  // reason as the cover's.
+  const photoSignature = ownPhotos.map((p) => `${p.id}:${p.sizeBytes ?? ''}`).join('|');
+  const thumbs = useMemo(
+    () => ownPhotos.map((p) => ({ ...p, src: api.imageSource(unitPhotoImagePath(assetId, p.id)) })),
+    [api, assetId, photoSignature],
+  );
+  const addRefusal = addPhotoRefusal(ownPhotos.length, legacyPhotoApi);
+  const addOff = busy || addRefusal !== null;
+  // What the sheet draws. It keeps its last contents while it slides shut, so
+  // the title and buttons do not change under the person's thumb on the way out.
+  const lastSheet = useRef<PhotoSheet | null>(null);
+  if (sheet) lastSheet.current = sheet;
+  const shown = sheet ?? lastSheet.current;
+  const selectedIndex = shown?.step === 'actions' ? ownPhotos.findIndex((p) => p.id === shown.photoId) : -1;
+
+  async function upload(outcome: PickOutcome, replaceId: string | null) {
     if (outcome.kind === 'cancelled') return;
     if (outcome.kind === 'denied') {
       Alert.alert('Permission needed', 'Allow PioAssets to use the camera or photos, then try again.');
@@ -152,19 +227,41 @@ export function AssetImageCard({
       const form = new FormData();
       // React Native's FormData takes a { uri, name, type } descriptor.
       form.append('file', outcome.image as unknown as Blob);
-      await api.request(`/assets/${assetId}/photo`, { formData: form });
+      await api.request(unitPhotoUploadPath(assetId, replaceId, legacyPhotoApi), { formData: form });
       setFailed(false);
       onChanged();
-      Alert.alert(hasOwnPhoto ? 'Photo replaced' : 'Photo added');
+      // Saved whatever its shape; a picture that does not fit the 2:1 box is
+      // told its own size and the exact one that does.
+      const done = uploadedAlert({ replaced: replaceId !== null, dimensions: outcome.dimensions });
+      Alert.alert(done.title, done.message);
     } catch (e) {
+      // The server's own words - the five-photo limit, a rejected file - are
+      // the problem's `detail`, which is what problemMessage hands back.
       setError(problemMessage(e, 'Could not upload that photo'));
     } finally {
       setBusy(false);
     }
   }
 
-  function remove() {
-    Alert.alert('Remove this photo?', 'The asset goes back to its catalogue picture or an illustration.', [
+  async function makeCover(photoId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.request(unitPhotoCoverPath(assetId, photoId), { method: 'POST' });
+      setFailed(false);
+      onChanged();
+      Alert.alert('Cover changed');
+    } catch (e) {
+      setError(problemMessage(e, 'Could not change the cover'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function remove(photoId: string) {
+    const index = ownPhotos.findIndex((p) => p.id === photoId);
+    const prompt = removePhotoPrompt({ isCover: index === 0, count: ownPhotos.length });
+    Alert.alert(prompt.title, prompt.message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -174,7 +271,7 @@ export function AssetImageCard({
             setBusy(true);
             setError(null);
             try {
-              await api.request(`/assets/${assetId}/photo`, { method: 'DELETE' });
+              await api.request(unitPhotoRemovePath(assetId, photoId, legacyPhotoApi), { method: 'DELETE' });
               setFailed(false);
               onChanged();
               Alert.alert('Photo removed');
@@ -188,11 +285,22 @@ export function AssetImageCard({
     ]);
   }
 
+  function act(key: UnitPhotoActionKey, photoId: string) {
+    if (key === 'replace') {
+      setSheet({ step: 'source', replaceId: photoId });
+      return;
+    }
+    setSheet(null);
+    if (key === 'cover') void makeCover(photoId);
+    else remove(photoId);
+  }
+
   const caption = assetImageCaption(cover, failed);
 
   return (
     <Card style={{ padding: 0, overflow: 'hidden', marginBottom: spacing.lg }}>
-      <View style={{ width: '100%', aspectRatio: 16 / 9 }}>
+      {/* 2:1 - the shape the upload hint names, the same on the web. */}
+      <View style={{ width: '100%', aspectRatio: ASSET_PHOTO_ASPECT }}>
         {showIllustration || !src ? (
           <Illustration icon={illustrationIcon(typeKey)} brand={brand} name={assetName} />
         ) : (
@@ -200,15 +308,45 @@ export function AssetImageCard({
             onPress={() => setViewing(true)}
             accessibilityRole="imagebutton"
             accessibilityLabel={`View ${slideCountLabel(slides.length)} of ${assetName}`}
-            style={{ width: '100%', height: '100%' }}
+            style={{ width: '100%', height: '100%', overflow: 'hidden', backgroundColor: c.background }}
           >
-            {/* cover: the owner asked for the picture to fill the box; the
-                viewer shows it uncropped. */}
+            {/* v2.65 - the backdrop: the same picture blurred and dimmed,
+                filling the box, so a portrait phone photo shown whole still
+                sits in a full box rather than between two grey bars. It is
+                decoration, hidden from screen readers; if it fails to load the
+                plain background shows through and nothing else changes. */}
+            <View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
+            >
+              <AuthImage
+                uri={src.uri}
+                headers={src.headers}
+                resizeMode="cover"
+                blurRadius={24}
+                style={{ width: '100%', height: '100%', backgroundColor: c.background }}
+                accessibilityLabel=""
+              />
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  backgroundColor: 'rgba(2,6,23,0.28)',
+                }}
+              />
+            </View>
+            {/* contain: the whole picture, never cropped - what the owner asked
+                for after seeing the top of a laptop cut off. */}
             <AuthImage
               uri={src.uri}
               headers={src.headers}
-              resizeMode="cover"
-              style={{ width: '100%', height: '100%', backgroundColor: c.background }}
+              resizeMode="contain"
+              style={{ width: '100%', height: '100%', backgroundColor: 'transparent' }}
               accessibilityLabel={assetName}
               onError={() => setFailed(true)}
             />
@@ -272,8 +410,7 @@ export function AssetImageCard({
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: spacing.sm,
+          gap: 4,
           flexWrap: 'wrap',
           borderTopWidth: 1,
           borderTopColor: c.border,
@@ -281,20 +418,37 @@ export function AssetImageCard({
           paddingVertical: 10,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}>
-          <Text style={{ color: c.subtle, fontSize: 12 }}>{caption}</Text>
-          {source.kind === 'catalogue' && !failed && onViewListing ? (
-            <Pressable onPress={onViewListing} accessibilityRole="link" hitSlop={6}>
-              <Text style={{ color: c.brand, fontSize: 12, fontWeight: '600' }}>· view listing</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        {canManage ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Text style={{ color: c.subtle, fontSize: 12 }}>{caption}</Text>
+        {source.kind === 'catalogue' && !failed && onViewListing ? (
+          <Pressable onPress={onViewListing} accessibilityRole="link" hitSlop={6}>
+            <Text style={{ color: c.brand, fontSize: 12, fontWeight: '600' }}>· view listing</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {/* v2.65 - the photos of this unit, for people who may edit the record. */}
+      {canManage ? (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: c.border,
+            paddingHorizontal: spacing.lg,
+            paddingVertical: spacing.md,
+            gap: spacing.sm,
+          }}
+        >
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}
+          >
+            <Text style={{ color: c.text, fontSize: 13, fontWeight: '700', flexShrink: 1 }}>
+              Photos of this unit
+            </Text>
             <Pressable
-              onPress={() => setChoosing(true)}
-              disabled={busy}
+              onPress={() => setSheet({ step: 'source', replaceId: null })}
+              disabled={addOff}
               accessibilityRole="button"
+              accessibilityState={{ disabled: addOff }}
+              accessibilityHint={addRefusal ?? undefined}
               hitSlop={6}
               style={{
                 flexDirection: 'row',
@@ -306,24 +460,76 @@ export function AssetImageCard({
                 borderWidth: 1,
                 borderColor: c.border,
                 backgroundColor: c.surface,
-                opacity: busy ? 0.5 : 1,
+                opacity: addOff ? 0.5 : 1,
               }}
             >
               <Ionicons name="camera-outline" size={14} color={c.text} />
-              <Text style={{ color: c.text, fontSize: 12, fontWeight: '700' }}>
-                {hasOwnPhoto ? 'Replace photo' : 'Add photo'}
-              </Text>
+              <Text style={{ color: c.text, fontSize: 12, fontWeight: '700' }}>Add photo</Text>
             </Pressable>
-            {hasOwnPhoto ? (
-              <Pressable onPress={remove} disabled={busy} accessibilityRole="button" hitSlop={6}>
-                <Text style={{ color: c.danger, fontSize: 12, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
-                  Remove
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
-        ) : null}
-      </View>
+
+          {thumbs.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+              {thumbs.map((p, i) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => setSheet({ step: 'actions', photoId: p.id })}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel={unitPhotoLabel(i, thumbs.length)}
+                  accessibilityHint="Replace, make cover or remove"
+                  style={{ width: THUMB, alignItems: 'center', opacity: busy ? 0.5 : 1 }}
+                >
+                  <View
+                    style={{
+                      width: THUMB,
+                      height: THUMB,
+                      borderRadius: radius.md,
+                      overflow: 'hidden',
+                      borderWidth: i === 0 ? 2 : 1,
+                      borderColor: i === 0 ? c.brand : c.border,
+                    }}
+                  >
+                    <AuthImage
+                      uri={p.src.uri}
+                      headers={p.src.headers}
+                      style={{ width: '100%', height: '100%' }}
+                      accessibilityLabel=""
+                    />
+                    {i === 0 ? (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(0,0,0,0.65)',
+                          paddingVertical: 1,
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
+                          Cover
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ color: c.subtle, fontSize: 10, marginTop: 2 }} numberOfLines={1}>
+                    {photoSizeLabel(p.sizeBytes) ?? ' '}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Why "Add photo" is off, in the sentence the server would send. */}
+          {addRefusal ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{addRefusal}</Text> : null}
+          {/* The exact size that fills the box, and how many of five are used. */}
+          <Text style={{ color: c.subtle, fontSize: 12, lineHeight: 17 }}>
+            {assetPhotoHint(ownPhotos.length)}
+            {thumbs.length > 0 ? ' Tap a photo to replace it, make it the cover or remove it.' : ''}
+          </Text>
+        </View>
+      ) : null}
       {error ? (
         <Text
           accessibilityRole="alert"
@@ -346,36 +552,79 @@ export function AssetImageCard({
         onClose={() => setViewing(false)}
       />
 
-      {/* Where the picture comes from - a sheet rather than an Alert, which
-          Android caps at three buttons. */}
+      {/* One sheet, two steps - a sheet rather than an Alert, which Android
+          caps at three buttons. */}
       <AssetSheet
-        visible={choosing}
-        title={hasOwnPhoto ? 'Replace the photo' : 'Add a photo'}
+        visible={sheet !== null}
+        title={
+          shown?.step === 'actions'
+            ? unitPhotoLabel(Math.max(selectedIndex, 0), Math.max(ownPhotos.length, 1))
+            : shown?.replaceId
+              ? 'Replace this photo'
+              : 'Add a photo'
+        }
         subtitle={assetName}
-        onClose={() => setChoosing(false)}
+        onClose={() => setSheet(null)}
       >
-        <Button
-          label="Take a photo"
-          icon="camera-outline"
-          onPress={() => {
-            setChoosing(false);
-            void pickImageFromCamera().then(upload);
-          }}
-          style={{ marginBottom: spacing.sm }}
-        />
-        <Button
-          label="Choose from gallery"
-          icon="images-outline"
-          variant="secondary"
-          onPress={() => {
-            setChoosing(false);
-            void pickImageFromLibrary().then(upload);
-          }}
-        />
-        <Text style={{ color: c.muted, fontSize: 12, marginTop: spacing.md, lineHeight: 18 }}>
-          One product shot per asset. Condition evidence at handover and return goes in the Condition
-          photos section instead.
-        </Text>
+        {shown?.step === 'actions' ? (
+          unitPhotoActions({ isCover: selectedIndex === 0, legacy: legacyPhotoApi }).map((action) => (
+            <Pressable
+              key={action.key}
+              accessibilityRole="menuitem"
+              onPress={() => act(action.key, shown.photoId)}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+                paddingVertical: 12,
+                paddingHorizontal: spacing.md,
+                borderRadius: radius.md,
+                backgroundColor: pressed ? c.surface : 'transparent',
+              })}
+            >
+              <Ionicons name={action.icon} size={20} color={action.destructive ? c.danger : c.muted} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: action.destructive ? c.danger : c.text, fontSize: 15, fontWeight: '600' }}>
+                  {action.label}
+                </Text>
+                <Text style={{ color: c.muted, fontSize: 12, marginTop: 1 }}>{action.hint}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={c.subtle} />
+            </Pressable>
+          ))
+        ) : shown?.step === 'source' ? (
+          <>
+            <Button
+              label="Take a photo"
+              icon="camera-outline"
+              onPress={() => {
+                const { replaceId } = shown;
+                setSheet(null);
+                void pickImageFromCamera().then((outcome) => upload(outcome, replaceId));
+              }}
+              style={{ marginBottom: spacing.sm }}
+            />
+            <Button
+              label="Choose from gallery"
+              icon="images-outline"
+              variant="secondary"
+              onPress={() => {
+                const { replaceId } = shown;
+                setSheet(null);
+                void pickImageFromLibrary().then((outcome) => upload(outcome, replaceId));
+              }}
+            />
+            {shown.replaceId ? (
+              <Text style={{ color: c.text, fontSize: 12, marginTop: spacing.md, lineHeight: 18 }}>
+                {REPLACE_DELETES_OLD}
+              </Text>
+            ) : null}
+            <Text style={{ color: c.muted, fontSize: 12, marginTop: spacing.md, lineHeight: 18 }}>
+              {assetPhotoHint(ownPhotos.length)} A picture of another shape is still accepted, and shown
+              whole. Condition evidence at handover and return goes in the Condition photos section instead.
+            </Text>
+          </>
+        ) : null}
       </AssetSheet>
     </Card>
   );

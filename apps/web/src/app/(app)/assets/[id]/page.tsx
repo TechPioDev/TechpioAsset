@@ -158,6 +158,8 @@ interface AssetDetail {
   notes: string | null;
   /** v2.61 - the unit's own uploaded picture, if any. */
   photo: { id: string; mimeType: string; createdAt: string } | null;
+  /** v2.65 - every photograph of the unit (up to five), the cover first. */
+  photos?: { id: string; mimeType: string; sizeBytes: number | null; createdAt: string }[];
   assignments: {
     id: string;
     assignedAt: string;
@@ -956,7 +958,7 @@ function OverviewTab({
             typeKey={data.subcategory?.key}
             brand={data.brand}
             source={imageSource}
-            hasOwnPhoto={Boolean(data.photo)}
+            ownPhotos={data.photos ?? (data.photo ? [data.photo] : [])}
             slides={cover.slides}
             coverUrl={cover.coverUrl}
             coverFailed={cover.coverFailed}

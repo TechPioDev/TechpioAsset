@@ -71,21 +71,25 @@ export function assetSlides(input: {
   assetId: string;
   source: AssetImageSource;
   ownPhoto: { id: string; createdAt: string } | null;
+  /**
+   * v2.65 - every photograph of the unit (up to five), the cover first. When
+   * given it stands in for `ownPhoto`, which older callers still pass alone.
+   */
+  ownPhotos?: readonly { id: string; createdAt: string }[];
   catalogue: { productId: string; imageId: string } | null;
   groups: readonly SlideCustodyGroup[];
 }): AssetSlide[] {
-  const { assetId, source, ownPhoto, catalogue, groups } = input;
+  const { assetId, source, ownPhoto, ownPhotos, catalogue, groups } = input;
 
-  const own: AssetSlide | null = ownPhoto
-    ? {
-        id: `photo:${ownPhoto.id}`,
-        path: `/assets/${assetId}/photos/${ownPhoto.id}`,
-        stageLabel: 'Photo of this unit',
-        caption: null,
-        takenAt: ownPhoto.createdAt,
-        by: null,
-      }
-    : null;
+  const units = ownPhotos && ownPhotos.length > 0 ? ownPhotos : ownPhoto ? [ownPhoto] : [];
+  const own: AssetSlide[] = units.map((p, i) => ({
+    id: `photo:${p.id}`,
+    path: `/assets/${assetId}/photos/${p.id}`,
+    stageLabel: units.length > 1 ? `Photo of this unit · ${i + 1} of ${units.length}` : 'Photo of this unit',
+    caption: null,
+    takenAt: p.createdAt,
+    by: null,
+  }));
   const listing: AssetSlide | null = catalogue
     ? {
         id: `catalogue:${catalogue.imageId}`,
@@ -98,7 +102,7 @@ export function assetSlides(input: {
     : null;
 
   // The existing rule decides which of the two leads; the other follows it.
-  const lead = source.kind === 'photo' ? [own, listing] : [listing, own];
+  const lead = source.kind === 'photo' ? [...own, listing] : [listing, ...own];
 
   const condition = conditionSlides(assetId, groups);
 

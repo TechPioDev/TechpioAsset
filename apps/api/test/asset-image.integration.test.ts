@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { StorageProvider } from '../src/providers/storage/storage.provider.js';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
 
 /**
@@ -209,5 +210,102 @@ describe("the asset's own picture", () => {
     // Nothing left to remove.
     const again = await api(app).delete(`/api/v1/assets/${assetId}/photo`).set(auth(s.itAdmin));
     expect(again.status).toBe(404);
+  });
+});
+
+describe('up to five photographs of the unit (v2.65)', () => {
+  const addPhoto = (who: AccountKey = 'itAdmin', replace?: string) =>
+    api(app)
+      .post(`/api/v1/assets/${assetId}/unit-photos${replace ? `?replace=${replace}` : ''}`)
+      .set(auth(s[who]))
+      .attach('file', PNG, 'unit.png');
+  const photoIds = async () =>
+    ((await getAsset()).body.data.photos as { id: string }[]).map((p) => p.id);
+
+  const ids: string[] = [];
+
+  it('refuses a caller without assets:update', async () => {
+    expect((await addPhoto('employee')).status).toBe(403);
+  });
+
+  it('takes five, the first of them the cover, and lists them cover first', async () => {
+    for (let i = 0; i < 5; i++) {
+      const res = await addPhoto();
+      expect(res.status).toBeLessThan(300);
+      expect(res.body.data.isCover).toBe(i === 0);
+      ids.push(res.body.data.id);
+    }
+    const asset = (await getAsset()).body.data;
+    expect(asset.photo.id).toBe(ids[0]);
+    expect(await photoIds()).toEqual(ids);
+    expect(asset.photos[0].sizeBytes).toBe(PNG.length);
+  });
+
+  it('refuses a sixth, and says what to do instead', async () => {
+    const res = await addPhoto();
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain('at most 5 photos');
+    expect(await photoIds()).toHaveLength(5);
+  });
+
+  it('replaces one when full, and deletes the file it replaces', async () => {
+    const before = await prisma.client.attachment.findUniqueOrThrow({
+      where: { id: ids[2]! },
+      select: { storageKey: true },
+    });
+    const res = await addPhoto('itAdmin', ids[2]);
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.data.replaced).toBe(ids[2]);
+    expect(res.body.data.isCover).toBe(false);
+
+    expect((await readBytes(ids[2]!)).status).toBe(404);
+    expect(await photoIds()).toHaveLength(5);
+    // The bytes are gone from storage, not merely hidden.
+    const storage = app.get(StorageProvider);
+    await expect(storage.get(before.storageKey)).rejects.toBeDefined();
+    ids[2] = res.body.data.id;
+  });
+
+  it('keeps the cover the cover when it is the one replaced', async () => {
+    const res = await addPhoto('itAdmin', ids[0]);
+    expect(res.body.data.isCover).toBe(true);
+    ids[0] = res.body.data.id;
+    expect((await getAsset()).body.data.photo.id).toBe(ids[0]);
+  });
+
+  it('will not replace a photograph that is not one of this asset’s', async () => {
+    expect((await addPhoto('itAdmin', 'no-such-photo')).status).toBe(404);
+  });
+
+  it('makes another one the cover', async () => {
+    const res = await api(app)
+      .post(`/api/v1/assets/${assetId}/unit-photos/${ids[3]}/cover`)
+      .set(auth(s.itAdmin));
+    expect(res.status).toBe(200);
+    expect((await getAsset()).body.data.photo.id).toBe(ids[3]);
+    expect((await photoIds())[0]).toBe(ids[3]);
+  });
+
+  it('hands the cover to the oldest one left when the cover is removed', async () => {
+    const res = await api(app)
+      .delete(`/api/v1/assets/${assetId}/unit-photos/${ids[3]}`)
+      .set(auth(s.itAdmin));
+    expect(res.status).toBe(200);
+    expect((await readBytes(ids[3]!)).status).toBe(404);
+    const asset = (await getAsset()).body.data;
+    expect(asset.photos).toHaveLength(4);
+    expect(asset.photo.id).toBe(asset.photos[0].id);
+    // Room for one more again.
+    expect((await addPhoto()).status).toBeLessThan(300);
+  });
+
+  it('still serves the old single-photo route: it replaces the cover', async () => {
+    const coverBefore = (await getAsset()).body.data.photo.id as string;
+    const res = await setPhoto('itAdmin');
+    expect(res.status).toBeLessThan(300);
+    const asset = (await getAsset()).body.data;
+    expect(asset.photo.id).toBe(res.body.data.id);
+    expect(asset.photos).toHaveLength(5);
+    expect((await readBytes(coverBefore)).status).toBe(404);
   });
 });

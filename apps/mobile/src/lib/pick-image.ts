@@ -13,12 +13,30 @@ export interface PickedImage {
   type: string;
 }
 
+/**
+ * The picture's pixel size as the picker reports it (v2.65). Kept beside the
+ * image rather than on it: `image` is handed to FormData as the file
+ * descriptor, and that wants nothing but uri, name and type.
+ */
+export interface PickedDimensions {
+  width: number;
+  height: number;
+}
+
 export type PickOutcome =
-  | { kind: 'picked'; image: PickedImage }
+  | { kind: 'picked'; image: PickedImage; dimensions: PickedDimensions | null }
   | { kind: 'cancelled' }
   | { kind: 'denied' }
   /** The installed app predates the picker (an older APK running newer JS). */
   | { kind: 'unavailable' };
+
+/** Null when the picker gave no usable size, so nothing is said about the shape. */
+function dimensionsOf(asset: { width?: number | null; height?: number | null }): PickedDimensions | null {
+  const { width, height } = asset;
+  return typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0
+    ? { width, height }
+    : null;
+}
 
 export const PICKER_UNAVAILABLE_MESSAGE =
   'Choosing a saved photo needs the latest version of the app. Update PioAssets and try again.';
@@ -56,6 +74,7 @@ export async function pickImageFromLibrary(): Promise<PickOutcome> {
     return {
       kind: 'picked',
       image: { uri: asset.uri, name: asset.fileName ?? `photo-${Date.now()}.${extension}`, type },
+      dimensions: dimensionsOf(asset),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -91,6 +110,7 @@ export async function pickImageFromCamera(): Promise<PickOutcome> {
     return {
       kind: 'picked',
       image: { uri: asset.uri, name: asset.fileName ?? `photo-${Date.now()}.jpg`, type },
+      dimensions: dimensionsOf(asset),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

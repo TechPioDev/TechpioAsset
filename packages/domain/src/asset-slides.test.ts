@@ -84,3 +84,27 @@ describe('the pictures in the asset page lead box', () => {
     expect(slideCountLabel(7)).toBe('7 photos');
   });
 });
+
+describe('an asset with several photographs of the unit (v2.65)', () => {
+  it('shows all of them, the cover first, before the condition photos', () => {
+    const slides = assetSlides({
+      assetId: 'a1',
+      source: { kind: 'photo', photoId: 'own2' },
+      ownPhoto: { id: 'own2', createdAt: '2026-09-18T00:00:00Z' },
+      ownPhotos: [
+        { id: 'own2', createdAt: '2026-09-18T00:00:00Z' },
+        { id: 'own1', createdAt: '2026-09-17T00:00:00Z' },
+      ],
+      catalogue: null,
+      groups: [
+        {
+          holder: 'Rohit',
+          handover: [{ id: 'h1', caption: null, takenAt: '2026-08-13T10:00:00Z', by: null }],
+          returned: [],
+        },
+      ],
+    });
+    expect(slides.map((s) => s.id)).toEqual(['photo:own2', 'photo:own1', 'condition:h1']);
+    expect(slides[0]!.stageLabel).toBe('Photo of this unit · 1 of 2');
+  });
+});

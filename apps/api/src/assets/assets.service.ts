@@ -21,6 +21,7 @@ import {
   ASSET_STATUSES_ASSIGNABLE,
   ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
   detectWarrantyVendor,
+  MAX_ASSET_PHOTOS,
   PERMISSIONS,
   requiresSerialNumber,
   type AssetStatus,
@@ -490,6 +491,21 @@ export class AssetsService {
               : null,
           };
 
+    // v2.65 - every photograph of the unit (up to five), the cover first, then
+    // oldest first. `photo` above stays the cover, which is all an older phone
+    // reads. The bytes come through the same route as the cover's.
+    const coverId = (asset as { photo?: { id: string } | null }).photo?.id ?? null;
+    const unitPhotos = await this.prisma.client.attachment.findMany({
+      where: { assetId: id, entityType: 'AssetPhoto', deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      take: MAX_ASSET_PHOTOS,
+      select: { id: true, mimeType: true, sizeBytes: true, createdAt: true },
+    });
+    const photos = [
+      ...unitPhotos.filter((p) => p.id === coverId),
+      ...unitPhotos.filter((p) => p.id !== coverId),
+    ];
+
     // Counted, not measured: `assignments` is capped at 20 above, so deriving
     // the total from its length reported a device assigned 30 times as 20.
     // "This device has been assigned N times" is the one number an employee
@@ -508,6 +524,7 @@ export class AssetsService {
       return {
         ...asset,
         ...vendorProduct,
+        photos,
         // Notes stay visible to the device's holder (owner decision,
         // 2026-08-12): they carry the device's specs and known problems, and
         // an OWN-scope viewer can only ever fetch their own asset. The flip
@@ -528,7 +545,7 @@ export class AssetsService {
         ),
       };
     }
-    return { ...asset, ...vendorProduct, assignmentCount };
+    return { ...asset, ...vendorProduct, photos, assignmentCount };
   }
 
   /** v2.5 H4 — the discovered software inventory, paginated (Software tab). */
