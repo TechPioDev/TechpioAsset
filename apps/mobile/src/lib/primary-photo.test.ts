@@ -4,6 +4,8 @@ import { primaryPhotoId, unitPhotos } from './asset-photos';
 import {
   PRIMARY_FAILED_TITLE,
   primaryChangedAlert,
+  custodyPhotoAction,
+  custodySlides,
   primaryControl,
   primaryPhotoBody,
   primaryPhotoPath,
@@ -161,5 +163,18 @@ describe('a handover photo as the primary picture', () => {
     });
     expect(slides.map((s) => s.id)).toEqual(['catalogue:img1', 'photo:u1']);
     expect(slides.map((s) => primaryControl(s, null)?.kind ?? null)).toEqual([null, 'set']);
+  });
+});
+
+describe('the handover and return photos under the lead box (0.3.27)', () => {
+  it('picks the condition photos out of the slides, in their order', () => {
+    const slides = [{ id: 'photo:u1' }, { id: 'catalogue:i1' }, { id: 'condition:h1' }, { id: 'condition:r1' }];
+    expect(custodySlides(slides).map((s) => s.id)).toEqual(['condition:h1', 'condition:r1']);
+  });
+
+  it('offers to choose one, or to clear it when it is already the primary', () => {
+    expect(custodyPhotoAction('h1', null)).toMatchObject({ photoId: 'h1', label: 'Set as primary' });
+    expect(custodyPhotoAction('h1', 'u1')).toMatchObject({ photoId: 'h1', label: 'Set as primary' });
+    expect(custodyPhotoAction('h1', 'h1')).toMatchObject({ photoId: null, label: 'Clear primary' });
   });
 });

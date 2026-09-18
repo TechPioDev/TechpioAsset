@@ -8,6 +8,7 @@ import {
   illustrationIcon,
   photoSizeLabel,
   slideCountLabel,
+  slidePhotoId,
   type AssetImageSource,
   type AssetOwnPhoto,
   type IllustrationIcon,
@@ -29,7 +30,7 @@ import {
   uploadedAlert,
   type UnitPhotoActionKey,
 } from '../../lib/asset-photos';
-import { primaryChangedAlert } from '../../lib/primary-photo';
+import { custodyPhotoAction, custodySlides, primaryChangedAlert } from '../../lib/primary-photo';
 import { usePrimaryPhoto } from '../../lib/use-primary-photo';
 import {
   PICKER_UNAVAILABLE_MESSAGE,
@@ -104,6 +105,8 @@ const THUMB = 52;
  */
 type PhotoSheet =
   | { step: 'actions'; photoId: string }
+  /** 0.3.27 - a handover or return photo: it can only be chosen, not managed. */
+  | { step: 'custody'; photoId: string; label: string }
   /** `replaceId` null adds a photo; otherwise that photo is swapped. */
   | { step: 'source'; replaceId: string | null };
 
@@ -228,6 +231,20 @@ export function AssetImageCard({
   const thumbs = useMemo(
     () => ownPhotos.map((p) => ({ ...p, src: api.imageSource(unitPhotoImagePath(assetId, p.id)) })),
     [api, assetId, photoSignature],
+  );
+  // 0.3.27 - the handover and return photos, listed under the unit's so any of
+  // them can be made the primary from here (web: the Manage photos panel).
+  // Not on an older server, which has no route to choose one.
+  const custodyThumbs = useMemo(
+    () =>
+      legacyPhotoApi
+        ? []
+        : custodySlides(slides).map((slide) => ({
+            slide,
+            photoId: slidePhotoId(slide) ?? '',
+            src: api.imageSource(slide.path),
+          })),
+    [api, slides, legacyPhotoApi],
   );
   const addRefusal = addPhotoRefusal(ownPhotos.length, legacyPhotoApi);
   const addOff = busy || addRefusal !== null;
@@ -555,6 +572,67 @@ export function AssetImageCard({
             </View>
           ) : null}
 
+          {custodyThumbs.length > 0 ? (
+            <>
+              <Text style={{ color: c.text, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>
+                Handover and return photos
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                {custodyThumbs.map((p) => {
+                  const isPrimary = p.photoId === primaryPhotoId;
+                  return (
+                    <Pressable
+                      key={p.slide.id}
+                      onPress={() => setSheet({ step: 'custody', photoId: p.photoId, label: p.slide.stageLabel })}
+                      disabled={busy || primary.busy}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${p.slide.stageLabel}${isPrimary ? ', primary image' : ''}`}
+                      accessibilityHint={isPrimary ? 'Clear primary' : 'Set as primary'}
+                      style={{ width: THUMB, opacity: busy || primary.busy ? 0.5 : 1 }}
+                    >
+                      <View
+                        style={{
+                          width: THUMB,
+                          height: THUMB,
+                          borderRadius: radius.md,
+                          overflow: 'hidden',
+                          borderWidth: isPrimary ? 2 : 1,
+                          borderColor: isPrimary ? c.brand : c.border,
+                        }}
+                      >
+                        <AuthImage
+                          uri={p.src.uri}
+                          headers={p.src.headers}
+                          style={{ width: '100%', height: '100%' }}
+                          accessibilityLabel=""
+                        />
+                        {isPrimary ? (
+                          <View
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              backgroundColor: 'rgba(0,0,0,0.65)',
+                              paddingVertical: 1,
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' }}>
+                              Primary
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={{ color: c.subtle, fontSize: 12, lineHeight: 17 }}>
+                Tap one to make it the primary image. They are added and removed in Condition photos below.
+              </Text>
+            </>
+          ) : null}
+
           {/* Why "Add photo" is off, in the sentence the server would send. */}
           {addRefusal ? <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{addRefusal}</Text> : null}
           {/* The exact size that fills the box, and how many of five are used. */}
@@ -617,9 +695,11 @@ export function AssetImageCard({
                 Math.max(ownPhotos.length, 1),
                 shown.photoId === primaryPhotoId,
               )
-            : shown?.replaceId
-              ? 'Replace this photo'
-              : 'Add a photo'
+            : shown?.step === 'custody'
+              ? shown.label
+              : shown?.replaceId
+                ? 'Replace this photo'
+                : 'Add a photo'
         }
         subtitle={assetName}
         onClose={() => setSheet(null)}
@@ -650,6 +730,34 @@ export function AssetImageCard({
               <Ionicons name="chevron-forward" size={16} color={c.subtle} />
             </Pressable>
           ))
+        ) : shown?.step === 'custody' ? (
+          (() => {
+            const action = custodyPhotoAction(shown.photoId, primaryPhotoId);
+            return (
+              <Pressable
+                accessibilityRole="menuitem"
+                onPress={() => {
+                  setSheet(null);
+                  void primary.setPrimary(action.photoId);
+                }}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                  paddingVertical: 12,
+                  paddingHorizontal: spacing.md,
+                  borderRadius: radius.md,
+                  backgroundColor: pressed ? c.surface : 'transparent',
+                })}
+              >
+                <Ionicons name={action.photoId ? 'star-outline' : 'close-circle-outline'} size={20} color={c.muted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>{action.label}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12, marginTop: 1 }}>{action.hint}</Text>
+                </View>
+              </Pressable>
+            );
+          })()
         ) : shown?.step === 'source' ? (
           <>
             <Button

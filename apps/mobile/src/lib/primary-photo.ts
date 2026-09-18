@@ -77,6 +77,44 @@ export function primaryControl(
 }
 
 // ---------------------------------------------------------------------------
+// The handover and return photos under the lead box (0.3.27)
+// ---------------------------------------------------------------------------
+
+/**
+ * The condition photos among a set of slides. The owner looked under the lead
+ * box for the primary-image choice on a laptop that had handover photos only,
+ * and the strip - unit photos alone - offered nothing. They are listed there
+ * too now (web: the Manage photos panel), to be chosen from, not managed:
+ * adding and removing them stays in the Condition photos section, with its
+ * custody rules.
+ */
+export function custodySlides<T extends Pick<AssetSlide, 'id'>>(slides: readonly T[]): T[] {
+  return slides.filter((slide) => slide.id.startsWith('condition:'));
+}
+
+export interface CustodyPhotoAction {
+  /** What to send: a photo id to choose it, null to clear the choice. */
+  photoId: string | null;
+  label: string;
+  hint: string;
+}
+
+/** The one thing the sheet offers for a handover or return photo. */
+export function custodyPhotoAction(photoId: string, primaryPhotoId: string | null | undefined): CustodyPhotoAction {
+  return photoId === (primaryPhotoId ?? null)
+    ? {
+        photoId: null,
+        label: 'Clear primary',
+        hint: 'The asset goes back to its default picture. The photo itself stays on file.',
+      }
+    : {
+        photoId,
+        label: 'Set as primary',
+        hint: 'It leads this asset: the box, the header and the slideshow. Nothing is moved or deleted.',
+      };
+}
+
+// ---------------------------------------------------------------------------
 // Alerts
 // ---------------------------------------------------------------------------
 
