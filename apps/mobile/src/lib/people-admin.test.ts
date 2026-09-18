@@ -16,6 +16,9 @@ import {
   sodConflictsFor,
   toOverride,
   type UserRow,
+  peopleAudience,
+  peopleRowAffiliation,
+  peopleScreenCopy,
 } from './people-admin';
 
 const row: UserRow = {
@@ -154,5 +157,27 @@ describe('colleague paging', () => {
     }, 2);
     expect(calls).toEqual([1, 2]);
     expect(all).toHaveLength(3);
+  });
+});
+
+describe('vendor sign-ins have a list of their own (v2.68)', () => {
+  it('reads the audience from the route, and nothing else as vendors', () => {
+    expect(peopleAudience('vendors')).toBe('vendors');
+    expect(peopleAudience(['vendors'])).toBe('vendors');
+    expect(peopleAudience(undefined)).toBe('staff');
+    expect(peopleAudience('everyone')).toBe('staff');
+  });
+
+  it('names the screen for what it lists', () => {
+    expect(peopleScreenCopy('vendors').title).toBe('Vendor accounts');
+    expect(peopleScreenCopy('staff').title).toBe('People');
+    expect(peopleScreenCopy('staff').intro).toBeNull();
+  });
+
+  it('shows the vendor company on the vendor list, and says when there is none', () => {
+    const row = { profile: null, vendorAccount: { id: 'v1', name: 'Acme Supplies' } };
+    expect(peopleRowAffiliation(row, 'vendors')).toBe('Acme Supplies');
+    expect(peopleRowAffiliation({ profile: null, vendorAccount: null }, 'vendors')).toBe('Not linked to a vendor');
+    expect(peopleRowAffiliation(row, 'staff')).toBeNull();
   });
 });

@@ -24,6 +24,7 @@ import {
   adminUpdateProfileSchema,
   inviteUserSchema,
   setUserRolesSchema,
+  setUserVendorSchema,
   updateMyProfileSchema,
   changeUserEmailSchema,
   setUserStatusSchema,
@@ -32,6 +33,7 @@ import {
   type InviteUserInput,
   type AuthUser,
   type SetUserRolesInput,
+  type SetUserVendorInput,
   type ChangeUserEmailInput,
   type SetUserStatusInput,
   type UpdateMyProfileInput,
@@ -183,6 +185,22 @@ export class UsersController {
     @Body(zodBody(setUserRolesSchema)) body: SetUserRolesInput,
   ) {
     return this.users.setRoles(actor, id, body);
+  }
+
+  @Patch(':id/vendor')
+  @RequirePermissions(PERMISSIONS.USERS_MANAGE)
+  @ApiOperation({
+    summary: 'Link a vendor sign-in to its vendor company',
+    description:
+      'Body `{ vendorId }`, or null to unlink. Only an account holding the Vendor role can be ' +
+      'linked. The link scopes everything that account sees to that vendor’s own rows.',
+  })
+  setVendor(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(setUserVendorSchema)) body: SetUserVendorInput,
+  ) {
+    return this.users.setVendor(actor, id, body);
   }
 
   @Patch(':id/email')

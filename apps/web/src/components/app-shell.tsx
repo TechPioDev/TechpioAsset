@@ -31,6 +31,7 @@ import { Sparkles,
   ShieldCheck,
   Network,
   GitBranch,
+  UserCog,
   Users,
   Wrench,
   X,
@@ -194,6 +195,13 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Vendors',
         Icon: Store,
         permission: PERMISSIONS.VENDORS_MANAGE,
+      },
+      // v2.68 - vendor sign-ins, out of People and under a menu of their own.
+      {
+        href: '/vendor-accounts',
+        label: 'Vendor accounts',
+        Icon: UserCog,
+        permission: PERMISSIONS.USERS_MANAGE,
       },
       {
         href: '/settings/spec-templates',

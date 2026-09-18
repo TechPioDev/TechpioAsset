@@ -26,7 +26,7 @@ afterAll(async () => {
 
 async function userId(email: string): Promise<string> {
   const res = await api(app)
-    .get(`/api/v1/users?q=${encodeURIComponent(email)}&pageSize=1`)
+    .get(`/api/v1/users?q=${encodeURIComponent(email)}&pageSize=1&audience=all`)
     .set(auth(s.superAdmin));
   return res.body.data[0].id;
 }
@@ -293,6 +293,85 @@ describe('changing the address a user signs in with (v2.54)', () => {
       .patch(`/api/v1/users/${target}/email`)
       .set(auth(s.employee))
       .send({ email: NEW });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('vendor sign-ins have a list of their own (v2.68)', () => {
+  const list = (query: string) =>
+    api(app).get(`/api/v1/users?pageSize=100&q=employee3${query}`).set(auth(s.superAdmin));
+  const emails = (res: { body: { data: { email: string }[] } }) => res.body.data.map((u) => u.email);
+
+  it('drops an account whose only role is Vendor from People, and lists it under vendors', async () => {
+    const id = await userId('employee3');
+    const set = await api(app)
+      .patch(`/api/v1/users/${id}/roles`)
+      .set(auth(s.superAdmin))
+      .send({ roleKeys: ['VENDOR'] });
+    expect(set.status).toBe(200);
+
+    expect(emails(await list(''))).toHaveLength(0);
+    expect(emails(await list('&audience=vendors'))).toHaveLength(1);
+    expect(emails(await list('&audience=all'))).toHaveLength(1);
+  });
+
+  it('keeps somebody on staff who also holds Vendor among the people', async () => {
+    const id = await userId('employee3');
+    await api(app)
+      .patch(`/api/v1/users/${id}/roles`)
+      .set(auth(s.superAdmin))
+      .send({ roleKeys: ['EMPLOYEE', 'VENDOR'] });
+    expect(emails(await list(''))).toHaveLength(1);
+    expect(emails(await list('&audience=vendors'))).toHaveLength(0);
+  });
+
+  it('links a Vendor account to a vendor company, and refuses a staff account', async () => {
+    const id = await userId('employee3');
+    const vendors = await api(app).get('/api/v1/vendors?pageSize=1').set(auth(s.superAdmin));
+    const vendorId = vendors.body.data[0]?.id as string | undefined;
+    expect(vendorId).toBeTruthy();
+
+    // employee3 is back to Employee here (afterEach): not a vendor account.
+    const refused = await api(app)
+      .patch(`/api/v1/users/${id}/vendor`)
+      .set(auth(s.superAdmin))
+      .send({ vendorId });
+    expect(refused.status).toBe(422);
+
+    await api(app)
+      .patch(`/api/v1/users/${id}/roles`)
+      .set(auth(s.superAdmin))
+      .send({ roleKeys: ['VENDOR'] });
+    const linked = await api(app)
+      .patch(`/api/v1/users/${id}/vendor`)
+      .set(auth(s.superAdmin))
+      .send({ vendorId });
+    expect(linked.status).toBe(200);
+    expect(linked.body.data.vendorAccount.id).toBe(vendorId);
+    const row = (await list('&audience=vendors')).body.data[0];
+    expect(row.vendorAccount.id).toBe(vendorId);
+
+    const unknown = await api(app)
+      .patch(`/api/v1/users/${id}/vendor`)
+      .set(auth(s.superAdmin))
+      .send({ vendorId: 'no-such-vendor' });
+    expect(unknown.status).toBe(404);
+
+    // Unlinked again, so the seeded account goes back exactly as it was.
+    const unlinked = await api(app)
+      .patch(`/api/v1/users/${id}/vendor`)
+      .set(auth(s.superAdmin))
+      .send({ vendorId: null });
+    expect(unlinked.status).toBe(200);
+    expect(unlinked.body.data.vendorAccount).toBeNull();
+  });
+
+  it('forbids somebody without users:manage from linking', async () => {
+    const id = await userId('employee3');
+    const res = await api(app)
+      .patch(`/api/v1/users/${id}/vendor`)
+      .set(auth(s.employee))
+      .send({ vendorId: null });
     expect(res.status).toBe(403);
   });
 });

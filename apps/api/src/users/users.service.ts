@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { AuditAction, Prisma } from '@prisma/client';
 import type {
-  AdminUpdateProfileInput, ChangeUserEmailInput, InviteUserInput, SetUserRolesInput, SetUserStatusInput, UserListQuery } from '@techpioasset/contracts';
+  AdminUpdateProfileInput, ChangeUserEmailInput, InviteUserInput, SetUserRolesInput, SetUserStatusInput, SetUserVendorInput, UserListQuery } from '@techpioasset/contracts';
 import type { AuthUser } from '@techpioasset/contracts';
 import { findSodConflicts } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
@@ -18,6 +18,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { StorageProvider } from '../providers/storage/storage.provider.js';
 import { validateUpload } from '../providers/storage/file-validation.js';
+
+/**
+ * A vendor sign-in: Vendor is the only role held (v2.68). `some: {}` because
+ * `every` is also true of an account with no roles at all.
+ */
+const VENDOR_ONLY = { roles: { some: {}, every: { role: { key: 'VENDOR' } } } };
 
 const SORTABLE = ['email', 'createdAt', 'lastLoginAt', 'status', 'name', 'department'] as const;
 
@@ -81,6 +87,14 @@ export class UsersService {
             }
           : {},
         query.role ? { roles: { some: { role: { key: query.role } } } } : {},
+        // v2.68 - vendor sign-ins have a list of their own. "Vendor account"
+        // means Vendor is the ONLY role held: somebody on staff who also holds
+        // it is still one of the people.
+        query.audience === 'vendors'
+          ? VENDOR_ONLY
+          : query.audience === 'all'
+            ? {}
+            : { NOT: VENDOR_ONLY },
       ],
     };
   }
@@ -124,9 +138,58 @@ export class UsersService {
               },
             },
             roles: { select: { role: { select: { key: true, name: true } } } },
+            // v2.68 - the vendor company a vendor sign-in acts for; null for staff.
+            vendorAccount: { select: { id: true, name: true } },
           },
         }),
     });
+  }
+
+  /**
+   * Link a vendor sign-in to the vendor company it acts for, or unlink it
+   * (v2.68). Everything a vendor user may see is scoped by this link - their
+   * own products, quotes and orders - and until now it could only be set by
+   * hand in the database. Only an account that holds the Vendor role can be
+   * linked: the link on a staff account would narrow what they see to one
+   * vendor's rows. Takes effect at the account's next sign-in or token refresh.
+   */
+  async setVendor(actor: AuthUser, id: string, input: SetUserVendorInput) {
+    const target = await this.loadInScope(actor, id);
+    const before = await this.prisma.client.user.findUnique({
+      where: { id },
+      select: { vendorId: true },
+    });
+
+    if (input.vendorId) {
+      if (!target.roles.some((r) => r.role.key === 'VENDOR')) {
+        throw new AppError('VALIDATION_FAILED', 'Only a Vendor account can be linked to a vendor', {
+          detail: 'Give this account the Vendor role first.',
+        });
+      }
+      const vendor = await this.prisma.client.vendor.findFirst({
+        where: { id: input.vendorId, companyId: actor.companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!vendor) throw AppError.notFound('Vendor', input.vendorId);
+    }
+
+    const updated = await this.prisma.client.user.update({
+      where: { id },
+      data: { vendorId: input.vendorId },
+      select: { id: true, vendorAccount: { select: { id: true, name: true } } },
+    });
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.USER_UPDATED,
+      entityType: 'User',
+      entityId: id,
+      previousValues: { vendorId: before?.vendorId ?? null },
+      newValues: { vendorId: input.vendorId },
+    });
+
+    return updated;
   }
 
   /** All users matching the list filters, flattened for CSV export (scoped, capped). */

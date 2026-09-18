@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
@@ -10,7 +10,15 @@ import { Avatar, Button, Card, Chevron, EmptyState, StatusPill } from '../src/co
 import { InviteSheet } from '../src/components/people/invite-sheet';
 import { ManageSheet } from '../src/components/people/manage-sheet';
 import { useInviteAllPending } from '../src/components/people/invite-all';
-import { peopleGates, personName, statusLabel, type UserRow } from '../src/lib/people-admin';
+import {
+  peopleAudience,
+  peopleGates,
+  peopleRowAffiliation,
+  peopleScreenCopy,
+  personName,
+  statusLabel,
+  type UserRow,
+} from '../src/lib/people-admin';
 
 /**
  * People, and - for whoever may - inviting and managing them.
@@ -34,6 +42,10 @@ export default function PeopleScreen() {
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
   const router = useRouter();
   const gates = peopleGates(user);
+  // v2.68 - the same screen lists vendor sign-ins when the menu asks for them
+  // (/people?audience=vendors); the default list no longer carries them.
+  const audience = peopleAudience(useLocalSearchParams<{ audience?: string }>().audience);
+  const copy = peopleScreenCopy(audience);
 
   const [rows, setRows] = useState<UserRow[]>([]);
   // Who is mid-offboarding, so the row says so before anyone opens Manage.
@@ -58,11 +70,11 @@ export default function PeopleScreen() {
 
   const fetchPage = useCallback(
     (n: number) => {
-      const params = new URLSearchParams({ page: String(n), pageSize: String(PAGE_SIZE), view });
+      const params = new URLSearchParams({ page: String(n), pageSize: String(PAGE_SIZE), view, audience });
       if (q) params.set('q', q);
       return api.request<UserRow[]>(`/users?${params.toString()}`);
     },
-    [api, q, view],
+    [api, q, view, audience],
   );
 
   const load = useCallback(async () => {
@@ -184,13 +196,17 @@ export default function PeopleScreen() {
         })}
       </View>
 
+      <Stack.Screen options={{ title: copy.title }} />
+      {copy.intro && view !== 'deactivated' ? (
+        <Text style={{ color: c.muted, fontSize: 13, lineHeight: 18, marginBottom: spacing.md }}>{copy.intro}</Text>
+      ) : null}
       {view === 'deactivated' ? (
         <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
           Deactivated accounts. They keep their history but cannot sign in.
         </Text>
       ) : null}
 
-      {gates.canInvite ? (
+      {gates.canInvite && audience === 'staff' ? (
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
           <Button label="Invite user" icon="person-add-outline" onPress={() => setInviting(true)} style={{ flex: 1 }} />
           <Button
@@ -233,7 +249,7 @@ export default function PeopleScreen() {
           loading ? null : (
             <EmptyState
               icon="people-outline"
-              title="No people found"
+              title={copy.emptyTitle}
               message={q ? 'Try a different search.' : 'No one is visible to you yet.'}
             />
           )
@@ -264,8 +280,8 @@ export default function PeopleScreen() {
                     <StatusPill label="Offboarding in progress" bg={palette.warning.bg} fg={palette.warning.fg} />
                   ) : null}
                   {role ? <StatusPill label={role} bg={c.brandSoft} fg={c.brand} /> : null}
-                  {item.profile?.department?.name ? (
-                    <StatusPill label={item.profile.department.name} bg={c.surface} fg={c.muted} />
+                  {peopleRowAffiliation(item, audience) ? (
+                    <StatusPill label={peopleRowAffiliation(item, audience)!} bg={c.surface} fg={c.muted} />
                   ) : null}
                 </View>
               </View>

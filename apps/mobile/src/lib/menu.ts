@@ -228,6 +228,14 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
         href: '/people-invitations',
         anyOf: [P.USERS_MANAGE],
       },
+      // v2.68 - vendor sign-ins, out of People and under an entry of their own.
+      {
+        icon: 'storefront-outline',
+        label: 'Vendor accounts',
+        description: 'Sign-ins that belong to vendors',
+        href: '/people?audience=vendors',
+        anyOf: [P.USERS_MANAGE],
+      },
     ],
   },
   {

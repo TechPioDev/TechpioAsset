@@ -31,6 +31,40 @@ export interface UserRow {
     } | null;
   } | null;
   roles: { role: { key: string; name: string } }[];
+  /** v2.68 - the vendor company a vendor sign-in acts for; null for staff. */
+  vendorAccount?: { id: string; name: string } | null;
+}
+
+/**
+ * Whose accounts the People screen lists (v2.68; web: DirectoryAudience). The
+ * owner asked for vendor sign-ins out of People and under a menu of their own:
+ * the server's default list already leaves out accounts whose only role is
+ * Vendor, and `vendors` asks for exactly those.
+ */
+export type PeopleAudience = 'staff' | 'vendors';
+
+/** The `audience` route param, as the menu sends it; anything else is staff. */
+export function peopleAudience(param: string | string[] | undefined): PeopleAudience {
+  return (Array.isArray(param) ? param[0] : param) === 'vendors' ? 'vendors' : 'staff';
+}
+
+/** The words that differ between the two lists. */
+export function peopleScreenCopy(audience: PeopleAudience) {
+  return audience === 'vendors'
+    ? {
+        title: 'Vendor accounts',
+        intro:
+          'Sign-ins that belong to your vendors. Each sees only its own products, quotes and orders. They are not listed under People.',
+        emptyTitle: 'No vendor accounts',
+        searchPlaceholder: 'Search vendor accounts',
+      }
+    : { title: 'People', intro: null, emptyTitle: 'No people found', searchPlaceholder: null };
+}
+
+/** The pill under a row: the vendor company on the vendor list, the department otherwise. */
+export function peopleRowAffiliation(row: Pick<UserRow, 'profile' | 'vendorAccount'>, audience: PeopleAudience): string | null {
+  if (audience === 'vendors') return row.vendorAccount?.name ?? 'Not linked to a vendor';
+  return row.profile?.department?.name ?? null;
 }
 
 export interface RoleOption {

@@ -14,8 +14,21 @@ export const userListQuerySchema = pageQuerySchema.extend({
   /** Deactivated accounts live in their own view instead of padding the
    * default list with people who cannot sign in. */
   view: z.enum(['active', 'deactivated']).default('active'),
+  /**
+   * v2.68 - whose accounts. The owner asked for vendor sign-ins out of the
+   * People list and under a menu of their own: `staff` (the default, so every
+   * person picker drops them too) leaves out accounts whose only role is
+   * Vendor; `vendors` is exactly those; `all` is both.
+   */
+  audience: z.enum(['staff', 'vendors', 'all']).default('staff'),
 });
 export type UserListQuery = z.infer<typeof userListQuerySchema>;
+
+/** Which vendor company a vendor sign-in belongs to; null unlinks it. */
+export const setUserVendorSchema = z.object({
+  vendorId: z.string().trim().min(1).max(64).nullable(),
+});
+export type SetUserVendorInput = z.infer<typeof setUserVendorSchema>;
 
 /** Replace a user's roles wholesale. Empty is rejected — everyone keeps at least one. */
 export const setUserRolesSchema = z.object({
