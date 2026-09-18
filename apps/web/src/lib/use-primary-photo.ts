@@ -19,7 +19,9 @@ export function usePrimaryPhoto(assetId: string) {
       apiFetch(`/assets/${assetId}/primary-photo`, { method: 'PATCH', body: { photoId } }),
     onSuccess: (_data, photoId) => {
       toast.success(
-        photoId ? 'Primary image set - it now leads this asset' : 'Catalogue picture leads again',
+        photoId
+          ? 'Primary image set - it now leads this asset'
+          : 'Primary image cleared - the asset shows its default picture',
       );
       void queryClient.invalidateQueries({ queryKey: ['asset', assetId] });
     },

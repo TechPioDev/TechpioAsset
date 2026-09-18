@@ -26,13 +26,29 @@ describe('the route', () => {
 
 describe('what the viewer offers on a slide', () => {
   it('badges the slide that is the primary, of either kind', () => {
-    expect(primaryControl(unit, 'u1')).toEqual({ kind: 'badge', label: 'Primary image' });
-    expect(primaryControl(handover, 'h1')).toEqual({ kind: 'badge', label: 'Primary image' });
+    expect(primaryControl(unit, 'u1')).toMatchObject({
+      kind: 'badge',
+      label: 'Primary image',
+      clearLabel: 'Clear',
+    });
+    expect(primaryControl(handover, 'h1')).toMatchObject({
+      kind: 'badge',
+      label: 'Primary image',
+      clearLabel: 'Clear',
+    });
   });
 
   it('offers every other photograph, a condition photo included', () => {
-    expect(primaryControl(handover, 'u1')).toMatchObject({ kind: 'set', photoId: 'h1', label: 'Set as primary' });
-    expect(primaryControl(unit, 'h1')).toMatchObject({ kind: 'set', photoId: 'u1', label: 'Set as primary' });
+    expect(primaryControl(handover, 'u1')).toMatchObject({
+      kind: 'set',
+      photoId: 'h1',
+      label: 'Set as primary',
+    });
+    expect(primaryControl(unit, 'h1')).toMatchObject({
+      kind: 'set',
+      photoId: 'u1',
+      label: 'Set as primary',
+    });
     expect(primaryControl(unit, null)).toMatchObject({ kind: 'set', photoId: 'u1' });
     expect(primaryControl(unit, undefined)).toMatchObject({ kind: 'set', photoId: 'u1' });
   });
@@ -66,7 +82,8 @@ describe('alerts', () => {
     expect(primaryChangedAlert('h1').title).toBe('Primary image set');
     expect(primaryChangedAlert(null)).toEqual({
       title: 'Primary image cleared',
-      message: 'The catalogue picture leads this asset again.',
+      // Not "the catalogue picture leads again": an asset without a listing can clear too.
+      message: 'This asset goes back to its default picture: the catalogue picture if it has one.',
     });
     expect(PRIMARY_FAILED_TITLE).toMatch(/primary image/);
   });

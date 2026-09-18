@@ -261,6 +261,7 @@ function Slides({
           }}
         >
           {control?.kind === 'badge' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <View
               accessible
               accessibilityRole="text"
@@ -279,6 +280,39 @@ function Slides({
             >
               <Ionicons name="star" size={15} color="#facc15" />
               <Text style={{ color: '#fde68a', fontSize: 13, fontWeight: '700' }}>{control.label}</Text>
+            </View>
+              {/* The way back: no primary picture at all, so the asset shows
+                  its default again. Beside the badge, because this is the one
+                  slide where "which picture leads" is already on screen. */}
+              <Pressable
+                onPress={() => onSetPrimary(null)}
+                disabled={primaryBusy}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear the primary image"
+                accessibilityState={{ disabled: primaryBusy, busy: primaryBusy }}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  minHeight: 36,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  backgroundColor: pressed ? 'rgba(255,255,255,0.22)' : 'transparent',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.35)',
+                  opacity: primaryBusy ? 0.6 : 1,
+                })}
+              >
+                {primaryBusy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="close" size={15} color="#fff" />
+                )}
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                  {primaryBusy ? control.busyLabel : control.clearLabel}
+                </Text>
+              </Pressable>
             </View>
           ) : control?.kind === 'set' ? (
             <Pressable

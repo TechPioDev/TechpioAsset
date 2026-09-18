@@ -39,15 +39,20 @@ export function primaryPhotoBody(photoId: string | null): { photoId: string | nu
 // ---------------------------------------------------------------------------
 
 export type PrimaryControl =
-  /** This slide is the primary picture: a badge, nothing to press. */
-  | { kind: 'badge'; label: string }
+  /**
+   * This slide is the primary picture: a badge, and beside it the way back
+   * (0.3.26). The owner asked for it: an asset with no catalogue listing has
+   * no catalogue slide, so without this its choice could be moved but never
+   * undone.
+   */
+  | { kind: 'badge'; label: string; clearLabel: string; busyLabel: string }
   /** Press to make this slide lead. `photoId` null clears the choice. */
   | { kind: 'set'; photoId: string | null; label: string; busyLabel: string };
 
 /**
  * What the viewer shows for one slide, or null for nothing.
  *
- *  - the slide that is the primary picture carries the badge;
+ *  - the slide that is the primary picture carries the badge, and "Clear";
  *  - every other photograph - of the unit, or a condition photo - may be set;
  *  - the catalogue picture is not an attachment, so it cannot be "set". It is
  *    what leads when nothing is chosen, so there the offer is to clear the
@@ -65,7 +70,9 @@ export function primaryControl(
       ? null
       : { kind: 'set', photoId: null, label: 'Show catalogue picture first', busyLabel: 'Saving…' };
   }
-  if (id === current) return { kind: 'badge', label: 'Primary image' };
+  if (id === current) {
+    return { kind: 'badge', label: 'Primary image', clearLabel: 'Clear', busyLabel: 'Clearing…' };
+  }
   return { kind: 'set', photoId: id, label: 'Set as primary', busyLabel: 'Saving…' };
 }
 
@@ -77,7 +84,11 @@ export function primaryControl(
 export function primaryChangedAlert(photoId: string | null): { title: string; message: string } {
   return photoId
     ? { title: 'Primary image set', message: 'It now leads this asset and opens its photos.' }
-    : { title: 'Primary image cleared', message: 'The catalogue picture leads this asset again.' };
+    : {
+        title: 'Primary image cleared',
+        message:
+          'This asset goes back to its default picture: the catalogue picture if it has one.',
+      };
 }
 
 /** The title of the alert when the server refuses; its own words are the message. */

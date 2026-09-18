@@ -223,9 +223,21 @@ function PrimaryControl({ photo, primary }: { photo: LightboxPhoto; primary: Lig
   const isPrimary = id !== null && id === primary.currentId;
   if (isPrimary) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white">
-        <Star aria-hidden="true" className="size-3.5 fill-current" />
-        Primary image
+      <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white">
+          <Star aria-hidden="true" className="size-3.5 fill-current" />
+          Primary image
+        </span>
+        {/* The way back: an asset with no catalogue listing has no catalogue
+            slide, so without this its choice could be moved but never undone. */}
+        <button
+          type="button"
+          disabled={primary.busy}
+          onClick={() => primary.onSet(null)}
+          className="rounded-full px-3 py-1.5 text-xs font-medium text-white/85 ring-1 ring-white/35 hover:bg-white/10 hover:text-white disabled:opacity-60"
+        >
+          {primary.busy ? 'Clearing…' : 'Clear'}
+        </button>
       </span>
     );
   }
