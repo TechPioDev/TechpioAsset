@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Camera,
+  Expand,
   Headphones,
   Keyboard,
   Laptop,
@@ -19,8 +20,10 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react';
-import { API_BASE, getAccessToken } from '@/lib/api-client';
-import { useAuthedBlob } from '@/lib/use-authed-blob';
+import { API_BASE, apiFetch, getAccessToken } from '@/lib/api-client';
+import { useAuthedBlobs } from '@/lib/use-authed-blob';
+import { assetSlides, slideCountLabel, type SlideCustodyGroup } from '@/lib/asset-slides';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/assets/photo-lightbox';
 import {
   illustrationIcon,
   type AssetImageSource,
@@ -39,6 +42,12 @@ import { Button, Card, Skeleton } from '@/components/ui';
  * itself is resolveAssetImageSource in lib/asset-overview.ts; this only draws
  * the result and offers add / replace / remove to people who may edit the
  * record.
+ *
+ * v2.62: the box shows the asset's attached pictures, filling it, and a click
+ * opens all of them as a slideshow - the lead picture first, then every
+ * condition photo. With no lead picture the newest condition photo is the
+ * cover; the illustration is only for an asset nobody has photographed. Only
+ * the cover is downloaded with the page; the rest wait for the first click.
  */
 
 const ILLUSTRATIONS: Record<IllustrationIcon, LucideIcon> = {
@@ -100,7 +109,8 @@ export function AssetImageCard({
   typeKey,
   brand,
   source,
-  hasOwnPhoto,
+  ownPhoto,
+  catalogue,
   canManage,
 }: {
   assetId: string;
@@ -108,23 +118,55 @@ export function AssetImageCard({
   typeKey: string | null | undefined;
   brand: string | null;
   source: AssetImageSource;
-  /** Whether the asset carries an uploaded photo, whatever is being shown. */
-  hasOwnPhoto: boolean;
+  /** The photo uploaded of this unit, whatever is being shown. */
+  ownPhoto: { id: string; createdAt: string } | null;
+  /** The catalogue listing's primary image, when the unit came through one. */
+  catalogue: { productId: string; imageId: string } | null;
   canManage: boolean;
 }) {
+  const hasOwnPhoto = Boolean(ownPhoto);
   const toast = useToast();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The slide on screen in the viewer, by id - the list grows as pictures load. */
+  const [viewing, setViewing] = useState<string | null>(null);
+  /** Set by the first click: only then are the pictures behind the cover fetched. */
+  const [wantAll, setWantAll] = useState(false);
 
-  const path =
-    source.kind === 'catalogue'
-      ? `/vendor-products/${source.productId}/images/${source.imageId}`
-      : source.kind === 'photo'
-        ? `/assets/${assetId}/photos/${source.photoId}`
-        : null;
-  const { url, failed } = useAuthedBlob(path);
+  // The same query, under the same key, as the condition-photos card further
+  // down the page: one request serves both. Somebody who may not read them gets
+  // an error here, which simply means no condition photos in the slideshow.
+  const { data: groups } = useQuery<SlideCustodyGroup[]>({
+    queryKey: ['asset-photos', assetId],
+    queryFn: () => apiFetch(`/assets/${assetId}/photos`),
+  });
+
+  const slides = useMemo(
+    () => assetSlides({ assetId, source, ownPhoto, catalogue, groups: groups ?? [] }),
+    [assetId, source, ownPhoto, catalogue, groups],
+  );
+  const cover = slides[0] ?? null;
+  const paths = useMemo(
+    () => (wantAll ? slides.map((s) => s.path) : cover ? [cover.path] : []),
+    [wantAll, slides, cover],
+  );
+  const { urls, failed: failedPaths } = useAuthedBlobs(paths);
+  const url = cover ? (urls[cover.path] ?? null) : null;
+  const failed = cover ? failedPaths.has(cover.path) : false;
+
+  const viewable: LightboxPhoto[] = slides
+    .filter((s) => urls[s.path])
+    .map((s) => ({
+      id: s.id,
+      url: urls[s.path]!,
+      caption: s.caption,
+      takenAt: s.takenAt,
+      by: s.by,
+      stageLabel: s.stageLabel,
+    }));
+  const viewingIndex = viewing ? viewable.findIndex((p) => p.id === viewing) : -1;
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['asset', assetId] });
 
@@ -173,22 +215,38 @@ export function AssetImageCard({
 
   // A picture that will not load (permission, deleted file) falls back to the
   // illustration rather than a broken-image box.
-  const showIllustration = source.kind === 'illustration' || failed;
+  const showIllustration = !cover || failed;
 
   return (
     <Card className="overflow-hidden">
       <div className="relative aspect-[16/9] w-full sm:aspect-[2/1]">
         {showIllustration ? (
           <Illustration icon={illustrationIcon(typeKey)} brand={brand} name={assetName} />
-        ) : url ? (
-          // An in-memory blob: URL from an authenticated fetch; next/image
-          // cannot serve it (see condition-photos.tsx for the full reasoning).
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={url}
-            alt={assetName}
-            className="size-full bg-[var(--color-surface-sunken)] object-contain"
-          />
+        ) : url && cover ? (
+          <button
+            type="button"
+            onClick={() => {
+              setWantAll(true);
+              setViewing(cover.id);
+            }}
+            aria-label={`View ${slideCountLabel(slides.length)} of ${assetName}`}
+            className="group block size-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-brand)]"
+          >
+            {/* An in-memory blob: URL from an authenticated fetch; next/image
+                cannot serve it (see condition-photos.tsx for the full
+                reasoning). object-cover: the owner asked for the picture to
+                fill the box; the viewer shows it uncropped. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={assetName}
+              className="size-full bg-[var(--color-surface-sunken)] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            />
+            <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-xs font-medium text-white">
+              <Expand aria-hidden="true" className="size-3.5" />
+              {slideCountLabel(slides.length)}
+            </span>
+          </button>
         ) : (
           <Skeleton className="size-full rounded-none" />
         )}
@@ -211,8 +269,8 @@ export function AssetImageCard({
                 view listing
               </Link>
             </>
-          ) : source.kind === 'photo' && !failed ? (
-            'Photo of this unit'
+          ) : cover && !failed ? (
+            `${cover.stageLabel} · click to view ${slides.length === 1 ? 'it' : `all ${slides.length}`} full size`
           ) : (
             'No picture on file — illustration by type'
           )}
@@ -261,6 +319,14 @@ export function AssetImageCard({
           </span>
         ) : null}
       </div>
+      {viewingIndex >= 0 ? (
+        <PhotoLightbox
+          photos={viewable}
+          index={viewingIndex}
+          onClose={() => setViewing(null)}
+          onIndexChange={(next) => setViewing(viewable[next]?.id ?? null)}
+        />
+      ) : null}
       {error ? (
         <p
           role="alert"

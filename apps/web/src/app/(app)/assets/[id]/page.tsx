@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,6 +11,7 @@ import {
   ArrowRight,
   CalendarRange,
   Check,
+  ChevronDown,
   Clock,
   Coins,
   Copy,
@@ -19,6 +20,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   Lock,
+  type LucideIcon,
   Package,
   Paperclip,
   Pencil,
@@ -32,7 +34,6 @@ import {
   Truck,
   UserCheck,
   Wallet,
-  type LucideIcon,
 } from 'lucide-react';
 import {
   ASSET_STATUS_TOKENS,
@@ -272,6 +273,57 @@ function InfoRow({
         {copy ? <CopyButton value={copy} label={label} /> : null}
       </dd>
     </div>
+  );
+}
+
+/**
+ * A card that opens on a click, closed to begin with (v2.62).
+ *
+ * The owner asked for Key information hidden by default: the header above
+ * already carries the name, serial, brand, type and holder, so the full list
+ * pushed the photographs and health below the fold to repeat most of it. It is
+ * closed on every visit rather than remembered - "hidden by default" that
+ * stays open after one click reads as the setting not having worked. The one
+ * line under the title keeps the identifiers in view while it is shut.
+ */
+function CollapsibleCard({
+  title,
+  summary,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  return (
+    <Card className="p-5">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-[15px] font-semibold">{title}</span>
+          {!open && summary ? (
+            <span className="mt-0.5 block truncate text-xs text-[var(--color-content-subtle)]">
+              {summary}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-[var(--color-content-muted)]">
+          {open ? 'Hide' : 'Show'}
+          <ChevronDown
+            aria-hidden="true"
+            className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </span>
+      </button>
+      {open ? <div id={bodyId}>{children}</div> : null}
+    </Card>
   );
 }
 
@@ -896,13 +948,22 @@ function OverviewTab({
             typeKey={data.subcategory?.key}
             brand={data.brand}
             source={imageSource}
-            hasOwnPhoto={Boolean(data.photo)}
+            ownPhoto={data.photo ? { id: data.photo.id, createdAt: data.photo.createdAt } : null}
+            catalogue={
+              data.vendorProduct?.primaryImageId
+                ? { productId: data.vendorProduct.id, imageId: data.vendorProduct.primaryImageId }
+                : null
+            }
             canManage={canUpdate}
           />
 
-          <Card className="p-5">
-            <SectionTitle>Key information</SectionTitle>
-            <dl className="mt-1 divide-y divide-[var(--color-border)]">
+          <CollapsibleCard
+            title="Key information"
+            summary={[data.serialNumber, data.assetTag, data.office?.name]
+              .filter(Boolean)
+              .join(' · ')}
+          >
+            <dl className="mt-3 divide-y divide-[var(--color-border)]">
               <InfoRow
                 label="Serial number"
                 value={
@@ -979,7 +1040,7 @@ function OverviewTab({
                 />
               ) : null}
             </dl>
-          </Card>
+          </CollapsibleCard>
 
           {tiles.length > 0 || data.health ? (
             <Card className="p-5">
