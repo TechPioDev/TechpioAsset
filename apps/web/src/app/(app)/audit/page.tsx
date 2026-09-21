@@ -167,7 +167,52 @@ export default function AuditPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* v2.71 - on a phone each entry is a card: what happened and when on
+              one line, to what and by whom under it, then what changed. Five
+              columns made this the widest page in the product on a phone. */}
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {data.data.map((row) => {
+              const tone = actionTone(row.action);
+              const actorName = row.actor
+                ? row.actor.profile
+                  ? `${row.actor.profile.firstName} ${row.actor.profile.lastName}`
+                  : row.actor.email
+                : 'System';
+              const changes = changeSummary(row);
+              return (
+                <li key={row.id} className="px-4 py-3">
+                  <p className="flex items-start justify-between gap-2">
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        color: `var(--tone-${tone}-fg)`,
+                        backgroundColor: `var(--tone-${tone}-bg)`,
+                      }}
+                    >
+                      {actionLabel(row.action)}
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-[var(--color-content-subtle)]">
+                      {fmtTime(row.createdAt)}
+                    </span>
+                  </p>
+                  <p className="mt-1.5 text-sm">
+                    <span className="text-[var(--color-content-muted)]">{row.entityType}</span>{' '}
+                    <span className="font-medium">
+                      {row.entityLabel ?? row.entityId.slice(0, 8)}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--color-content-muted)]">by {actorName}</p>
+                  {changes ? (
+                    <div className="mt-1.5 text-xs break-words text-[var(--color-content-muted)]">
+                      {changes}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">
                 Audit entries, {data.meta.page.totalItems} in total
@@ -237,6 +282,7 @@ export default function AuditPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

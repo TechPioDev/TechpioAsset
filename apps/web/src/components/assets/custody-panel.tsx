@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, UserCheck, UserMinus, UserPlus } from 'lucide-react';
 import { PERMISSIONS, custodyOptions, type AssetCondition, type AssetStatus } from '@techpioasset/domain';
@@ -50,11 +50,19 @@ export function CustodyPanel({
   status,
   holderName,
   holderId,
+  ask,
 }: {
   assetId: string;
   status: AssetStatus;
   holderName: string | null;
   holderId: string | null;
+  /**
+   * v2.71 - the phone's bottom action bar asking for one of the forms. A new
+   * `nonce` is a new request, so pressing the same button twice opens the
+   * form again after it was cancelled. The bar only offers what
+   * custodyOptions allows, so nothing is re-checked here.
+   */
+  ask?: { mode: 'assign' | 'reassign' | 'return'; nonce: number } | null;
 }) {
   const { can } = useAuth();
   const toast = useToast();
@@ -63,6 +71,17 @@ export function CustodyPanel({
   const canAssign = can(PERMISSIONS.ASSETS_ASSIGN);
   const canReturn = can(PERMISSIONS.ASSETS_RETURN);
   const [mode, setMode] = useState<'assign' | 'reassign' | 'return' | null>(null);
+  const askedMode = ask?.mode;
+  const askedNonce = ask?.nonce;
+  useEffect(() => {
+    if (!askedMode || !askedNonce) return;
+    setMode(askedMode);
+    // After the form has rendered, so the scroll lands on its real height.
+    const t = setTimeout(() => {
+      document.getElementById('asset-custody')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [askedMode, askedNonce]);
 
   // Who can receive it. Only loaded once a form is open — the picker is not
   // worth a request on every asset page view.

@@ -586,7 +586,93 @@ function AssetsTable() {
             })}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* v2.71 - on a phone each asset is a card: name and status first,
+              tag and serial under it, then condition and who holds it. The
+              tick-box for bulk changes stays, on the card; ordering moves to a
+              select, since there are no headings to press. */}
+          <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)] px-4 py-2 sm:hidden">
+            <label htmlFor="assets-sort" className="text-xs text-[var(--color-content-muted)]">
+              Sort by
+            </label>
+            <select
+              id="assets-sort"
+              value={sort ?? ''}
+              onChange={(e) => {
+                setSort((e.target.value || null) as AssetSortField | null);
+                setOrder('asc');
+                setPage(1);
+              }}
+              className="h-11 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
+            >
+              <option value="">Default order</option>
+              <option value="name">Name</option>
+              <option value="category">Category</option>
+              <option value="status">Status</option>
+              <option value="condition">Condition</option>
+              <option value="assignedUser">Holder</option>
+              {showCost ? <option value="purchaseCost">Cost</option> : null}
+            </select>
+          </div>
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {data.data.map((asset) => (
+              <li
+                key={asset.id}
+                className={`flex items-start gap-3 px-4 py-3 ${
+                  selected.has(asset.id) ? 'bg-[var(--color-surface-sunken)]' : ''
+                }`}
+              >
+                {canBulk ? (
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${asset.name}`}
+                    checked={selected.has(asset.id)}
+                    onChange={() => toggleOne(asset.id)}
+                    className="mt-1 size-5 shrink-0 rounded border-[var(--color-border-strong)]"
+                  />
+                ) : null}
+                <Link href={`/assets/${asset.id}`} className="block min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 text-sm font-medium">{asset.name}</span>
+                    <StatusBadge token={ASSET_STATUS_TOKENS[asset.status]} size="sm" />
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-[var(--color-content-subtle)]">
+                    {asset.assetTag}
+                    {asset.serialNumber ? ` · ${asset.serialNumber}` : ''}
+                    {asset.category?.name ? ` · ${asset.category.name}` : ''}
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <StatusBadge token={CONDITION_TOKENS[asset.condition]} size="sm" showIcon={false} />
+                    {asset.availabilityState ? (
+                      <StatusBadge
+                        token={AVAILABILITY_STATE_TOKENS[asset.availabilityState]}
+                        size="sm"
+                        showIcon={false}
+                      />
+                    ) : null}
+                    {asset.ownershipType ? (
+                      <StatusBadge
+                        token={OWNERSHIP_TYPE_TOKENS[asset.ownershipType]}
+                        size="sm"
+                        showIcon={false}
+                      />
+                    ) : null}
+                  </span>
+                  <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-muted)]">
+                    <span className="min-w-0 truncate">
+                      {asset.assignedUser ? assetHolderName(asset.assignedUser) : 'Unassigned'}
+                    </span>
+                    {showCost && asset.purchaseCost ? (
+                      <span className="shrink-0 tabular-nums">
+                        {asset.currency ?? ''} {Number(asset.purchaseCost).toLocaleString()}
+                      </span>
+                    ) : null}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">
                 Assets, {data.meta.page.totalItems} in total, page {data.meta.page.page} of{' '}
@@ -737,6 +823,7 @@ function AssetsTable() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

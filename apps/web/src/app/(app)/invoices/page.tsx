@@ -96,7 +96,38 @@ function InvoicesTable() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* v2.71 - on a phone each invoice is a card that opens it. */}
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {data.data.map((row) => (
+              <li key={row.id}>
+                <Link
+                  href={`/invoices/${row.id}`}
+                  className="block px-4 py-3 active:bg-[var(--color-surface-sunken)]"
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-medium">{row.invoiceNumber}</span>
+                    <StatusBadge
+                      token={VERIFICATION_STATUS_TOKENS[row.verificationStatus]}
+                      size="sm"
+                    />
+                  </span>
+                  <span className="mt-1 block truncate text-sm text-[var(--color-content-muted)]">
+                    {row.vendor?.name ?? 'No vendor'}
+                  </span>
+                  <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-subtle)]">
+                    <span>
+                      {new Date(row.invoiceDate).toLocaleDateString()} · {row._count.lines} lines
+                    </span>
+                    <span className="shrink-0 text-sm font-medium tabular-nums text-[var(--color-content)]">
+                      {row.currency} {Number(row.total).toLocaleString()}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">Invoices, {data.meta.page.totalItems} in total</caption>
               <thead>
@@ -143,6 +174,7 @@ function InvoicesTable() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

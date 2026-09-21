@@ -369,7 +369,63 @@ export default function InventoryPage() {
             />
           </Card>
         ) : (
-          <Card className="overflow-x-auto p-0">
+          <>
+          {/* v2.71 - on a phone each stock level is a card: the item and where
+              it is, the three numbers in a row, and Add on the card. */}
+          <Card className="p-0 sm:hidden">
+            <ul className="divide-y divide-[var(--color-border)]">
+              {levels.data.data.map((l) => {
+                const qty = Number(l.quantity);
+                const reserved = Number(l.reserved);
+                const low =
+                  l.inventoryItem.minStock !== null && qty <= Number(l.inventoryItem.minStock);
+                return (
+                  <li key={l.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{l.inventoryItem.name}</p>
+                        <p className="truncate text-xs text-[var(--color-content-subtle)]">
+                          {l.inventoryItem.sku} · {l.stockLocation.name}
+                        </p>
+                      </div>
+                      {canAdjust ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          aria-label={`Add stock of ${l.inventoryItem.name} at ${l.stockLocation.name}`}
+                          onClick={() => {
+                            openAdd({ itemId: l.inventoryItem.id, locationId: l.stockLocation.id });
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                        >
+                          <PackagePlus className="size-3.5" /> Add
+                        </Button>
+                      ) : null}
+                    </div>
+                    <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <dt className="text-[var(--color-content-subtle)]">On hand</dt>
+                        <dd className="text-sm tabular-nums">
+                          {qty} {low ? <TonePill label="low" tone="warning" /> : null}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[var(--color-content-subtle)]">Reserved</dt>
+                        <dd className="text-sm tabular-nums">{reserved}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[var(--color-content-subtle)]">Available</dt>
+                        <dd className="text-sm font-semibold tabular-nums">
+                          {Math.max(0, qty - reserved)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+          <Card className="hidden overflow-x-auto p-0 sm:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-content-subtle)]">
@@ -423,6 +479,7 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </Card>
+          </>
         )
       ) : null}
 

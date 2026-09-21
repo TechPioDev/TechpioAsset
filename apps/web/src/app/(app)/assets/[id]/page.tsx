@@ -77,7 +77,7 @@ import {
 } from '@/lib/asset-overview';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
-import { Button, Card, ErrorState, Skeleton } from '@/components/ui';
+import { Button, Card, ErrorState, NativeSelect, Skeleton } from '@/components/ui';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/status-badge';
 import { CustodyPanel } from '@/components/assets/custody-panel';
@@ -368,6 +368,11 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
   const canSeeCost = can(PERMISSIONS.ASSETS_COST_READ);
   const canUpdate = can(PERMISSIONS.ASSETS_UPDATE);
   const [tab, setTab] = useState<AssetTab>('overview');
+  // v2.71 - the phone's bottom bar asks the custody panel for one of its forms.
+  const [custodyAsk, setCustodyAsk] = useState<{
+    mode: 'assign' | 'reassign' | 'return';
+    nonce: number;
+  } | null>(null);
   const [price, setPrice] = useState('');
   const [priceError, setPriceError] = useState<string | null>(null);
 
@@ -579,8 +584,20 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
   const warrantyExpired = Boolean(warrantyEnd && warrantyEnd <= new Date());
   const summary = noteSummary(data.notes);
 
+  // v2.71 - what the phone's bottom bar offers: the custody acts this person
+  // may take right now (the same rule as the custody panel) and Report damage.
+  // On a phone those sat a long scroll down the page, or in the top corner.
+  const mayReportDamage = data.status !== 'DAMAGED' && (canUpdate || isHolder);
+  const askCustody = (mode: 'assign' | 'reassign' | 'return') => {
+    setTab('overview');
+    setCustodyAsk({ mode, nonce: Date.now() });
+  };
+  const showActionBar =
+    (custody.show && (custody.assign || custody.handOver || custody.recordReturn)) ||
+    mayReportDamage;
+
   return (
-    <div className="grid gap-4">
+    <div className={`grid gap-4 ${showActionBar ? 'max-sm:pb-20' : ''}`}>
       {/* Top bar: the way back, and the two actions that are always in view. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
@@ -594,11 +611,12 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           <MoreActionsMenu groups={menuGroups} />
           {/* Offered to whoever the API lets report it - a fleet manager, or
               the person holding the device - and not once it already is. */}
-          {data.status !== 'DAMAGED' && (canUpdate || isHolder) ? (
+          {mayReportDamage ? (
             <Button
               variant="danger"
               size="sm"
-              className="h-9"
+              // On a phone it is in the bottom bar instead (v2.71).
+              className="h-9 max-sm:hidden"
               loading={reportDamage.isPending}
               onClick={() => reportDamage.mutate()}
             >
@@ -706,9 +724,53 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           aria-label="Asset detail sections"
           className="min-w-0 lg:sticky lg:top-4 lg:self-start"
         >
+          {/* v2.71 - on a phone: the first three sections as buttons and the
+              rest in one select. Ten tabs made a strip three screens wide,
+              with a scrollbar under it. */}
+          <div className="flex items-center gap-1 sm:hidden">
+            {nav.slice(0, 3).map(({ key, label }) => {
+              const active = tab === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setTab(key)}
+                  className={`min-h-11 min-w-0 flex-1 truncate rounded-[var(--radius-control)] px-2 text-sm ${
+                    active
+                      ? 'bg-[var(--color-surface-raised)] font-semibold text-[var(--color-brand)] shadow-sm ring-1 ring-[var(--color-border)]'
+                      : 'font-medium text-[var(--color-content-muted)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {nav.length > 3 ? (
+              <NativeSelect
+                aria-label="More sections"
+                value={nav.slice(3).some((n) => n.key === tab) ? tab : ''}
+                onChange={(e) => {
+                  if (e.target.value) setTab(e.target.value as AssetTab);
+                }}
+                className={`min-w-0 flex-1 ${
+                  nav.slice(3).some((n) => n.key === tab)
+                    ? 'font-semibold text-[var(--color-brand)]'
+                    : ''
+                }`}
+              >
+                <option value="">More…</option>
+                {nav.slice(3).map(({ key, label, badge }) => (
+                  <option key={key} value={key}>
+                    {badge ? `${label} (${badge})` : label}
+                  </option>
+                ))}
+              </NativeSelect>
+            ) : null}
+          </div>
           <div
             role="tablist"
-            className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
+            className="-mx-4 hidden gap-1 overflow-x-auto px-4 pb-1 sm:flex lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0"
           >
             {nav.map(({ key, label, badge }) => {
               const Icon = NAV_ICONS[key];
@@ -751,6 +813,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
               warrantyExpired={warrantyExpired}
               summary={summary}
               cover={cover}
+              custodyAsk={custodyAsk}
               setTab={setTab}
             />
           ) : null}
@@ -901,6 +964,40 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           ) : null}
         </div>
       </div>
+
+      {/* v2.71 - the phone's action bar: what somebody standing at a desk with
+          the device in hand came to do, under the thumb instead of a long
+          scroll away. Nothing renders when there is nothing to offer. */}
+      {showActionBar ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 flex gap-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:hidden print:hidden">
+          {custody.show && custody.assign ? (
+            <Button className="min-w-0 flex-1" onClick={() => askCustody('assign')}>
+              Assign
+            </Button>
+          ) : null}
+          {custody.show && custody.handOver ? (
+            <Button className="min-w-0 flex-1" variant="secondary" onClick={() => askCustody('reassign')}>
+              Hand over
+            </Button>
+          ) : null}
+          {custody.show && custody.recordReturn ? (
+            <Button className="min-w-0 flex-1" variant="secondary" onClick={() => askCustody('return')}>
+              Return
+            </Button>
+          ) : null}
+          {mayReportDamage ? (
+            <Button
+              className="min-w-0 flex-1"
+              variant="danger"
+              loading={reportDamage.isPending}
+              onClick={() => reportDamage.mutate()}
+            >
+              <TriangleAlert aria-hidden="true" className="size-4" />
+              Damage
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -923,6 +1020,7 @@ function OverviewTab({
   warrantyExpired,
   summary,
   cover,
+  custodyAsk,
   setTab,
 }: {
   id: string;
@@ -934,6 +1032,7 @@ function OverviewTab({
   warrantyExpired: boolean;
   summary: string | null;
   cover: ReturnType<typeof useAssetCover>;
+  custodyAsk: { mode: 'assign' | 'reassign' | 'return'; nonce: number } | null;
   setTab: (tab: AssetTab) => void;
 }) {
   const holder = data.assignedUser;
@@ -1183,6 +1282,7 @@ function OverviewTab({
               status={data.status}
               holderName={holderName}
               holderId={holder?.id ?? null}
+              ask={custodyAsk}
             />
           </div>
 

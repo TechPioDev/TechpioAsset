@@ -296,7 +296,38 @@ function MaintenanceBoard() {
           <h2 className="border-b border-[var(--color-border)] px-4 py-3 text-sm font-semibold">
             Recently closed
           </h2>
-          <div className="overflow-x-auto">
+          {/* v2.71 - on a phone each closed job is a card that opens it. */}
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {closed.map((row) => (
+              <li key={row.id}>
+                <Link
+                  href={`/maintenance/${row.id}`}
+                  className="block px-4 py-3 active:bg-[var(--color-surface-sunken)]"
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 text-sm font-medium">{row.title}</span>
+                    <span
+                      className="inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs"
+                      style={{
+                        color: `var(--tone-${CLOSED_TONE[row.status] ?? 'neutral'}-fg)`,
+                        backgroundColor: `var(--tone-${CLOSED_TONE[row.status] ?? 'neutral'}-bg)`,
+                        borderColor: `var(--tone-${CLOSED_TONE[row.status] ?? 'neutral'}-border)`,
+                      }}
+                    >
+                      {maintenanceStatusLabel(row.status)}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs text-[var(--color-content-subtle)]">
+                    {row.asset?.assetTag ?? 'No asset'}
+                    {row.completedAt
+                      ? ` · closed ${new Date(row.completedAt).toLocaleDateString()}`
+                      : ''}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">Recently closed work orders</caption>
               <thead>

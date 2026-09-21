@@ -54,3 +54,36 @@ describe('lists on a phone (v2.70)', () => {
     expect(assets).toContain('aria-expanded={moreOpen}');
   });
 });
+
+describe('the rest of the lists, and the asset page, on a phone (v2.71)', () => {
+  it('shows Assets, Invoices, Audit, Maintenance and Inventory as cards below sm', () => {
+    for (const path of [
+      '../app/(app)/assets/page.tsx',
+      '../app/(app)/invoices/page.tsx',
+      '../app/(app)/audit/page.tsx',
+      '../app/(app)/maintenance/page.tsx',
+    ]) {
+      const page = read(path);
+      expect(page, path).toContain('<ul className="divide-y divide-[var(--color-border)] sm:hidden">');
+      expect(page, path).toContain('<div className="hidden overflow-x-auto sm:block">');
+    }
+    const inventory = read('../app/(app)/inventory/page.tsx');
+    expect(inventory).toContain('<Card className="p-0 sm:hidden">');
+    expect(inventory).toContain('<Card className="hidden overflow-x-auto p-0 sm:block">');
+  });
+
+  it('keeps bulk selection and ordering reachable on the Assets cards', () => {
+    const assets = read('../app/(app)/assets/page.tsx');
+    expect(assets).toContain('id="assets-sort"');
+    expect(assets.match(/onChange=\{\(\) => toggleOne\(asset\.id\)\}/g)?.length).toBe(2);
+  });
+
+  it('swaps the asset page tab strip for three buttons and a select, and adds the action bar', () => {
+    const page = read('../app/(app)/assets/[id]/page.tsx');
+    expect(page).toContain('aria-label="More sections"');
+    expect(page).toContain('hidden gap-1 overflow-x-auto px-4 pb-1 sm:flex');
+    expect(page).toMatch(/fixed inset-x-0 bottom-0[^"]*sm:hidden/);
+    // The page leaves room for the bar, or it would cover the last card.
+    expect(page).toContain("showActionBar ? 'max-sm:pb-20' : ''");
+  });
+});
