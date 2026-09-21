@@ -64,6 +64,13 @@ const RULES: GuardRule[] = [
   // holds every cost permission (the API enforces the same on the role).
   { matches: startsWith('/expenses'), allow: (u) => Boolean(u.roles?.includes('SUPER_ADMIN')) },
   { matches: startsWith('/audit'), allow: (_u, can) => can(P.AUDIT_READ) },
+  // v2.68 - vendor sign-ins; the list behind it needs the same right.
+  { matches: startsWith('/vendor-accounts'), allow: (_u, can) => can(P.USERS_MANAGE) },
+  // v2.73 - search everything: open to anybody with something to search.
+  {
+    matches: startsWith('/search'),
+    allow: (_u, can) => can(P.ASSETS_READ) || can(P.EMPLOYEES_READ) || can(P.REQUESTS_READ),
+  },
   { matches: startsWith('/people'), allow: (_u, can) => can(P.EMPLOYEES_READ) },
   { matches: startsWith('/settings/offices'), allow: (_u, can) => can(P.SETTINGS_MANAGE) },
   { matches: startsWith('/settings/vendors'), allow: (_u, can) => can(P.VENDORS_MANAGE) },

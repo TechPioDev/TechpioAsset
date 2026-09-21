@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, Redirect } from 'expo-router';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ComponentProps } from 'react';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { NotificationBadge } from '../../src/components/notification-badge';
 import { homePlan, tabOrder, type TabKey } from '../../src/lib/home-plan';
+import { HeaderSearchButton } from '../../src/components/header-search-button';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const icon =
@@ -67,6 +69,9 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.tabActive,
         tabBarInactiveTintColor: c.tabInactive,
         sceneStyle: { backgroundColor: c.background },
+        // 0.3.32 - search everything, from every tab. Home overrides this to
+        // put the bell beside it.
+        headerRight: () => <HeaderSearchButton />,
       }}
     >
       <Tabs.Screen
@@ -75,7 +80,12 @@ export default function TabsLayout() {
           title: 'Home',
           tabBarIcon: icon('home-outline'),
           // The web's bell, on the phone: count of unread, opens the inbox.
-          headerRight: () => <NotificationBadge />,
+          headerRight: () => (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <HeaderSearchButton />
+              <NotificationBadge />
+            </View>
+          ),
         }}
       />
       {/*

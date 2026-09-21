@@ -38,7 +38,7 @@ import { Sparkles,
   Store,
 } from 'lucide-react';
 import { Award, IndianRupee, Wallet } from 'lucide-react';
-import { PERMISSIONS } from '@techpioasset/domain';
+import { PERMISSIONS, searchGroups } from '@techpioasset/domain';
 import { useAuth } from '@/providers/auth-provider';
 import { cn } from '@/lib/cn';
 import { ProfileMenu } from './profile-menu';
@@ -325,7 +325,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Menu visibility is a convenience, never the control: every route below is
   // independently enforced by the API (spec section 20).
-  const ownScope = user.scope === 'OWN';
+  // A supplier has nothing the search could find, so it is not offered one.
+  const canSearch = searchGroups(user.permissions ?? []).length > 0;
 
   const allowed = (items: NavItem[]) =>
     items.filter(
@@ -444,34 +445,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="relative hidden sm:block">
+          <div className={canSearch ? 'relative hidden sm:block' : 'hidden'}>
             <Search
               aria-hidden="true"
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-[var(--color-content-subtle)]"
             />
             <input
               type="search"
-              aria-label={ownScope ? 'Search my assets' : 'Search assets'}
+              aria-label="Search everything"
               placeholder="Search…"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const value = (e.target as HTMLInputElement).value.trim();
-                  // The destination has to be a page the user may actually
-                  // open. OWN-scope users cannot see /assets (the route guard
-                  // sends them to the dashboard), so searching there bounced
-                  // them straight back and the box looked broken. Their search
-                  // belongs on their own equipment.
-                  if (value)
-                    router.push(
-                      ownScope
-                        ? `/my-assets?q=${encodeURIComponent(value)}`
-                        : `/assets?q=${encodeURIComponent(value)}`,
-                    );
+                  // v2.73 - one results page for assets, people and requests.
+                  // It replaces two destinations: /assets, which OWN-scope
+                  // users cannot open (the box looked broken for them), and
+                  // /my-assets, which found equipment and nothing else. Every
+                  // list behind it applies the caller's own scope.
+                  if (value) router.push(`/search?q=${encodeURIComponent(value)}`);
                 }
               }}
               className="h-9 w-44 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] pl-8 text-sm md:w-60"
             />
           </div>
+          {/* The box above is hidden below sm; this is its phone form. */}
+          {canSearch ? (
+            <Link
+              href="/search"
+              aria-label="Search everything"
+              className="grid size-9 place-items-center rounded-[var(--radius-control)] hover:bg-[var(--color-surface-sunken)] sm:hidden"
+            >
+              <Search aria-hidden="true" className="size-5" />
+            </Link>
+          ) : null}
           <NotificationBell />
           {/* v2.69 - three buttons wide, it took a third of a phone's top bar;
               below sm it lives in the account menu instead. */}

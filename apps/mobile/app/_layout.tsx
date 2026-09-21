@@ -74,6 +74,7 @@ function RootShell() {
           <Stack.Screen name="reports" options={{ headerShown: true, title: 'Reports' }} />
           <Stack.Screen name="expenses" options={{ headerShown: true, title: 'Expenses' }} />
           <Stack.Screen name="audit" options={{ headerShown: true, title: 'Audit log' }} />
+          <Stack.Screen name="search" options={{ headerShown: true, title: 'Search' }} />
           <Stack.Screen
             name="verification"
             options={{ headerShown: true, title: 'Verification round' }}
