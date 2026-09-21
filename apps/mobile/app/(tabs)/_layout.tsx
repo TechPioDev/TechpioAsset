@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Tabs, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ComponentProps } from 'react';
-import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { NotificationBadge } from '../../src/components/notification-badge';
+import { homePlan, tabOrder, type TabKey } from '../../src/lib/home-plan';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const icon =
@@ -13,6 +13,17 @@ const icon =
   ({ color, size }: { color: string; size: number }) => (
     <Ionicons name={name} color={color} size={size} />
   );
+
+/** Every screen that can take one of the role's places on the bar. */
+const ROLE_TABS: Record<TabKey, { title: string; label?: string; icon: IconName }> = {
+  assets: { title: 'Assets', icon: 'cube-outline' },
+  requests: { title: 'Requests', icon: 'document-text-outline' },
+  approvals: { title: 'Awaiting me', icon: 'checkmark-done-outline' },
+  catalogue: { title: 'Catalogue', icon: 'pricetags-outline' },
+  scan: { title: 'Scan', icon: 'qr-code-outline' },
+  inventory: { title: 'Inventory', label: 'Count', icon: 'clipboard-outline' },
+  capture: { title: 'Capture bill', label: 'Bills', icon: 'camera-outline' },
+};
 
 /**
  * Bottom tab navigation. Five core tabs stay on the bar; everything else lives
@@ -26,9 +37,9 @@ export default function TabsLayout() {
 
   if (status !== 'authenticated' || !user) return <Redirect href="/login" />;
 
-  const can = (permission: string) => user.permissions.includes(permission);
-  /** Visible when the user holds ANY of the listed permissions. */
-  const gate = (...permissions: string[]) => (permissions.some(can) ? undefined : null);
+  const plan = homePlan(user.roles ?? [], user.permissions);
+  const barTabs = tabOrder(plan);
+  const hiddenTabs = (Object.keys(ROLE_TABS) as TabKey[]).filter((tab) => !barTabs.includes(tab));
 
   return (
     <Tabs
@@ -67,59 +78,34 @@ export default function TabsLayout() {
           headerRight: () => <NotificationBadge />,
         }}
       />
-      <Tabs.Screen
-        name="assets"
-        options={{
-          title: 'Assets',
-          tabBarIcon: icon('cube-outline'),
-          href: gate(PERMISSIONS.ASSETS_READ),
-        }}
-      />
-      <Tabs.Screen
-        name="requests"
-        options={{
-          title: 'Requests',
-          tabBarIcon: icon('document-text-outline'),
-          // The one tab that was never gated. A supplier holds no request
-          // permission at all, so it opened a screen the server answers with
-          // 403 - a dead tab on the bar of every account that cannot raise or
-          // read one.
-          href: gate(PERMISSIONS.REQUESTS_READ),
-        }}
-      />
       {/*
-        Named and gated for the queue, not for approving (v2.27).
-
-        An assessment stage - an Inventory check - is cleared by recording an
-        answer, which needs REQUESTS_ASSESS alone. Gating the tab on approval
-        hid it from exactly the people those stages are assigned to, so the work
-        sat in a queue they had no way to open. The screen behind it already
-        asks for `awaitingMe=true`, which resolves assessment stages too.
+        0.3.30 - the three places between Home and Menu are chosen for the role
+        (lib/home-plan.ts): a technician gets the scanner, a manager leads with
+        what is awaiting them, a storekeeper gets the count, a supplier only its
+        catalogue. The plan applies each screen's permission, as `gate` did
+        here before - Requests for anybody who can read them, "Awaiting me" for
+        approvers AND assessors (an Inventory check is cleared with
+        REQUESTS_ASSESS alone) - so a tab the server would answer with 403 is
+        never on the bar. They render in the plan's order: the bar follows the
+        order of these children.
       */}
-      <Tabs.Screen
-        name="approvals"
-        options={{
-          title: 'Awaiting me',
-          tabBarIcon: icon('checkmark-done-outline'),
-          href: gate(PERMISSIONS.REQUESTS_APPROVE, PERMISSIONS.REQUESTS_ASSESS),
-        }}
-      />
-      <Tabs.Screen
-        name="catalogue"
-        options={{
-          title: 'Catalogue',
-          tabBarIcon: icon('pricetags-outline'),
-          // A supplier's whole reason for an account; buried in More it was two
-          // taps from everything it does.
-          href: gate(PERMISSIONS.VENDOR_PRODUCTS_READ),
-        }}
-      />
+      {barTabs.map((tab) => (
+        <Tabs.Screen
+          key={tab}
+          name={tab}
+          options={{
+            title: ROLE_TABS[tab].title,
+            tabBarLabel: ROLE_TABS[tab].label ?? ROLE_TABS[tab].title,
+            tabBarIcon: icon(ROLE_TABS[tab].icon),
+          }}
+        />
+      ))}
       <Tabs.Screen name="more" options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
 
-      {/* Reached from the More menu — hidden from the bar. */}
-      <Tabs.Screen name="capture" options={{ title: 'Capture bill', href: null }} />
-      <Tabs.Screen name="scan" options={{ title: 'Scan', href: null }} />
-      <Tabs.Screen name="inventory" options={{ title: 'Inventory', href: null }} />
+      {/* Off the bar for this account, and still reached from Menu. */}
+      {hiddenTabs.map((tab) => (
+        <Tabs.Screen key={tab} name={tab} options={{ title: ROLE_TABS[tab].title, href: null }} />
+      ))}
       <Tabs.Screen name="profile" options={{ title: 'Profile', href: null }} />
     </Tabs>
   );

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { formatInr, type AssetStatus, type AssetCondition } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
@@ -18,6 +18,8 @@ import {
   type IconName,
 } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/update-banner';
+import { HomeQueue, QuickActions } from '../../src/components/home/home-sections';
+import { homePlan } from '../../src/lib/home-plan';
 
 interface AssetRow {
   id: string;
@@ -95,6 +97,14 @@ export default function HomeScreen() {
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [loading, setLoading] = useState(true);
+  // 0.3.30 - what this account's Home is arranged around: its quick actions
+  // and work queues (lib/home-plan.ts). Bumped by a pull-to-refresh so the
+  // queues reload with the rest of the screen.
+  const plan = useMemo(
+    () => homePlan(user?.roles ?? [], user?.permissions ?? []),
+    [user?.roles, user?.permissions],
+  );
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // A supplier has no equipment issued to it and cannot read /assets at all.
   const isVendor = !!user?.roles?.includes('VENDOR');
@@ -107,6 +117,7 @@ export default function HomeScreen() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setRefreshKey((k) => k + 1);
     try {
       // Each call catches its own failure. They used to share one Promise.all
       // with no guard on the assets request, so for a supplier - who is refused
@@ -135,6 +146,10 @@ export default function HomeScreen() {
     void load();
   }, [load]);
 
+  // Offers for a supplier and equipment for an employee always show; anybody
+  // else sees the section once it has something in it.
+  const showEquipment = isVendor || plan.equipmentFirst || assets.length > 0;
+
   return (
     <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       {/* 0.3.29 - first thing on the screen, because it is the one thing here
@@ -142,9 +157,14 @@ export default function HomeScreen() {
           server has a newer build than this phone, and nothing after "Later". */}
       <UpdateBanner />
       <Text style={{ color: c.muted, fontSize: 14 }}>Welcome back,</Text>
-      <Text style={{ color: c.text, fontSize: 24, fontWeight: '800', marginBottom: spacing.lg }}>
-        {firstName}
+      <Text style={{ color: c.text, fontSize: 24, fontWeight: '800' }}>{firstName}</Text>
+      {/* 0.3.30 - one line saying what this screen is arranged around, so the
+          difference between two roles' Homes reads as intended, not as a bug. */}
+      <Text style={{ color: c.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.lg }}>
+        {plan.focus}
       </Text>
+
+      <QuickActions actions={plan.quickActions} />
 
       <View
         style={{
@@ -170,9 +190,16 @@ export default function HomeScreen() {
         })}
       </View>
 
+      {plan.equipmentFirst
+        ? null
+        : plan.queues.map((queue) => <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />)}
+
       {/* A supplier is never issued equipment, so showing it "My assets" and an
           empty state about kit it will never have is the whole screen wasted.
           It gets the thing it came here for: its own offers. */}
+      {/* 0.3.30 - for a role whose Home is about other work, an empty "My
+          assets" box is noise; it shows once they hold something. */}
+      {showEquipment ? (
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <SectionTitle>{isVendor ? 'Your offers' : 'My assets'}</SectionTitle>
         <Pressable
@@ -182,11 +209,12 @@ export default function HomeScreen() {
           <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>See all</Text>
         </Pressable>
       </View>
+      ) : null}
 
       {/* 0.3.29 - the first load drew a title over an empty page until the
           answer came. Only while there is nothing to show: a pull-to-refresh
           keeps the rows it has and lets the spinner speak for itself. */}
-      {loading && (isVendor ? offers.length === 0 : assets.length === 0) ? (
+      {showEquipment && loading && (isVendor ? offers.length === 0 : assets.length === 0) ? (
         <ListSkeleton rows={3} />
       ) : null}
 
@@ -226,7 +254,7 @@ export default function HomeScreen() {
         )
       ) : null}
 
-      {isVendor ? null : assets.length === 0 && !loading ? (
+      {isVendor || !showEquipment ? null : assets.length === 0 && !loading ? (
         <Card>
           <EmptyState
             icon="cube-outline"
@@ -266,6 +294,10 @@ export default function HomeScreen() {
           );
         })
       )}
+
+      {plan.equipmentFirst
+        ? plan.queues.map((queue) => <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />)
+        : null}
     </Screen>
   );
 }
