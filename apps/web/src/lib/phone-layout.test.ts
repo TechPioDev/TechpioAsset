@@ -33,3 +33,24 @@ describe('the phone layout', () => {
     expect(read('../components/profile-menu.tsx')).toMatch(/sm:hidden">[\s\S]{0,120}<ThemeToggle \/>/);
   });
 });
+
+describe('lists on a phone (v2.70)', () => {
+  it('shows Requests and People as cards below sm, and the table from sm up', () => {
+    for (const path of ['../app/(app)/requests/page.tsx', '../components/people/people-directory.tsx']) {
+      const page = read(path);
+      expect(page).toContain('<ul className="divide-y divide-[var(--color-border)] sm:hidden">');
+      expect(page).toContain('<div className="hidden overflow-x-auto sm:block">');
+    }
+  });
+
+  it('keeps sorting reachable on the People cards, which have no headings to press', () => {
+    expect(read('../components/people/people-directory.tsx')).toContain('id="people-sort"');
+  });
+
+  it('folds the Assets filters behind one button on a phone, and leaves them inline from sm up', () => {
+    const assets = read('../app/(app)/assets/page.tsx');
+    expect(assets).toContain("'max-sm:hidden sm:contents'");
+    expect(assets).toContain('aria-expanded={filtersOpen}');
+    expect(assets).toContain('aria-expanded={moreOpen}');
+  });
+});

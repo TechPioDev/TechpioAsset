@@ -4,7 +4,16 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FileSpreadsheet, IndianRupee, Plus, QrCode, X } from 'lucide-react';
+import {
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  IndianRupee,
+  Plus,
+  QrCode,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import {
   ASSET_STATUS_TOKENS,
   CONDITION_TOKENS,
@@ -87,6 +96,9 @@ function AssetsTable() {
   const [lifecycle, setLifecycle] = useState<string>('');
   const [availability, setAvailability] = useState<string>('');
   const [ownership, setOwnership] = useState<string>('');
+  // v2.70 - phone only: the filters and the occasional actions start folded away.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   /**
    * v2.23 - "type" is one control covering two filters. Every asset in a fleet
    * can share a category ("IT Assets"), so category alone narrows nothing; but
@@ -269,6 +281,9 @@ function AssetsTable() {
     bulk.mutate({ ids: [...selected], status: bulkStatus });
   };
 
+  // How many filters are on, for the phone's Filters button.
+  const activeFilters = [type, status, lifecycle, availability, ownership].filter(Boolean).length;
+
   return (
     <div className="grid gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -308,6 +323,31 @@ function AssetsTable() {
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
+          {/* v2.70 - on a phone the five filters and five buttons filled the
+              first screen before a single asset showed. Below sm the filters
+              sit behind one button that counts how many are on, and the
+              occasional actions behind More; Scan QR and Add asset stay out. */}
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="inline-flex h-11 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium active:bg-[var(--color-surface-sunken)] sm:hidden"
+          >
+            <SlidersHorizontal aria-hidden="true" className="size-4" />
+            Filters
+            {activeFilters > 0 ? (
+              <span className="rounded-full bg-[var(--color-brand)] px-1.5 text-xs font-semibold text-[var(--color-brand-contrast)]">
+                {activeFilters}
+              </span>
+            ) : null}
+          </button>
+          <div
+            className={
+              filtersOpen
+                ? 'max-sm:order-last max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:gap-2 sm:contents'
+                : 'max-sm:hidden sm:contents'
+            }
+          >
           <label className="grid gap-1 text-xs">
             <span className="font-medium text-[var(--color-content-muted)]">Type</span>
             <select
@@ -405,6 +445,8 @@ function AssetsTable() {
               ))}
             </select>
           </label>
+          </div>
+          <div className={moreOpen ? 'max-sm:order-last max-sm:flex max-sm:w-full max-sm:flex-wrap max-sm:gap-2 sm:contents' : 'max-sm:hidden sm:contents'}>
           <button
             type="button"
             onClick={async () => {
@@ -421,6 +463,7 @@ function AssetsTable() {
             <Download aria-hidden="true" className="size-4" />
             Export
           </button>
+          </div>
           {/* Camera scan of a printed label - the phone app's scanner, in the browser. */}
           <Link
             href="/assets/scan"
@@ -429,6 +472,7 @@ function AssetsTable() {
             <QrCode aria-hidden="true" className="size-4" />
             Scan QR
           </Link>
+          <div className={moreOpen ? 'max-sm:order-last max-sm:flex max-sm:w-full max-sm:flex-wrap max-sm:gap-2 sm:contents' : 'max-sm:hidden sm:contents'}>
           {can(PERMISSIONS.ASSETS_IMPORT) ? (
             <Link
               href="/assets/import"
@@ -450,6 +494,7 @@ function AssetsTable() {
               Price sheet
             </Link>
           ) : null}
+          </div>
           {can(PERMISSIONS.ASSETS_CREATE) ? (
             <Link
               href="/assets/new"
@@ -459,6 +504,18 @@ function AssetsTable() {
               Add asset
             </Link>
           ) : null}
+          <button
+            type="button"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((v) => !v)}
+            className="inline-flex h-11 items-center gap-1 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium active:bg-[var(--color-surface-sunken)] sm:hidden"
+          >
+            More
+            <ChevronDown
+              aria-hidden="true"
+              className={`size-4 transition-transform ${moreOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
         </div>
       </header>
 

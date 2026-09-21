@@ -296,7 +296,46 @@ function RequestsTable() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* v2.70 - on a phone each request is a card: the number and where
+              it stands on one line, what was asked for under it, who asked
+              and the estimate last. The whole card opens the request - a
+              four-column table needed sideways scrolling to reach Status. */}
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {data.data.map((row) => (
+              <li key={row.id}>
+                <Link
+                  href={`/requests/${row.id}`}
+                  className="block px-4 py-3 active:bg-[var(--color-surface-sunken)]"
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium">{row.requestNumber}</span>
+                    <StatusBadge
+                      token={REQUEST_STATUS_TOKENS[row.status]}
+                      size="sm"
+                      label={row.currentStep?.name}
+                    />
+                  </span>
+                  <span className="mt-1 line-clamp-2 block text-sm text-[var(--color-content-muted)]">
+                    {row.items.map((i) => i.description).join(', ') || 'No items'}
+                  </span>
+                  <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-subtle)]">
+                    <span className="min-w-0 truncate">
+                      {row.requester.profile
+                        ? `${row.requester.profile.firstName} ${row.requester.profile.lastName}`
+                        : row.requester.email}
+                    </span>
+                    {row.estimatedCost && Number(row.estimatedCost) > 0 ? (
+                      <span className="shrink-0 tabular-nums">
+                        {row.currency ?? ''} {Number(row.estimatedCost).toLocaleString()}
+                      </span>
+                    ) : null}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">Requests, {data.meta.page.totalItems} in total</caption>
               <thead>
@@ -348,6 +387,7 @@ function RequestsTable() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

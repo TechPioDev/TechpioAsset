@@ -1310,7 +1310,95 @@ function PeopleTable({ audience }: { audience: DirectoryAudience }) {
             description={hasFilters ? 'Try clearing the filters.' : 'No one is visible to you yet.'}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* v2.70 - on a phone each account is a card. The table put Manage
+              in a sixth column, two screens to the right; here it is on the
+              card. Sorting moves to a select, since there are no headings
+              to press. */}
+          <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)] px-4 py-2 sm:hidden">
+            <label htmlFor="people-sort" className="text-xs text-[var(--color-content-muted)]">
+              Sort by
+            </label>
+            <NativeSelect
+              id="people-sort"
+              value={sort ?? ''}
+              onChange={(e) => {
+                setSort((e.target.value || null) as SortField | null);
+                setOrder('asc');
+                setPage(1);
+              }}
+              className="bg-[var(--color-surface)]"
+            >
+              <option value="">Default order</option>
+              <option value="name">Name</option>
+              <option value="email">Email</option>
+              {vendorsOnly ? null : <option value="department">Department</option>}
+              <option value="status">Status</option>
+            </NativeSelect>
+          </div>
+          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+            {data.data.map((person) => {
+              const name = person.profile
+                ? `${person.profile.firstName} ${person.profile.lastName}`
+                : null;
+              const affiliation = vendorsOnly
+                ? (person.vendorAccount?.name ?? 'Not linked')
+                : (person.profile?.department?.name ?? null);
+              return (
+                <li key={person.id} className="flex items-start gap-3 px-4 py-3">
+                  <PersonAvatar name={name} email={person.email} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/people/${person.id}`}
+                      className="block truncate text-sm font-medium hover:underline"
+                    >
+                      {name ?? person.email}
+                    </Link>
+                    <p className="truncate text-xs text-[var(--color-content-muted)]">{person.email}</p>
+                    <p className="mt-1 truncate text-xs text-[var(--color-content-subtle)]">
+                      {[person.roles.map((r) => r.role.name).join(', '), affiliation]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </p>
+                    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          color: `var(--tone-${STATUS_TONE[person.status] ?? 'muted'}-fg)`,
+                          backgroundColor: `var(--tone-${STATUS_TONE[person.status] ?? 'muted'}-bg)`,
+                        }}
+                      >
+                        {statusLabel(person.status)}
+                      </span>
+                      {openOffboardingFor(openTasks.data, person.id) ? (
+                        <span
+                          className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                          style={{
+                            color: 'var(--tone-warning-fg)',
+                            backgroundColor: 'var(--tone-warning-bg)',
+                          }}
+                        >
+                          Offboarding in progress
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => setManaging(person)}
+                      aria-label={`Manage ${name ?? person.email}`}
+                      className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-xs font-medium active:bg-[var(--color-surface-sunken)]"
+                    >
+                      <Settings2 aria-hidden="true" className="size-4" />
+                      Manage
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <caption className="sr-only">
                 People, {data.meta.page.totalItems} in total, page {data.meta.page.page} of{' '}
@@ -1411,6 +1499,7 @@ function PeopleTable({ audience }: { audience: DirectoryAudience }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 
