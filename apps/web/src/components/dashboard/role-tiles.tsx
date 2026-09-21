@@ -91,7 +91,9 @@ export function RoleTiles() {
                 <span className="block text-2xl font-semibold tabular-nums leading-none">
                   {tile.value.toLocaleString()}
                 </span>
-                <span className="mt-1 block truncate text-xs text-[var(--color-content-muted)]">
+                {/* Two lines on a phone (v2.69): at two tiles to a row, one line cut
+                    "Warranty expiring (30 days)" off at the bracket. */}
+                <span className="mt-1 block text-xs text-[var(--color-content-muted)] max-sm:line-clamp-2 sm:truncate">
                   {tile.label}
                 </span>
               </span>

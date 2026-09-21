@@ -112,3 +112,21 @@ describe('an empty asset list', () => {
     });
   });
 });
+
+describe('an empty asset list, for somebody who sees the whole register (v2.69)', () => {
+  it('blames the filters when there are some, not assignment', () => {
+    expect(assetListEmptyState({ filtered: true, ownScope: false }).description).toBe(
+      'No assets match these filters. Try clearing one.',
+    );
+  });
+
+  it('says the register is empty when it is', () => {
+    expect(assetListEmptyState({ ownScope: false }).description).toBe('No assets have been added yet.');
+  });
+
+  it('still tells somebody who sees only their own equipment about assignment', () => {
+    expect(assetListEmptyState({ ownScope: true }).description).toBe(
+      'Nothing has been assigned to you yet.',
+    );
+  });
+});

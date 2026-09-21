@@ -585,7 +585,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={back.href}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-content-muted)] hover:text-[var(--color-content)]"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-content-muted)] hover:text-[var(--color-content)] max-sm:min-h-11"
         >
           <ArrowLeft aria-hidden="true" className="size-4" />
           Back to {back.label}
@@ -720,7 +720,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
                   role="tab"
                   aria-selected={active}
                   onClick={() => setTab(key)}
-                  className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-[var(--radius-control)] px-3 py-2 text-sm ${
+                  className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-[var(--radius-control)] px-3 py-2 text-sm max-sm:min-h-11 ${
                     active
                       ? 'bg-[var(--color-surface-raised)] font-semibold text-[var(--color-brand)] shadow-sm ring-1 ring-[var(--color-border)]'
                       : 'font-medium text-[var(--color-content-muted)] hover:bg-[var(--color-surface-sunken)] hover:text-[var(--color-content)]'

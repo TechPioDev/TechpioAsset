@@ -520,7 +520,14 @@ function AssetsTable() {
         ) : isError ? (
           <ErrorState title="Could not load assets" detail={(error as Error).message} />
         ) : data.data.length === 0 ? (
-          <EmptyState {...assetListEmptyState({ q, status })} />
+          <EmptyState
+            {...assetListEmptyState({
+              q,
+              status,
+              filtered: Boolean(type || lifecycle || availability || ownership),
+              ownScope: user?.scope === 'OWN',
+            })}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

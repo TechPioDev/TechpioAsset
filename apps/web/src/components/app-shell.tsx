@@ -473,7 +473,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             />
           </div>
           <NotificationBell />
-          <ThemeToggle />
+          {/* v2.69 - three buttons wide, it took a third of a phone's top bar;
+              below sm it lives in the account menu instead. */}
+          <div className="hidden sm:block">
+            <ThemeToggle />
+          </div>
           <Link
             href="/help"
             aria-label="Help"

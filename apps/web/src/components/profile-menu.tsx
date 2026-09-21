@@ -18,6 +18,7 @@ import { PERMISSIONS } from '@techpioasset/domain';
 import { useAuth } from '@/providers/auth-provider';
 import { AuthAvatar } from '@/components/auth-avatar';
 import { cn } from '@/lib/cn';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 /** Initials fallback when no photo is set (spec section 2). */
 function initials(user: AuthUser): string {
@@ -138,6 +139,12 @@ export function ProfileMenu() {
               </Link>
             ))}
           </nav>
+
+          {/* v2.69 - the colour theme, on a phone: the top bar has no room for it. */}
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] px-4 py-2 sm:hidden">
+            <span className="text-sm">Theme</span>
+            <ThemeToggle />
+          </div>
 
           <div className="border-t border-[var(--color-border)] py-1">
             <button

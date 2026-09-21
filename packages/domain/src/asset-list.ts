@@ -108,16 +108,31 @@ export function assetHolderName(
     : (holder?.email ?? '—');
 }
 
-/** What an empty asset list says. */
-export function assetListEmptyState(f: { q?: string; status?: string }): {
+/**
+ * What an empty asset list says.
+ *
+ * v2.69: it told an administrator with the type filter on Laptop that "nothing
+ * has been assigned to you yet" - true of nobody in that seat. `filtered` is
+ * any filter beyond search and status (type, lifecycle, availability,
+ * ownership), and only somebody who sees their own equipment alone (`ownScope`)
+ * is told about assignment. Callers that pass neither read as they always did.
+ */
+export function assetListEmptyState(f: {
+  q?: string;
+  status?: string;
+  filtered?: boolean;
+  ownScope?: boolean;
+}): {
   title: string;
   description: string;
 } {
-  return {
-    title: 'No assets found',
-    description:
-      f.q || f.status
-        ? 'Try clearing the search or status filter.'
-        : 'Nothing has been assigned to you yet.',
-  };
+  const description =
+    f.q || f.status
+      ? 'Try clearing the search or status filter.'
+      : f.filtered
+        ? 'No assets match these filters. Try clearing one.'
+        : f.ownScope === false
+          ? 'No assets have been added yet.'
+          : 'Nothing has been assigned to you yet.';
+  return { title: 'No assets found', description };
 }

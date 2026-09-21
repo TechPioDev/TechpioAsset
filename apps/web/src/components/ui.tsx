@@ -55,9 +55,9 @@ export const Button = forwardRef<
  */
 export const linkButtonCls = {
   primary:
-    'inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--color-brand)] px-3 text-sm font-semibold text-[var(--color-brand-contrast)] hover:bg-[var(--color-brand-hover)]',
+    'inline-flex h-9 max-sm:h-11 items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--color-brand)] px-3 text-sm font-semibold text-[var(--color-brand-contrast)] hover:bg-[var(--color-brand-hover)]',
   secondary:
-    'inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]',
+    'inline-flex h-9 max-sm:h-11 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium hover:bg-[var(--color-surface-sunken)]',
 } as const;
 
 export const Input = ShadInput;
@@ -77,7 +77,7 @@ export const Input = ShadInput;
  * h-10 and px-3 to match Input, so the two are interchangeable in a row.
  */
 export const controlCls = [
-  'h-10 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)]',
+  'h-10 max-sm:h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)]',
   'bg-[var(--color-surface-raised)] px-3 text-sm',
   'placeholder:text-[var(--color-content-subtle)]',
   // No focus style here on purpose. globals.css carries one global
@@ -109,7 +109,7 @@ export const NativeSelect = forwardRef<
       // h-10 to match Input. They had been h-9 against a h-10 Input, so a
       // select sat 4px short of the field beside it - visible in every filter
       // bar (search box next to a dropdown) and in every two-column form row.
-      'h-10 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 text-sm',
+      'h-10 max-sm:h-11 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 text-sm',
       // min-w-0 so a long option cannot push its grid column wider than the
       // track; without it one 40-character name reflows the whole row. Width
       // itself is the caller's to set - filter-bar selects size to their
@@ -173,7 +173,11 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <div
       className={cn(
-        'rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)]',
+        // min-w-0 (v2.69): a card is usually a grid item, and a grid item will
+        // not shrink below its content's width. A wide table inside one - even
+        // wrapped in overflow-x-auto - made the card, and with it the whole
+        // page, as wide as the table: People was 756px on a 375px phone.
+        'min-w-0 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)]',
         className,
       )}
     >
