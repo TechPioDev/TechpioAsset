@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -33,6 +33,7 @@ import {
   reportFreshness,
   resolveAssetImageSource,
   warrantySource,
+  lastVerifiedLabel,
   type AssetCondition,
   type AssetDetailNavKey,
   type AssetStatus,
@@ -45,6 +46,7 @@ import { CONDITION_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpi
 import { assetPills } from '../../src/asset-pills';
 import { DISPOSABLE_FROM, transferView } from '../../src/lib/asset-admin';
 import { holderDisplayName, warrantyCheckNotice } from '../../src/lib/asset-detail';
+import { assetScreenAction } from '../../src/lib/scan-actions';
 import {
   agentPill,
   keyInformationSummary,
@@ -132,6 +134,8 @@ interface AssetDetail {
    * from an API that predates it, where `photo` is then the whole list.
    */
   photos?: { id: string; mimeType: string; sizeBytes?: number | null; createdAt: string }[];
+  /** 0.3.31 - the most recent physical verification; absent from an older API. */
+  lastVerification?: { verifiedAt: string; by: string | null } | null;
   /** Sent only to holders of assets:cost:read - the API omits it for everyone else. */
   purchaseCost?: string | null;
   currency?: string | null;
@@ -197,7 +201,12 @@ type Anchor = 'custody' | 'transfer' | 'disposal';
  * twice, not two slightly different ones.
  */
 export default function AssetDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, action: actionParam } = useLocalSearchParams<{ id: string; action?: string }>();
+  // 0.3.31 - the scanner's sheet sends somebody here to DO something
+  // (?action=reassign): the flow they asked for opens once the asset is
+  // loaded, and only once - a reload after saving must not reopen it.
+  const askedAction = assetScreenAction(actionParam);
+  const actionHandled = useRef(false);
   const { api, user } = useSession();
   const router = useRouter();
   const { c, scheme, spacing, radius } = useTheme();
@@ -276,6 +285,10 @@ export default function AssetDetailScreen() {
     }
   }
 
+  // The effect above must call the current reportDamage without listing it as
+  // an input (it is re-created every render).
+  const reportDamageRef = useRef<() => Promise<void>>(async () => undefined);
+
   async function reportDamage() {
     if (!asset) return;
     setBusy(true);
@@ -292,6 +305,28 @@ export default function AssetDetailScreen() {
       setBusy(false);
     }
   }
+  reportDamageRef.current = reportDamage;
+
+  // Only what this screen would offer anyway: the param is a shortcut to a
+  // button that is already here, never a way round one that is not.
+  const assetStatus = asset?.status ?? null;
+  useEffect(() => {
+    if (!askedAction || actionHandled.current || !assetStatus) return;
+    actionHandled.current = true;
+    const custody = custodyOptions({ canAssign: mayAssign, canReturn: mayReturn, status: assetStatus, isHeld });
+    const allowed =
+      (askedAction === 'assign' && custody.show && custody.assign) ||
+      (askedAction === 'reassign' && custody.show && custody.handOver) ||
+      (askedAction === 'return' && custody.show && custody.recordReturn);
+    if (allowed) {
+      setHandover(askedAction as HandoverMode);
+    } else if (askedAction === 'damage' && assetStatus !== 'DAMAGED' && (mayEdit || isMine)) {
+      Alert.alert('Report this asset as damaged?', 'IT is notified and its status changes to Damaged.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report damage', style: 'destructive', onPress: () => void reportDamageRef.current() },
+      ]);
+    }
+  }, [askedAction, assetStatus, mayAssign, mayReturn, isHeld, mayEdit, isMine]);
 
   if (!asset) {
     return (
@@ -313,6 +348,7 @@ export default function AssetDetailScreen() {
   // holding the device - and not once it already is (web: same rule).
   const mayReportDamage = asset.status !== 'DAMAGED' && (mayEdit || isMine);
   const offer = custodyOptions({ canAssign: mayAssign, canReturn: mayReturn, status: asset.status, isHeld });
+
   const transfer = transferView({
     canTransfer: can(PERMISSIONS.ASSETS_TRANSFER),
     status: asset.status,
@@ -601,6 +637,11 @@ export default function AssetDetailScreen() {
             ) : null}
             {asset.imei ? <InfoRow label="IMEI" value={asset.imei} copy={asset.imei} mono /> : null}
             <InfoRow label="Office" value={asset.office?.name} />
+            {/* 0.3.31 - when the unit was last physically seen on a verification round. */}
+            <InfoRow
+              label="Last verified"
+              value={lastVerifiedLabel(asset.lastVerification ?? null, new Date(), (d) => fmtDate(d.toISOString()))}
+            />
             <InfoRow
               label="Assigned to"
               last={!asset.department && !asset.vendorProduct}

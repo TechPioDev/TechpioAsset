@@ -1,10 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, scanFromURLAsync, useCameraPermissions } from 'expo-camera';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { NativeOnlyNotice } from '../../src/components/native-only-notice';
 import { SavedScansSheet } from '../../src/components/saved-scans-sheet';
+import { ScanResultSheet } from '../../src/components/scan-result-sheet';
+import {
+  matchTypedCode,
+  scanActionHref,
+  scanActions,
+  stopsOnSheet,
+  type ScanAction,
+  type ScannedAsset,
+} from '../../src/lib/scan-actions';
+import { problemMessage } from '../../src/lib/asset-admin';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import {
@@ -57,8 +67,22 @@ const savedScans = new SavedScans(new SqliteStore());
  * connection would not change that answer. See src/lib/offline-scans.ts.
  */
 export default function ScanScreen() {
-  const { api } = useSession();
+  const { api, user } = useSession();
   const router = useRouter();
+  // 0.3.31 - opened from the verification round: every scan marks the unit
+  // seen and the camera carries on, with no sheet to dismiss between labels.
+  const roundMode = useLocalSearchParams<{ round?: string }>().round === '1';
+  // Round mode must never outlive the visit that asked for it: a tab keeps its
+  // params, and a technician who later opens Scan to hand a laptop over must
+  // get the sheet, not a silent "marked as seen". Leaving the scanner ends it.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        if (roundMode) router.setParams({ round: undefined });
+      },
+      [roundMode, router],
+    ),
+  );
   // 0.3.29 - useTheme rather than the device scheme, so this screen follows
   // Settings > Appearance like the rest of the app (and like the sheet it opens).
   const { c } = useTheme();
@@ -70,6 +94,16 @@ export default function ScanScreen() {
   const [saved, setSaved] = useState<SavedScan[]>([]);
   const [savedOpen, setSavedOpen] = useState(false);
   const [readingPhoto, setReadingPhoto] = useState(false);
+  // 0.3.31 - what the scanner found, for somebody with floor work to do on it
+  // (lib/scan-actions.ts). Null means no sheet: the scan opened the asset, as
+  // it always has for everybody else.
+  const [result, setResult] = useState<ScannedAsset | null>(null);
+  const [resultNotice, setResultNotice] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [roundNotice, setRoundNotice] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [finding, setFinding] = useState(false);
   // Guard so a single physical scan does not fire many lookups while the camera
   // keeps reporting the same code frame after frame.
   const handling = useRef(false);
@@ -91,17 +125,6 @@ export default function ScanScreen() {
     }, []),
   );
 
-  // The browser build (react-native-web, for laptop review) has no device
-  // camera flow; show a notice rather than a webcam prompt.
-  if (Platform.OS === 'web') {
-    return (
-      <NativeOnlyNotice
-        title="Scanning needs the device camera"
-        message="QR and barcode scanning uses the phone camera, which isn't available when the app runs in a browser."
-      />
-    );
-  }
-
   /** Let the live camera try again after a miss, without firing on every frame. */
   function releaseSoon() {
     setTimeout(() => {
@@ -110,10 +133,93 @@ export default function ScanScreen() {
   }
 
   /** The lookup itself, shared by a fresh scan and a saved one being retried. */
-  function lookUp(token: string): Promise<{ id: string }> {
+  function lookUp(token: string): Promise<ScannedAsset> {
     return withLookupTimeout(
-      api.request<{ id: string }>(`/assets/by-qr/${encodeURIComponent(token)}`),
+      api.request<ScannedAsset>(`/assets/by-qr/${encodeURIComponent(token)}`),
     );
+  }
+
+  const actionsFor = (asset: ScannedAsset) =>
+    scanActions({ asset, permissions: user?.permissions ?? [], userId: user?.id });
+
+  /** Record that the unit was seen. Resolves to what to say, and whether it worked. */
+  async function markSeen(asset: ScannedAsset): Promise<{ ok: boolean; text: string }> {
+    try {
+      await api.request(`/assets/${asset.id}/verifications`, { method: 'POST', body: { method: 'SCAN' } });
+      return { ok: true, text: `Marked as seen: ${asset.name} (${asset.assetTag})` };
+    } catch (failure) {
+      return { ok: false, text: problemMessage(failure, 'Could not mark it as seen. Try again.') };
+    }
+  }
+
+  /**
+   * What happens once the asset is known. Answers whether the scanner should
+   * stay held: true while a sheet or the asset page has the person's
+   * attention, false to let the camera read the next label.
+   */
+  async function handleFound(asset: ScannedAsset): Promise<boolean> {
+    const actions = actionsFor(asset);
+    if (roundMode && actions.some((a) => a.key === 'seen')) {
+      const outcome = await markSeen(asset);
+      if (outcome.ok) setRoundNotice(outcome.text);
+      else setError(outcome.text);
+      return false;
+    }
+    if (stopsOnSheet(actions)) {
+      setResultNotice(null);
+      setResult(asset);
+      return true;
+    }
+    // The flow that existed before 0.3.31, unchanged: straight to the asset.
+    router.push(`/asset/${asset.id}`);
+    return true;
+  }
+
+  async function onSheetAction(action: ScanAction) {
+    if (!result) return;
+    if (action.key === 'seen') {
+      setBusyKey('seen');
+      const outcome = await markSeen(result);
+      setBusyKey(null);
+      setResultNotice({ text: outcome.ok ? 'Marked as seen' : outcome.text, tone: outcome.ok ? 'ok' : 'error' });
+      if (outcome.ok) {
+        setResult({ ...result, lastVerification: { verifiedAt: new Date().toISOString(), by: user?.displayName ?? null } });
+      }
+      return;
+    }
+    const assetId = result.id;
+    closeResult();
+    router.push(scanActionHref(assetId, action.key) as never);
+  }
+
+  function closeResult() {
+    setResult(null);
+    setResultNotice(null);
+    handling.current = false;
+  }
+
+  /** A label that will not scan: find the unit by the tag or serial printed on it. */
+  async function findTyped() {
+    if (finding) return;
+    setError(null);
+    setRoundNotice(null);
+    setFinding(true);
+    try {
+      const rows = await api.request<{ id: string; assetTag: string; serialNumber?: string | null }[]>(
+        `/assets?q=${encodeURIComponent(typed.trim())}&pageSize=25`,
+      );
+      const { match, reason } = matchTypedCode(typed, rows ?? []);
+      if (!match) return setError(reason);
+      // The full record, so the sheet can say when it was last seen.
+      const asset = await api.request<ScannedAsset>(`/assets/${match.id}`);
+      setTyped('');
+      setTyping(false);
+      await handleFound(asset);
+    } catch (failure) {
+      setError(problemMessage(failure, 'Could not look that up. Check your connection and try again.'));
+    } finally {
+      setFinding(false);
+    }
   }
 
   /** The one path from a token to an open asset, shared by camera and photo. */
@@ -121,8 +227,7 @@ export default function ScanScreen() {
     try {
       const asset = await lookUp(token);
       setSavedNotice(null);
-      router.push(`/asset/${asset.id}`);
-      return true;
+      return await handleFound(asset);
     } catch (failure) {
       if (!isNetworkFailure(failure)) {
         // The server answered. Whatever it said, a connection will not change it.
@@ -167,6 +272,7 @@ export default function ScanScreen() {
     if (handling.current) return;
     handling.current = true;
     setError(null);
+    setRoundNotice(null);
     // The saved notice is not cleared here. With no signal the camera re-reads
     // the label in view every second or so and saves it again (one entry, by
     // de-duplication); clearing first would make the notice blink each time.
@@ -327,6 +433,162 @@ export default function ScanScreen() {
     </Text>
   ) : null;
 
+  // Green, and said once per label: in a round this is the only feedback there
+  // is, since no sheet opens between scans.
+  const roundBanner = roundNotice ? (
+    <Text
+      style={{
+        color: '#052e16',
+        backgroundColor: '#4ade80',
+        padding: 12,
+        borderRadius: 8,
+        textAlign: 'center',
+        marginBottom: 12,
+        fontWeight: '700',
+      }}
+    >
+      {roundNotice}
+    </Text>
+  ) : roundMode ? (
+    <Text
+      style={{
+        color: c.text,
+        backgroundColor: c.surface,
+        padding: 10,
+        borderRadius: 8,
+        textAlign: 'center',
+        marginBottom: 12,
+        fontWeight: '600',
+      }}
+    >
+      Verification round: each scan marks the asset as seen
+    </Text>
+  ) : null;
+
+  // The way out of round mode that somebody can see, beside the automatic one.
+  const finishRound = roundMode ? (
+    <Pressable
+      onPress={() => router.replace('/verification' as never)}
+      accessibilityRole="button"
+      accessibilityLabel="Finish round"
+      style={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: c.brand,
+        backgroundColor: c.brandSoft,
+        borderRadius: 10,
+        padding: 14,
+        marginBottom: 12,
+      }}
+    >
+      <Text style={{ color: c.brand, fontWeight: '700' }}>Finish round</Text>
+    </Pressable>
+  ) : null;
+
+  // 0.3.31 - for the label that is torn, faded or behind a monitor arm.
+  const typedEntry = typing ? (
+    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+      <TextInput
+        value={typed}
+        onChangeText={setTyped}
+        onSubmitEditing={() => void findTyped()}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        autoFocus
+        returnKeyType="search"
+        placeholder="Asset tag or serial number"
+        placeholderTextColor={c.subtle}
+        accessibilityLabel="Asset tag or serial number"
+        style={{
+          flex: 1,
+          minHeight: 48,
+          borderWidth: 1,
+          borderColor: c.border,
+          backgroundColor: c.surface,
+          color: c.text,
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          fontSize: 15,
+        }}
+      />
+      <Pressable
+        onPress={() => void findTyped()}
+        disabled={finding}
+        accessibilityRole="button"
+        accessibilityLabel="Find asset"
+        style={{
+          minHeight: 48,
+          paddingHorizontal: 16,
+          borderRadius: 10,
+          backgroundColor: c.brand,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: finding ? 0.6 : 1,
+        }}
+      >
+        {finding ? (
+          <ActivityIndicator color={c.brandText} />
+        ) : (
+          <Text style={{ color: c.brandText, fontWeight: '700' }}>Find</Text>
+        )}
+      </Pressable>
+    </View>
+  ) : (
+    <Pressable
+      onPress={() => setTyping(true)}
+      accessibilityRole="button"
+      accessibilityLabel="Type the asset tag"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        borderWidth: 1,
+        borderColor: c.border,
+        backgroundColor: c.surface,
+        borderRadius: 10,
+        padding: 14,
+        marginBottom: 12,
+      }}
+    >
+      <Ionicons name="keypad-outline" size={18} color={c.text} />
+      <Text style={{ color: c.text, fontWeight: '600' }}>Label won’t scan? Type the tag</Text>
+    </Pressable>
+  );
+
+  const resultSheet = (
+    <ScanResultSheet
+      asset={result}
+      actions={result ? actionsFor(result) : []}
+      busyKey={busyKey}
+      notice={resultNotice}
+      onAction={(action) => void onSheetAction(action)}
+      onClose={closeResult}
+    />
+  );
+
+  // The browser build (react-native-web, for laptop review) has no device
+  // camera flow; show a notice rather than a webcam prompt. Typing the tag
+  // needs no camera, so everything after the lookup works here too.
+  if (Platform.OS === 'web') {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.background }}>
+        <NativeOnlyNotice
+          title="Scanning needs the device camera"
+          message="QR and barcode scanning uses the phone camera, which isn't available when the app runs in a browser. You can still find an asset by typing its tag."
+        />
+        <View style={{ padding: 20 }}>
+          {errorBanner}
+          {roundBanner}
+          {finishRound}
+          {typedEntry}
+        </View>
+        {resultSheet}
+      </View>
+    );
+  }
+
   if (!permission) {
     return <View style={{ flex: 1, backgroundColor: c.background }} />;
   }
@@ -351,8 +613,10 @@ export default function ScanScreen() {
         {errorBanner}
         {savedBanner}
         {savedButton}
+        {typedEntry}
         {photoButton}
         {savedSheet}
+        {resultSheet}
       </View>
     );
   }
@@ -365,15 +629,19 @@ export default function ScanScreen() {
         // Off while Saved scans is open: the camera is still live underneath,
         // and a label in view would start lookups - or open an asset - behind
         // the sheet somebody is reading.
-        onBarcodeScanned={savedOpen ? undefined : ({ data }) => void onScanned(data)}
+        onBarcodeScanned={savedOpen || result ? undefined : ({ data }) => void onScanned(data)}
       />
       <View style={{ position: 'absolute', bottom: 24, left: 20, right: 20 }}>
         {errorBanner}
+        {roundBanner}
+        {finishRound}
         {savedBanner}
         {savedButton}
+        {typedEntry}
         {photoButton}
       </View>
       {savedSheet}
+      {resultSheet}
     </View>
   );
 }

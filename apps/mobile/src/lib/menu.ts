@@ -147,6 +147,15 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
         href: '/asset/new',
         anyOf: [P.ASSETS_CREATE],
       },
+      // 0.3.31 - for the people who walk the floor, and the auditor who reads
+      // their work. Not for an employee: a "round" of one's own laptop is noise.
+      {
+        icon: 'shield-checkmark-outline',
+        label: 'Verification round',
+        description: 'Assets physically seen this quarter',
+        href: '/verification',
+        anyOf: [P.AUDIT_READ, P.ASSETS_UPDATE, P.ASSETS_ASSIGN, P.ASSETS_RETURN],
+      },
       {
         icon: 'key-outline',
         label: 'Licences',

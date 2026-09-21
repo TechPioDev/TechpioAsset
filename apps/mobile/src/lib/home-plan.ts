@@ -176,6 +176,10 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     value: { key: 'reports', label: 'Reports', icon: 'bar-chart-outline', href: '/reports' },
     anyOf: [P.REPORTS_READ],
   },
+  verify: {
+    value: { key: 'verify', label: 'Verify round', icon: 'shield-checkmark-outline', href: '/verification' },
+    anyOf: [P.AUDIT_READ, P.ASSETS_UPDATE, P.ASSETS_ASSIGN, P.ASSETS_RETURN],
+  },
   audit: {
     value: { key: 'audit', label: 'Audit log', icon: 'reader-outline', href: '/audit' },
     anyOf: [P.AUDIT_READ],
@@ -249,7 +253,7 @@ const SPEC: Record<Persona, PersonaSpec> = {
   },
   it: {
     focus: 'Today’s hands-on work',
-    actions: ['scan', 'workOrders', 'register', 'request', 'equipment'],
+    actions: ['scan', 'verify', 'workOrders', 'register', 'request', 'equipment'],
     queues: ['my-work-orders', 'awaiting-me', 'offboarding'],
     tabs: ['assets', 'scan', 'approvals', 'requests'],
   },
@@ -273,7 +277,7 @@ const SPEC: Record<Persona, PersonaSpec> = {
   },
   auditor: {
     focus: 'What changed, and what is where',
-    actions: ['scan', 'audit', 'reports', 'equipment'],
+    actions: ['scan', 'verify', 'audit', 'reports', 'equipment'],
     queues: ['recent-changes'],
     tabs: ['assets', 'scan', 'requests'],
   },

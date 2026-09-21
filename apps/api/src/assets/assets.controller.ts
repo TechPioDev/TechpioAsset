@@ -47,10 +47,11 @@ import {
   type UpdateAssetInput,
   warrantyExtractSchema,
 } from '@techpioasset/contracts';
-import { PERMISSIONS, type AssetStatus } from '@techpioasset/domain';
+import { ASSET_VERIFY_PERMISSIONS, PERMISSIONS, type AssetStatus } from '@techpioasset/domain';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { AppError } from '../common/errors/app-error.js';
 import { AssetPhotosService } from './asset-photos.service.js';
+import { AssetVerificationService } from './asset-verification.service.js';
 import { assertSpreadsheet } from '../providers/storage/file-validation.js';
 import { CurrentUser, RequireAnyPermission, RequirePermissions } from '../auth/decorators.js';
 import { AssetsService } from './assets.service.js';
@@ -74,6 +75,7 @@ export class AssetsController {
   constructor(
     private readonly assets: AssetsService,
     private readonly photos: AssetPhotosService,
+    private readonly verification: AssetVerificationService,
     private readonly imports: AssetImportService,
     private readonly health: AssetHealthService,
     private readonly audit: AuditService,
@@ -214,14 +216,34 @@ export class AssetsController {
     return toCsv(columns, rows);
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Physical verification (v2.72). Declared before ':id' so "verification" is
+  // never read as an asset id.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  @Get('verification/summary')
+  @RequirePermissions(PERMISSIONS.ASSETS_READ)
+  @ApiOperation({
+    summary: 'Where this quarter’s verification round stands',
+    description:
+      'How many assets the round expects, how many have been physically seen since the ' +
+      'quarter began, and the first 50 that have not. Scoped like every asset read, so an ' +
+      'auditor sees the company and an employee sees their own equipment.',
+  })
+  verificationSummary(@CurrentUser() actor: AuthUser) {
+    return this.verification.summary(actor);
+  }
+
   @Get('by-qr/:token')
   @RequirePermissions(PERMISSIONS.ASSETS_READ)
   @ApiOperation({
     summary: 'Resolve a QR token',
     description: 'Requires authentication and honours scope, so a scanned code leaks nothing.',
   })
-  byQr(@CurrentUser() actor: AuthUser, @Param('token') token: string) {
-    return this.assets.findByQrToken(actor, token);
+  async byQr(@CurrentUser() actor: AuthUser, @Param('token') token: string) {
+    const asset = await this.assets.findByQrToken(actor, token);
+    // v2.72 - the scanner shows when the unit was last seen, and offers to mark it.
+    return { ...asset, lastVerification: await this.verification.latestFor(asset.id) };
   }
 
   @Get(':id')
@@ -229,8 +251,28 @@ export class AssetsController {
   @ApiOperation({
     summary: 'Read one asset with history, discovered hardware/OS and health',
   })
-  findOne(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
-    return this.assets.findOne(actor, id);
+  async findOne(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    const asset = await this.assets.findOne(actor, id);
+    return { ...asset, lastVerification: await this.verification.latestFor(id) };
+  }
+
+  @Post(':id/verifications')
+  @RequireAnyPermission(...ASSET_VERIFY_PERMISSIONS)
+  @ApiOperation({
+    summary: 'Record that this asset was physically seen',
+    description:
+      'For a verification round. Changes nothing about the asset. A repeat by the same person ' +
+      'within two minutes answers with the first confirmation. Refused for an asset recorded ' +
+      'as disposed, donated, retired, lost or stolen.',
+  })
+  verifyAsset(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { note?: unknown; method?: unknown },
+  ) {
+    const note = typeof body?.note === 'string' ? body.note : null;
+    const method = body?.method === 'MANUAL' ? 'MANUAL' : 'SCAN';
+    return this.verification.verify(actor, id, { note, method });
   }
 
   @Get(':id/software')

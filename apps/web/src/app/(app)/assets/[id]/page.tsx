@@ -56,6 +56,7 @@ import {
   reportFreshness,
   warrantySource,
   PERMISSIONS,
+  lastVerifiedLabel,
   type AssetCondition,
   type AssetStatus,
   type LifecycleState,
@@ -160,6 +161,8 @@ interface AssetDetail {
   photo: { id: string; mimeType: string; createdAt: string } | null;
   /** v2.65 - every photograph of the unit (up to five), the cover first. */
   photos?: { id: string; mimeType: string; sizeBytes: number | null; createdAt: string }[];
+  /** v2.72 - the most recent physical verification, if the unit has ever been seen. */
+  lastVerification?: { verifiedAt: string; by: string | null; note: string | null } | null;
   assignments: {
     id: string;
     assignedAt: string;
@@ -1109,6 +1112,14 @@ function OverviewTab({
                 />
               ) : null}
               <InfoRow label="Office" value={data.office?.name} />
+              {/* v2.72 - when the unit was last physically seen, from a
+                  verification round on the phone. */}
+              <InfoRow
+                label="Last verified"
+                value={lastVerifiedLabel(data.lastVerification ?? null, new Date(), (d) =>
+                  fmtDate(d.toISOString()),
+                )}
+              />
               <InfoRow
                 label="Assigned to"
                 value={

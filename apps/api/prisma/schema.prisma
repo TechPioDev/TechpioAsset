@@ -604,6 +604,7 @@ model Company {
   qualityChecks         QualityCheck[]
   documents             VendorProductDocument[]
   stockChanges          VendorProductStockChange[]
+  assetVerifications    AssetVerification[]
 
   @@index([deletedAt])
   @@map("companies")
@@ -671,6 +672,7 @@ model User {
   notifications            Notification[]
   notificationPreferences  NotificationPreference[]
   auditLogs                AuditLog[]                 @relation("AuditActor")
+  assetVerifications       AssetVerification[]        @relation("AssetVerifier")
   aiUsageRecords           AIUsageRecord[]
   disposalsApproved        DisposalRecord[]           @relation("DisposalApprover")
   onboardingTasks          OnboardingTask[]           @relation("OnboardingSubject")
@@ -1312,6 +1314,7 @@ model Asset {
   assignments           AssetAssignment[]
   transfers             AssetTransfer[]
   conditionLogs         AssetConditionLog[]
+  verifications         AssetVerification[]
   maintenance           MaintenanceRecord[]
   warranties            Warranty[]
   disposal              DisposalRecord?
@@ -1563,6 +1566,32 @@ model AssetConditionLog {
 
   @@index([assetId, recordedAt])
   @@map("asset_condition_logs")
+}
+
+/// v2.72 - "I stood in front of this asset and it was there." One row each
+/// time somebody confirms a unit physically, normally by scanning its label on
+/// a verification round. It changes nothing about the asset: it is the evidence
+/// an auditor reads, which is why an Auditor - read-only by invariant - can see
+/// these and never write one.
+model AssetVerification {
+  id        String @id @default(cuid())
+  companyId String
+  assetId   String
+
+  verifiedAt   DateTime @default(now())
+  verifiedById String?
+  /// How it was confirmed: SCAN from the phone's scanner, MANUAL from the page.
+  method       String   @default("SCAN")
+  /// Anything worth saying: "label torn", "found in the server room".
+  note         String?
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  asset      Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  verifiedBy User?   @relation("AssetVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, verifiedAt])
+  @@index([assetId, verifiedAt])
+  @@map("asset_verifications")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { AssetsService } from './assets.service.js';
 import { AssetImportService } from './asset-import.service.js';
 import { AssetPriceSheetService } from './asset-price-sheet.service.js';
 import { AssetPhotosService } from './asset-photos.service.js';
+import { AssetVerificationService } from './asset-verification.service.js';
 import { LenovoWarrantyService } from './lenovo-warranty.service.js';
 
 @Module({
@@ -16,6 +17,7 @@ import { LenovoWarrantyService } from './lenovo-warranty.service.js';
     AssetImportService,
     AssetPriceSheetService,
     AssetPhotosService,
+    AssetVerificationService,
     LenovoWarrantyService,
   ],
   exports: [AssetsService, LenovoWarrantyService],
