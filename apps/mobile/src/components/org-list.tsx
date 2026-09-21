@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
-import { Button, Card, Field, Screen, SectionTitle, StatusPill } from './ui';
+import { Button, Card, Field, PullRefresh, Screen, SectionTitle, StatusPill } from './ui';
 
 /**
  * Offices and departments are the same screen with different nouns: a list of
@@ -93,7 +93,7 @@ export function OrgListScreen({
 
   return (
     <>
-      <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+      <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
         <Button
           label={`Add ${noun}`}
           icon="add-circle-outline"

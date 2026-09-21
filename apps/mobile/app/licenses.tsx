@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT, type Tone } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Card, Chevron, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { Card, Chevron, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 
 export interface LicenseRow {
   id: string;
@@ -67,10 +67,10 @@ export default function LicensesScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <EmptyState
             icon="key-outline"
             title="No licenses yet"

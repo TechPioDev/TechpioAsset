@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetStatus } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
@@ -13,6 +13,7 @@ import {
   Card,
   Chevron,
   IconBadge,
+  PullRefresh,
   Screen,
   SectionTitle,
   StatusPill,
@@ -176,7 +177,7 @@ export default function PersonScreen() {
   const offboard = offboardGates(user, person);
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <Card style={{ marginBottom: spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <Avatar name={name} size={52} />

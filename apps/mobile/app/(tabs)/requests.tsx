@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { ApiError } from '../../src/lib/api-client';
 import {
   REQUEST_STATUS_TOKENS,
@@ -24,6 +24,8 @@ import {
   EmptyState,
   Field,
   IconBadge,
+  ListSkeleton,
+  PullRefresh,
   SectionTitle,
   StatusPill,
 } from '../../src/components/ui';
@@ -168,7 +170,7 @@ export default function RequestsScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
       ListHeaderComponent={
         <View style={{ marginBottom: spacing.xl }}>
@@ -218,7 +220,7 @@ export default function RequestsScreen() {
         </View>
       }
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <Card>
             <EmptyState icon="document-text-outline" title="No requests yet" message="Requests you raise will appear here." />
           </Card>

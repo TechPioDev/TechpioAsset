@@ -1,8 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps, ReactNode, RefObject } from 'react';
+import { useEffect, useRef, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
+  RefreshControl,
+  type RefreshControlProps,
   ScrollView,
   Text,
   TextInput,
@@ -45,6 +48,94 @@ export function Screen({
     );
   }
   return <View style={[{ flex: 1, backgroundColor: c.background }, pad]}>{children}</View>;
+}
+
+/**
+ * Pull-to-refresh in the brand colour (0.3.29).
+ *
+ * Every list already had a RefreshControl, but a bare one: Android drew its
+ * default spinner on a white disc, which is a bright hole in the dark theme
+ * and matched nothing else on the screen in the light one. This is the same
+ * control with the theme applied, so a screen says what it refreshes and not
+ * what colour it is.
+ *
+ * It has to stay a thin pass-through. On Android ScrollView clones whatever it
+ * is given as `refreshControl` and hands it the scroll content as children and
+ * a style, so every prop received is forwarded to the real RefreshControl.
+ */
+export function PullRefresh(props: RefreshControlProps) {
+  const { c } = useTheme();
+  return (
+    <RefreshControl
+      colors={[c.brand]}
+      tintColor={c.brand}
+      progressBackgroundColor={c.card}
+      {...props}
+    />
+  );
+}
+
+/**
+ * Placeholder rows for a list that has not loaded yet (0.3.29).
+ *
+ * Lists rendered nothing at all until their first response, so on a slow
+ * connection a screen was a blank page under a spinner and read as broken or
+ * empty. These are the outline of the cards about to arrive - an icon square
+ * and two lines, which is what nearly every row in the app is - pulsing gently
+ * so it reads as "coming" rather than "this is the content".
+ *
+ * Goes in a FlatList's ListEmptyComponent while loading, which is also why it
+ * can never sit on top of real rows: a list with rows has no empty component.
+ */
+export function ListSkeleton({ rows = 5 }: { rows?: number }) {
+  const { c, radius, spacing } = useTheme();
+  const pulse = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const bar = (width: `${number}%`, height: number, marginTop = 0) => (
+    <View style={{ width, height, marginTop, borderRadius: 6, backgroundColor: c.border }} />
+  );
+
+  return (
+    <Animated.View
+      style={{ opacity: pulse }}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading"
+    >
+      {Array.from({ length: rows }, (_, index) => (
+        <View
+          key={index}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.md,
+            backgroundColor: c.card,
+            borderRadius: radius.lg,
+            borderWidth: 1,
+            borderColor: c.border,
+            padding: 16,
+            marginBottom: spacing.md,
+          }}
+        >
+          <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: c.border }} />
+          <View style={{ flex: 1 }}>
+            {bar(index % 2 === 0 ? '70%' : '55%', 13)}
+            {bar(index % 2 === 0 ? '40%' : '48%', 10, 9)}
+          </View>
+        </View>
+      ))}
+    </Animated.View>
+  );
 }
 
 /** Elevated surface. */

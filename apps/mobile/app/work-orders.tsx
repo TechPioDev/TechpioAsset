@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import {
   MAINTENANCE_OPEN_STATUSES,
   PERMISSIONS,
@@ -10,7 +10,7 @@ import {
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 
 /**
  * v2.5 H6 - the technician's work-order list. "Mine" is the default (the jobs
@@ -145,10 +145,10 @@ export default function WorkOrdersScreen() {
         style={{ flex: 1 }}
         data={rows}
         keyExtractor={(r) => r.id}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
         ListEmptyComponent={
-          loading ? null : (
+          loading ? <ListSkeleton /> : (
             <EmptyState
               icon="build-outline"
               title={scope === 'mine' ? 'Nothing on your plate' : 'No open work orders'}

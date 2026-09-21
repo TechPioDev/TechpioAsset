@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, EmptyState, IconBadge } from '../src/components/ui';
+import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh } from '../src/components/ui';
 import { AddStockSheet, NewStockItemSheet } from '../src/components/stock-entry-sheets';
 import { stockEmptyState, type AddStockForm } from '../src/lib/stock-entry';
 
@@ -113,10 +113,10 @@ export default function StockScreen() {
         style={{ flex: 1 }}
         data={visible}
         keyExtractor={(r) => r.id}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
         ListEmptyComponent={
-          loading ? null : (
+          loading ? <ListSkeleton /> : (
             <View>
               <EmptyState icon="layers-outline" title={empty.title} message={empty.message} />
               {empty.action === 'new-item' ? (

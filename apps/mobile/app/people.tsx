@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme, type ThemeColors } from '../src/theme';
 import { openOffboardingFor, type OpenTaskRow } from '../src/lib/offboarding';
-import { Avatar, Button, Card, Chevron, EmptyState, StatusPill } from '../src/components/ui';
+import { Avatar, Button, Card, Chevron, EmptyState, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 import { InviteSheet } from '../src/components/people/invite-sheet';
 import { ManageSheet } from '../src/components/people/manage-sheet';
 import { useInviteAllPending } from '../src/components/people/invite-all';
@@ -238,7 +238,7 @@ export default function PeopleScreen() {
         style={{ flex: 1, backgroundColor: c.background }}
         data={rows}
         keyExtractor={(r) => r.id}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={header}
@@ -246,7 +246,7 @@ export default function PeopleScreen() {
         onEndReachedThreshold={0.4}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={c.brand} style={{ marginVertical: spacing.lg }} /> : null}
         ListEmptyComponent={
-          loading ? null : (
+          loading ? <ListSkeleton /> : (
             <EmptyState
               icon="people-outline"
               title={copy.emptyTitle}

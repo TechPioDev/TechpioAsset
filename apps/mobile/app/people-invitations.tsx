@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, EmptyState, StatusPill } from '../src/components/ui';
+import { Button, Card, EmptyState, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 import { useInviteAllPending } from '../src/components/people/invite-all';
 import { errorText, InviteLink } from '../src/components/people/sheet';
 
@@ -98,7 +98,7 @@ export default function PeopleInvitationsScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListHeaderComponent={
         <View style={{ marginBottom: spacing.md }}>
@@ -118,7 +118,7 @@ export default function PeopleInvitationsScreen() {
         </View>
       }
       ListEmptyComponent={
-        loading || error ? null : (
+        loading ? <ListSkeleton /> : error ? null : (
           <EmptyState
             icon="mail-open-outline"
             title="No pending invitations"

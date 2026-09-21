@@ -5,7 +5,6 @@ import {
   FlatList,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -37,7 +36,7 @@ import { assetPills } from '../../src/asset-pills';
 import { ChipPicker } from '../../src/components/chip-picker';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Chevron, EmptyState, Field, IconBadge, StatusPill } from '../../src/components/ui';
+import { Button, Card, Chevron, EmptyState, Field, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../../src/components/ui';
 import { formatMoney } from '../../src/lib/format';
 import {
   AVAILABILITY_OPTIONS,
@@ -395,7 +394,7 @@ export default function AssetsScreen() {
         style={{ flex: 1, backgroundColor: c.background }}
         data={rows}
         keyExtractor={(r) => r.id}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl * 3, flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
         onEndReached={() => void loadMore()}
@@ -405,7 +404,7 @@ export default function AssetsScreen() {
           loadingMore ? <ActivityIndicator style={{ marginVertical: spacing.lg }} color={c.brand} /> : null
         }
         ListEmptyComponent={
-          loading ? null : failed ? (
+          loading ? <ListSkeleton /> : failed ? (
             <EmptyState
               icon="cloud-offline-outline"
               title="Could not load assets"

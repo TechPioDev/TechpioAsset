@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { formatInr, type AssetStatus, type AssetCondition } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme, statusColor, statusLabel } from '../../src/theme';
@@ -9,12 +9,15 @@ import {
   Chevron,
   EmptyState,
   IconBadge,
+  ListSkeleton,
+  PullRefresh,
   Screen,
   SectionTitle,
   StatCard,
   StatusPill,
   type IconName,
 } from '../../src/components/ui';
+import { UpdateBanner } from '../../src/components/update-banner';
 
 interface AssetRow {
   id: string;
@@ -133,7 +136,11 @@ export default function HomeScreen() {
   }, [load]);
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
+      {/* 0.3.29 - first thing on the screen, because it is the one thing here
+          that is about the app rather than in it. Renders nothing unless the
+          server has a newer build than this phone, and nothing after "Later". */}
+      <UpdateBanner />
       <Text style={{ color: c.muted, fontSize: 14 }}>Welcome back,</Text>
       <Text style={{ color: c.text, fontSize: 24, fontWeight: '800', marginBottom: spacing.lg }}>
         {firstName}
@@ -175,6 +182,13 @@ export default function HomeScreen() {
           <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>See all</Text>
         </Pressable>
       </View>
+
+      {/* 0.3.29 - the first load drew a title over an empty page until the
+          answer came. Only while there is nothing to show: a pull-to-refresh
+          keeps the rows it has and lets the spinner speak for itself. */}
+      {loading && (isVendor ? offers.length === 0 : assets.length === 0) ? (
+        <ListSkeleton rows={3} />
+      ) : null}
 
       {isVendor ? (
         offers.length === 0 && !loading ? (

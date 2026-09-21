@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PERMISSIONS, type VerificationStatus } from '@techpioasset/domain';
 import {
@@ -12,7 +12,7 @@ import { ApiError } from '../../src/lib/api-client';
 import { formatMoney, personName } from '../../src/lib/format';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, EmptyState, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, EmptyState, Field, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { MatchPanel } from '../../src/components/invoices/match-panel';
 
 interface Issue {
@@ -193,7 +193,7 @@ export default function InvoiceDetailScreen() {
     <Screen
       scroll
       refreshControl={
-        <RefreshControl
+        <PullRefresh
           refreshing={refreshing}
           onRefresh={async () => {
             setRefreshing(true);

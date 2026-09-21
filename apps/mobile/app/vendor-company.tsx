@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, Field, Screen, SectionTitle } from '../src/components/ui';
+import { Button, Card, Field, PullRefresh, Screen, SectionTitle } from '../src/components/ui';
 
 /**
  * A supplier's own company details (v2.46).
@@ -126,7 +126,7 @@ export default function VendorCompanyScreen() {
   }
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <SectionTitle>Your company</SectionTitle>
       {vendor ? (
         <Card style={{ marginBottom: spacing.lg }}>

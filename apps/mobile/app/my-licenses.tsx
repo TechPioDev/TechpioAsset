@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Card, EmptyState, IconBadge } from '../src/components/ui';
+import { Card, EmptyState, IconBadge, ListSkeleton, PullRefresh } from '../src/components/ui';
 import { expiryText } from './licenses';
 
 interface MySeat {
@@ -39,10 +39,10 @@ export default function MyLicensesScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <EmptyState
             icon="key-outline"
             title="No licences assigned"

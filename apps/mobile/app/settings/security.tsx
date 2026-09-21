@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { Alert } from 'react-native';
-import { Button, Card, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import type { AuthUser } from '@techpioasset/contracts';
 import { ChangePasswordCard } from '../../src/components/security/change-password-card';
 import { PasswordGate } from '../../src/components/security/password-gate';
@@ -122,7 +122,7 @@ export default function SecuritySettingsScreen() {
   useEffect(() => void load(), [load]);
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <SectionTitle>Account</SectionTitle>
       <Card style={{ padding: 0, marginBottom: spacing.xl }}>
         <Row label="Signed in as" value={user?.email ?? '—'} />

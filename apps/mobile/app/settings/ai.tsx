@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Card, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Card, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 
 interface AiConfig {
   globallyEnabled: boolean;
@@ -35,7 +35,7 @@ export default function SettingsScreen() {
   const modes = config?.featureModes ? Object.entries(config.featureModes) : [];
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <SectionTitle>AI document processing</SectionTitle>
       <Card style={{ padding: 0, marginBottom: spacing.xl }}>
         <Info label="Status" last={false}>

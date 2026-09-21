@@ -7,7 +7,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  RefreshControl,
   Text,
   View,
 } from 'react-native';
@@ -25,6 +24,8 @@ import {
   Chevron,
   EmptyState,
   IconBadge,
+  ListSkeleton,
+  PullRefresh,
   StatusPill,
   type IconName,
 } from '../src/components/ui';
@@ -134,7 +135,7 @@ export default function InvoicesScreen() {
         style={{ flex: 1 }}
         data={rows}
         keyExtractor={(r) => r.id}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 96, flexGrow: 1 }}
         ListHeaderComponent={
           error ? (
@@ -142,7 +143,7 @@ export default function InvoicesScreen() {
           ) : null
         }
         ListEmptyComponent={
-          loading ? null : (
+          loading ? <ListSkeleton /> : (
             <EmptyState
               icon="document-attach-outline"
               title="No invoices yet"

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import { REQUEST_STATUS_TOKENS } from '@techpioasset/ui-tokens';
 import type { AssetStatus, RequestStatus } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme, statusLabel } from '../src/theme';
-import { Card, Screen, SectionTitle, StatCard } from '../src/components/ui';
+import { Card, PullRefresh, Screen, SectionTitle, StatCard } from '../src/components/ui';
 
 interface Overview {
   assetsByStatus: Record<string, number>;
@@ -62,7 +62,7 @@ export default function ReportsScreen() {
   ][];
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xl }}>
         <StatCard icon="cube-outline" value={overview?.totals.assets ?? 0} label="Total assets" />
         <StatCard

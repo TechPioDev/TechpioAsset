@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
-import { EmptyState } from '../src/components/ui';
+import { Alert, Pressable, SectionList, Text, View } from 'react-native';
+import { EmptyState, ListSkeleton, PullRefresh } from '../src/components/ui';
 import {
   groupByDay,
   markAllReadLocally,
@@ -89,7 +89,7 @@ export default function NotificationsScreen() {
         keyExtractor={(item) => item.id}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
-        refreshControl={<RefreshControl refreshing={loading && loaded} onRefresh={load} />}
+        refreshControl={<PullRefresh refreshing={loading && loaded} onRefresh={load} />}
         ListHeaderComponent={
           rows.length > 0 ? (
             <View
@@ -182,7 +182,9 @@ export default function NotificationsScreen() {
         }}
         ListEmptyComponent={
           !loaded ? (
-            <Text style={{ color: c.muted, fontSize: 14, textAlign: 'center', marginTop: spacing.xl }}>Loading…</Text>
+            // 0.3.29 - the same placeholder rows as every other list, in place
+            // of a lone "Loading…".
+            <ListSkeleton />
           ) : failed ? (
             <EmptyState
               icon="cloud-offline-outline"

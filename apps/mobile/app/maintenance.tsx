@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, RefreshControl, Text, View } from 'react-native';
+import { Alert, FlatList, Text, View } from 'react-native';
 import { PERMISSIONS, workOrderActions } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, EmptyState, IconBadge, StatusPill } from '../src/components/ui';
+import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 import { WO_TONE, woLabel } from './work-orders';
 
 /**
@@ -64,10 +64,10 @@ export default function MaintenanceScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <EmptyState icon="construct-outline" title="No maintenance records" message="Repairs and services logged against assets appear here." />
         )
       }

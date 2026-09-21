@@ -1,6 +1,6 @@
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import {
   REQUEST_STATUS_TOKENS,
   TONE_PALETTE_DARK,
@@ -10,7 +10,7 @@ import type { RequestStatus } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { personName, formatMoney } from '../../src/lib/format';
-import { Avatar, Card, Chevron, EmptyState, StatusPill } from '../../src/components/ui';
+import { Avatar, Card, Chevron, EmptyState, ListSkeleton, PullRefresh, StatusPill } from '../../src/components/ui';
 
 interface ApprovalRow {
   id: string;
@@ -59,10 +59,10 @@ export default function ApprovalsScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <EmptyState
             icon="checkmark-done-outline"
             title="You're all caught up"

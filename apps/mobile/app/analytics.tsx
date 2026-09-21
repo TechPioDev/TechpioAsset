@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Card, EmptyState, SectionTitle, StatCard, StatusPill } from '../src/components/ui';
+import { Card, EmptyState, PullRefresh, SectionTitle, StatCard, StatusPill } from '../src/components/ui';
 
 /**
  * v2.6 A6 - the analytics summary. KPIs only; spend appears ONLY for
@@ -103,7 +103,7 @@ export default function AnalyticsScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: c.background }}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
     >
       {overview ? (
         <>

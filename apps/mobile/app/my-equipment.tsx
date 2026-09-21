@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetStatus } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
@@ -10,6 +10,8 @@ import {
   Chevron,
   EmptyState,
   IconBadge,
+  ListSkeleton,
+  PullRefresh,
   Screen,
   SectionTitle,
   StatusPill,
@@ -85,7 +87,7 @@ export default function MyEquipmentScreen() {
   );
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       {awaiting.length > 0 ? (
         <Card style={{ marginBottom: spacing.xl, borderColor: c.brand, borderWidth: 1 }}>
           <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>
@@ -102,6 +104,8 @@ export default function MyEquipmentScreen() {
       <SectionTitle>
         {`Equipment${assets.length ? ` (${assets.length}${assets.length === MAX_PAGE_SIZE ? '+' : ''})` : ''}`}
       </SectionTitle>
+      {/* 0.3.29 - placeholder rows for the first load, in place of a blank. */}
+      {assets.length === 0 && loading ? <ListSkeleton rows={3} /> : null}
       {assets.length === 0 && !loading ? (
         <Card style={{ marginBottom: spacing.xl }}>
           <EmptyState

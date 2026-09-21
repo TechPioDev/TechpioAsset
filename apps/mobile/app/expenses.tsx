@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import {
   EXPENSE_SOURCE_LABELS,
   EXPENSE_SOURCES,
@@ -17,7 +17,7 @@ import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { ApiError } from '../src/lib/api-client';
-import { Button, Card, EmptyState, Field, SectionTitle, StatCard } from '../src/components/ui';
+import { Button, Card, EmptyState, Field, PullRefresh, SectionTitle, StatCard } from '../src/components/ui';
 import {
   EXPENSE_CHIPS,
   EXPENSE_LEVEL_LABELS,
@@ -146,7 +146,7 @@ function ExpensesReport() {
     <ScrollView
       style={{ flex: 1, backgroundColor: c.background }}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl }}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       keyboardShouldPersistTaps="handled"
     >
       {/* Period chips */}

@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { DEFAULT_VENDOR_OFFER_POLICY, type VendorOfferPolicy } from '@techpioasset/domain';
-import { Button, Card, Field, Screen, SectionTitle } from '../../src/components/ui';
+import { Button, Card, Field, PullRefresh, Screen, SectionTitle } from '../../src/components/ui';
 
 /**
  * Company settings.
@@ -200,7 +200,7 @@ export default function OrganisationSettingsScreen() {
   }
 
   return (
-    <Screen scroll refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <SectionTitle>Company</SectionTitle>
       <Field label="Name" value={name} onChangeText={setName} />
       <View style={{ flexDirection: 'row', gap: spacing.md }}>

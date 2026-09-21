@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { formatInr, PERMISSIONS, type OfferLifecycle } from '@techpioasset/domain';
 import { OFFER_LIFECYCLE_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Chevron, EmptyState, IconBadge, StatusPill } from '../../src/components/ui';
+import { Button, Card, Chevron, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../../src/components/ui';
 
 /**
  * The catalogue on a phone (v2.42).
@@ -78,7 +78,7 @@ export default function CatalogueScreen() {
       style={{ flex: 1, backgroundColor: c.background }}
       data={visible}
       keyExtractor={(r) => r.id}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListHeaderComponent={
         <View style={{ marginBottom: spacing.md }}>
@@ -127,7 +127,7 @@ export default function CatalogueScreen() {
         </View>
       }
       ListEmptyComponent={
-        loading ? null : (
+        loading ? <ListSkeleton /> : (
           <EmptyState
             icon="pricetags-outline"
             title={search ? 'Nothing matches that' : isVendor ? 'No offers yet' : 'Nothing in the catalogue'}
