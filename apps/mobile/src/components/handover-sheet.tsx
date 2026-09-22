@@ -4,6 +4,8 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'rea
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetCondition } from '@techpioasset/domain';
 import { useSession } from '../providers/session';
+import { cachePeople, cachedPeople, savedLabel } from '../lib/offline-cache';
+import { isNoConnection, recordOffline } from '../lib/sync-service';
 import { useTheme } from '../theme';
 import { Avatar, Button, Field } from './ui';
 
@@ -48,6 +50,7 @@ export function HandoverSheet({
   assetId,
   assetName,
   holderName,
+  holderId = null,
   onClose,
   onDone,
 }: {
@@ -56,6 +59,12 @@ export function HandoverSheet({
   assetId: string;
   assetName: string;
   holderName?: string | null;
+  /**
+   * v2.82 - who holds it as this sheet opens. A handover saved with no
+   * signal carries it, so the server can tell whether someone else moved
+   * the asset before this reached it.
+   */
+  holderId?: string | null;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -70,6 +79,9 @@ export function HandoverSheet({
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // v2.82 - the connection dropped: offer to keep it and send it later.
+  const [offline, setOffline] = useState(false);
+  const [peopleNote, setPeopleNote] = useState<string | null>(null);
 
   const needsPerson = mode !== 'return';
 
@@ -78,8 +90,13 @@ export function HandoverSheet({
     try {
       const rows = await api.request<Person[]>(`/users?pageSize=${MAX_PAGE_SIZE}`);
       setPeople(rows ?? []);
+      setPeopleNote(null);
+      void cachePeople(rows ?? []);
     } catch {
-      setPeople([]);
+      // v2.82 - no signal: the list as it was last loaded, and say when.
+      const cached = await cachedPeople<Person[]>();
+      setPeople(cached?.value ?? []);
+      setPeopleNote(cached ? `No connection - people as of ${savedLabel(cached.savedAt)}.` : null);
     } finally {
       setLoadingPeople(false);
     }
@@ -91,6 +108,7 @@ export function HandoverSheet({
     setNotes('');
     setQ('');
     setError(null);
+    setOffline(false);
     setCondition('GOOD');
     if (needsPerson) void loadPeople();
   }, [visible, needsPerson, loadPeople]);
@@ -105,8 +123,16 @@ export function HandoverSheet({
 
   const copy = {
     assign: { title: 'Assign this asset', cta: 'Assign', conditionLabel: 'Condition going out' },
-    return: { title: 'Take this asset back', cta: 'Take back', conditionLabel: 'Condition coming back' },
-    reassign: { title: 'Hand to someone else', cta: 'Hand over', conditionLabel: 'Condition coming back' },
+    return: {
+      title: 'Take this asset back',
+      cta: 'Take back',
+      conditionLabel: 'Condition coming back',
+    },
+    reassign: {
+      title: 'Hand to someone else',
+      cta: 'Hand over',
+      conditionLabel: 'Condition coming back',
+    },
   }[mode];
 
   async function submit() {
@@ -138,11 +164,72 @@ export function HandoverSheet({
       onDone();
       onClose();
     } catch (e) {
+      if (isNoConnection(e)) {
+        setOffline(true);
+        setError('No connection. Save it here and it will be sent when you are back online.');
+        return;
+      }
       setError(
         e instanceof Error && e.message
           ? e.message
           : 'That did not go through. Check your connection and try again.',
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * v2.82 - keeps the handover on the phone and sends it when there is a
+   * signal. It lands through the same rules as the button above; if someone
+   * else moved the asset in between it comes back as a conflict, not applied.
+   */
+  async function saveForLater() {
+    setBusy(true);
+    try {
+      const trimmed = notes.trim() || undefined;
+      const person = people.find((p) => p.id === personId);
+      const to = person ? ` to ${nameOf(person)}` : '';
+      if (mode === 'assign') {
+        await recordOffline({
+          type: 'ASSET_ASSIGN',
+          entityId: assetId,
+          payload: {
+            userId: personId,
+            conditionOut: condition,
+            notes: trimmed,
+            seenHolderId: null,
+          },
+          label: `Hand ${assetName}${to}`,
+        });
+      } else if (mode === 'return') {
+        await recordOffline({
+          type: 'ASSET_RETURN',
+          entityId: assetId,
+          payload: {
+            conditionIn: condition,
+            resultingStatus: 'AVAILABLE',
+            notes: trimmed,
+            seenHolderId: holderId,
+          },
+          label: `Take back ${assetName}${holderName ? ` from ${holderName}` : ''}`,
+        });
+      } else {
+        await recordOffline({
+          type: 'ASSET_REASSIGN',
+          entityId: assetId,
+          payload: {
+            userId: personId,
+            conditionIn: condition,
+            notes: trimmed,
+            seenHolderId: holderId,
+          },
+          label: `Hand ${assetName}${to}`,
+        });
+      }
+      onClose();
+    } catch {
+      setError('Could not save it on this phone. Try again.');
     } finally {
       setBusy(false);
     }
@@ -181,13 +268,21 @@ export function HandoverSheet({
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: spacing.lg }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            contentContainerStyle={{ padding: spacing.lg }}
+            keyboardShouldPersistTaps="handled"
+          >
             {needsPerson ? (
               <>
                 <Text style={{ color: c.text, fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
                   {mode === 'reassign' ? 'Hand it to' : 'Assign to'}
                 </Text>
                 <Field placeholder="Search people by name or email" value={q} onChangeText={setQ} />
+                {peopleNote ? (
+                  <Text style={{ color: c.warning, fontSize: 12, marginBottom: spacing.sm }}>
+                    {peopleNote}
+                  </Text>
+                ) : null}
                 {loadingPeople ? (
                   <ActivityIndicator color={c.brand} style={{ marginVertical: spacing.lg }} />
                 ) : (
@@ -223,14 +318,19 @@ export function HandoverSheet({
                           >
                             <Avatar name={nameOf(p)} size={34} />
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }} numberOfLines={1}>
+                              <Text
+                                style={{ color: c.text, fontWeight: '600', fontSize: 14 }}
+                                numberOfLines={1}
+                              >
                                 {nameOf(p)}
                               </Text>
                               <Text style={{ color: c.subtle, fontSize: 12 }} numberOfLines={1}>
                                 {p.email}
                               </Text>
                             </View>
-                            {active ? <Ionicons name="checkmark-circle" size={20} color={c.brand} /> : null}
+                            {active ? (
+                              <Ionicons name="checkmark-circle" size={20} color={c.brand} />
+                            ) : null}
                           </Pressable>
                         );
                       })
@@ -243,7 +343,9 @@ export function HandoverSheet({
             <Text style={{ color: c.text, fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
               {copy.conditionLabel}
             </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.lg }}>
+            <View
+              style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.lg }}
+            >
               {CONDITIONS.map(({ value, label }) => {
                 const active = condition === value;
                 return (
@@ -259,7 +361,9 @@ export function HandoverSheet({
                       backgroundColor: active ? `${c.brand}14` : c.card,
                     }}
                   >
-                    <Text style={{ color: active ? c.brand : c.text, fontSize: 13, fontWeight: '600' }}>
+                    <Text
+                      style={{ color: active ? c.brand : c.text, fontSize: 13, fontWeight: '600' }}
+                    >
                       {label}
                     </Text>
                   </Pressable>
@@ -270,7 +374,9 @@ export function HandoverSheet({
             <Field
               label="Notes (optional)"
               placeholder={
-                mode === 'return' ? 'Anything missing or damaged?' : 'Accessories issued, expected return…'
+                mode === 'return'
+                  ? 'Anything missing or damaged?'
+                  : 'Accessories issued, expected return…'
               }
               value={notes}
               onChangeText={setNotes}
@@ -278,10 +384,21 @@ export function HandoverSheet({
             />
 
             {error ? (
-              <Text style={{ color: c.danger, fontSize: 13, marginBottom: spacing.md }}>{error}</Text>
+              <Text style={{ color: c.danger, fontSize: 13, marginBottom: spacing.md }}>
+                {error}
+              </Text>
             ) : null}
 
-            <Button label={copy.cta} onPress={submit} loading={busy} />
+            {offline ? (
+              <Button
+                label="Save and send later"
+                icon="cloud-upload-outline"
+                onPress={() => void saveForLater()}
+                loading={busy}
+              />
+            ) : (
+              <Button label={copy.cta} onPress={submit} loading={busy} />
+            )}
           </ScrollView>
         </View>
       </View>

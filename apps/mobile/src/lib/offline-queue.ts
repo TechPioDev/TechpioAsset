@@ -20,6 +20,15 @@ import type { KeyValueStore } from './storage';
  */
 
 const QUEUE_KEY = 'techpioasset.offline.queue';
+/** v2.82 - why a kept operation was not applied, by clientGeneratedId. */
+const OUTCOMES_KEY = 'techpioasset.offline.outcomes';
+/** The server takes at most this many per upload. */
+const BATCH = 500;
+
+export interface HeldOutcome {
+  outcome: 'CONFLICT' | 'REJECTED';
+  message: string | null;
+}
 
 export type BatchUploader = (
   operations: OfflineOperation[],
@@ -61,8 +70,30 @@ export class OfflineQueue {
     await this.write(queue);
   }
 
+  private async outcomes(): Promise<Record<string, HeldOutcome>> {
+    const raw = await this.store.get(OUTCOMES_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as Record<string, HeldOutcome>;
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Everything still to send, not counting what waits for the user. */
   async pendingCount(): Promise<number> {
-    return (await this.read()).length;
+    const [queue, held] = await Promise.all([this.read(), this.outcomes()]);
+    return queue.filter((op) => !held[op.clientGeneratedId]).length;
+  }
+
+  /**
+   * v2.82 - every kept operation with why it is kept: nothing (waiting to be
+   * sent), or the server's CONFLICT / REJECTED and its reason.
+   */
+  async entries(): Promise<{ op: OfflineOperation; held: HeldOutcome | null }[]> {
+    const [queue, held] = await Promise.all([this.read(), this.outcomes()]);
+    return queue.map((op) => ({ op, held: held[op.clientGeneratedId] ?? null }));
   }
 
   async pending(): Promise<OfflineOperation[]> {
@@ -77,31 +108,52 @@ export class OfflineQueue {
    * clientGeneratedId. On success, applied and duplicate operations are dropped
    * and conflicts/rejections are retained.
    */
-  async flush(uploader: BatchUploader, sessionId?: string): Promise<QueueStatus> {
+  async flush(
+    uploader: BatchUploader,
+    sessionId?: string,
+    /** v2.82 - only these may go up now (the signed-in person's own). */
+    only: (op: OfflineOperation) => boolean = () => true,
+  ): Promise<QueueStatus> {
     const queue = await this.read();
-    if (queue.length === 0) return summariseQueue([], 0);
+    const held = await this.outcomes();
+    // v2.82 - a conflict or a refusal is not sent again on its own: it would
+    // only come back the same. It waits until the user discards it.
+    const sendable = queue.filter((op) => !held[op.clientGeneratedId] && only(op)).slice(0, BATCH);
+    if (sendable.length === 0) return summariseQueue([], 0);
 
     let results: OperationResult[];
     try {
-      ({ results } = await uploader(queue, sessionId));
+      ({ results } = await uploader(sendable, sessionId));
     } catch {
       // Offline again mid-flush: keep everything, report it all still pending.
-      return summariseQueue([], queue.length);
+      return summariseQueue([], sendable.length);
     }
 
     const retained = operationsToRetain(queue, results);
     await this.write(retained);
+    for (const r of results) {
+      if (r.outcome === 'CONFLICT' || r.outcome === 'REJECTED') {
+        held[r.clientGeneratedId] = { outcome: r.outcome, message: r.message ?? null };
+      }
+    }
+    const kept = new Set(retained.map((op) => op.clientGeneratedId));
+    for (const key of Object.keys(held)) if (!kept.has(key)) delete held[key];
+    await this.store.set(OUTCOMES_KEY, JSON.stringify(held));
 
-    return summariseQueue(results, retained.length);
+    return summariseQueue(results, retained.filter((op) => !held[op.clientGeneratedId]).length);
   }
 
   /** Discards a conflicted/rejected operation the user chose not to keep. */
   async discard(clientGeneratedId: string): Promise<void> {
     const queue = await this.read();
     await this.write(queue.filter((op) => op.clientGeneratedId !== clientGeneratedId));
+    const held = await this.outcomes();
+    delete held[clientGeneratedId];
+    await this.store.set(OUTCOMES_KEY, JSON.stringify(held));
   }
 
   async clear(): Promise<void> {
     await this.store.delete(QUEUE_KEY);
+    await this.store.delete(OUTCOMES_KEY);
   }
 }

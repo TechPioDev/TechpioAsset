@@ -134,3 +134,60 @@ describe('resilience', () => {
     expect(await queue.pendingCount()).toBe(1);
   });
 });
+
+describe('what waits for the user (v2.82)', () => {
+  it('keeps a conflict with its reason, and does not send it again', async () => {
+    await queue.enqueue(scan('a'));
+    await queue.enqueue(scan('b'));
+    const uploads: string[][] = [];
+    const uploader = async (ops: OfflineOperation[]) => {
+      uploads.push(ops.map((o) => o.clientGeneratedId));
+      const results: OperationResult[] = ops.map((o) =>
+        o.clientGeneratedId === 'a'
+          ? { clientGeneratedId: 'a', outcome: 'CONFLICT', message: 'It is now held by Cara' }
+          : { clientGeneratedId: o.clientGeneratedId, outcome: 'APPLIED' },
+      );
+      return { results };
+    };
+    const first = await queue.flush(uploader);
+    expect(first.conflict).toBe(1);
+    expect(await queue.pendingCount()).toBe(0);
+    expect(await queue.entries()).toEqual([
+      {
+        op: expect.objectContaining({ clientGeneratedId: 'a' }),
+        held: { outcome: 'CONFLICT', message: 'It is now held by Cara' },
+      },
+    ]);
+
+    // Nothing sendable: the conflict is not uploaded again.
+    await queue.flush(uploader);
+    expect(uploads).toEqual([['a', 'b']]);
+
+    // Discarding it clears the reason too.
+    await queue.discard('a');
+    expect(await queue.entries()).toEqual([]);
+  });
+});
+
+describe('a shared phone (v2.82)', () => {
+  it('sends only what the filter allows, and keeps the rest', async () => {
+    await queue.enqueue({ ...scan('mine'), payload: { recordedBy: 'u1' } });
+    await queue.enqueue({ ...scan('theirs'), payload: { recordedBy: 'u2' } });
+    const sent: string[] = [];
+    await queue.flush(
+      async (ops) => {
+        sent.push(...ops.map((o) => o.clientGeneratedId));
+        return {
+          results: ops.map((o) => ({
+            clientGeneratedId: o.clientGeneratedId,
+            outcome: 'APPLIED' as const,
+          })),
+        };
+      },
+      undefined,
+      (op) => (op.payload as { recordedBy?: string }).recordedBy === 'u1',
+    );
+    expect(sent).toEqual(['mine']);
+    expect((await queue.pending()).map((o) => o.clientGeneratedId)).toEqual(['theirs']);
+  });
+});

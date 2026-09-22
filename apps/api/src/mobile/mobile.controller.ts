@@ -12,7 +12,7 @@ import { PERMISSIONS } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { zodBody } from '../common/pipes/zod-validation.pipe.js';
 import { assetScopeFilter, tenantFilter } from '../common/scope.js';
-import { CurrentUser, RequirePermissions } from '../auth/decorators.js';
+import { CurrentUser, RequireAnyPermission, RequirePermissions } from '../auth/decorators.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MobileSyncService } from './mobile-sync.service.js';
 
@@ -175,7 +175,13 @@ export class MobileController {
   // ── Offline sync (spec section 16) ─────────────────────────────────────────
 
   @Post('sync')
-  @RequirePermissions(PERMISSIONS.INVENTORY_ADJUST)
+  // v2.82 - handovers and returns sync too; each operation is checked against
+  // its own right in the service, so opening the door wider opens nothing else.
+  @RequireAnyPermission(
+    PERMISSIONS.INVENTORY_ADJUST,
+    PERMISSIONS.ASSETS_ASSIGN,
+    PERMISSIONS.ASSETS_RETURN,
+  )
   @ApiOperation({
     summary: 'Replay a batch of queued offline operations',
     description:

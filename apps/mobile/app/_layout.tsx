@@ -8,6 +8,7 @@ import { gateRedirect } from '../src/lib/session-gate';
 import { rememberDestination } from '../src/lib/pending-route';
 import { NotificationTaps } from '../src/components/notification-taps';
 import { WhatsNewGate } from '../src/components/whats-new-gate';
+import { SyncRunner } from '../src/components/sync-banner';
 import { useTheme } from '../src/theme';
 
 /**
@@ -33,6 +34,7 @@ function RootShell() {
         <NotificationTaps />
         <SessionGate />
         <WhatsNewGate />
+        <SyncRunner />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -80,6 +82,7 @@ function RootShell() {
             name="report-problem"
             options={{ headerShown: true, title: 'Report a problem' }}
           />
+          <Stack.Screen name="sync" options={{ headerShown: true, title: 'Waiting to sync' }} />
           <Stack.Screen
             name="whats-new"
             options={{ headerShown: true, title: 'What’s new', presentation: 'modal' }}

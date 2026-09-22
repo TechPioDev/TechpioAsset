@@ -3,9 +3,20 @@ import { Alert, FlatList, Pressable, ScrollView, Text, View } from 'react-native
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
-import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh } from '../src/components/ui';
+import {
+  Button,
+  Card,
+  EmptyState,
+  IconBadge,
+  ListSkeleton,
+  PullRefresh,
+} from '../src/components/ui';
 import { AddStockSheet, NewStockItemSheet } from '../src/components/stock-entry-sheets';
 import { stockEmptyState, type AddStockForm } from '../src/lib/stock-entry';
+import { StockCountSheet, type CountTarget } from '../src/components/stock-count-sheet';
+import { cacheStock, cachedStock, savedLabel } from '../src/lib/offline-cache';
+import { isNoConnection } from '../src/lib/sync-service';
+import { SyncBanner } from '../src/components/sync-banner';
 
 interface Level {
   id: string;
@@ -28,6 +39,9 @@ export default function StockScreen() {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [addPreset, setAddPreset] = useState<Partial<AddStockForm> | null>(null);
+  // v2.82 - counting a shelf, and whether the list came from the phone.
+  const [counting, setCounting] = useState<CountTarget | null>(null);
+  const [offlineSince, setOfflineSince] = useState<string | null>(null);
 
   const canAdjust = user?.permissions.includes(PERMISSIONS.INVENTORY_ADJUST) ?? false;
   const canSetPrice = user?.permissions.includes(PERMISSIONS.ASSETS_COST_READ) ?? false;
@@ -37,12 +51,23 @@ export default function StockScreen() {
     try {
       // v2.10 S2: /stock/levels is paginated now, so the payload is enveloped.
       const [page, items] = await Promise.all([
-        api.request<{ data: Level[] }>('/stock/levels?pageSize=50'),
+        api.request<Level[] | { data: Level[] }>('/stock/levels?pageSize=50'),
         // Only to tell "no items yet" from "items but no stock" in the empty state.
         canAdjust ? api.request<{ id: string }[]>('/stock/items') : Promise.resolve(null),
       ]);
-      setRows(page?.data ?? []);
+      // v2.82 - the client already unwraps the envelope, so this is the list
+      // itself. Reading `.data` off it left the screen on "No stock recorded"
+      // however much stock there was.
+      const list = Array.isArray(page) ? page : (page?.data ?? []);
+      setRows(list);
       setItemCount(items?.length ?? 0);
+      setOfflineSince(null);
+      void cacheStock(list);
+    } catch (error) {
+      if (!isNoConnection(error)) throw error;
+      const cached = await cachedStock<Level[]>();
+      setRows(cached?.value ?? []);
+      setOfflineSince(cached?.savedAt ?? new Date().toISOString());
     } finally {
       setLoading(false);
     }
@@ -60,8 +85,24 @@ export default function StockScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+        {offlineSince ? (
+          <Text style={{ color: c.warning, fontSize: 12, marginBottom: spacing.sm }}>
+            No connection - stock as of {savedLabel(offlineSince)}. Counts you record are sent
+            later.
+          </Text>
+        ) : null}
+        <SyncBanner />
+      </View>
       {canAdjust ? (
-        <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: spacing.sm,
+            paddingHorizontal: spacing.lg,
+            paddingTop: spacing.md,
+          }}
+        >
           <Button
             label="New item"
             icon="add-circle-outline"
@@ -116,11 +157,17 @@ export default function StockScreen() {
         refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
         ListEmptyComponent={
-          loading ? <ListSkeleton /> : (
+          loading ? (
+            <ListSkeleton />
+          ) : (
             <View>
               <EmptyState icon="layers-outline" title={empty.title} message={empty.message} />
               {empty.action === 'new-item' ? (
-                <Button label="Create the first item" icon="add-circle-outline" onPress={() => setNewItemOpen(true)} />
+                <Button
+                  label="Create the first item"
+                  icon="add-circle-outline"
+                  onPress={() => setNewItemOpen(true)}
+                />
               ) : empty.action === 'add-stock' ? (
                 <Button label="Add stock" icon="add-outline" onPress={() => setAddPreset({})} />
               ) : null}
@@ -131,9 +178,17 @@ export default function StockScreen() {
           const qty = Number(item.quantity);
           const reserved = Number(item.reserved);
           const free = Math.max(0, qty - reserved);
-          const low = item.inventoryItem.minStock !== null && qty <= Number(item.inventoryItem.minStock);
+          const low =
+            item.inventoryItem.minStock !== null && qty <= Number(item.inventoryItem.minStock);
           return (
-            <Card style={{ marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Card
+              style={{
+                marginBottom: spacing.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+              }}
+            >
               <IconBadge icon="layers-outline" />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
@@ -158,7 +213,36 @@ export default function StockScreen() {
               {canAdjust ? (
                 <Pressable
                   onPress={() =>
-                    setAddPreset({ itemId: item.inventoryItem.id, locationId: item.stockLocation.id })
+                    setCounting({
+                      inventoryItemId: item.inventoryItem.id,
+                      stockLocationId: item.stockLocation.id,
+                      itemName: item.inventoryItem.name,
+                      locationName: item.stockLocation.name,
+                      unit: item.inventoryItem.unit,
+                      systemQuantity: qty,
+                    })
+                  }
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Count ${item.inventoryItem.name} at ${item.stockLocation.name}`}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: c.border,
+                  }}
+                >
+                  <Text style={{ color: c.text, fontSize: 13, fontWeight: '700' }}>Count</Text>
+                </Pressable>
+              ) : null}
+              {canAdjust && !offlineSince ? (
+                <Pressable
+                  onPress={() =>
+                    setAddPreset({
+                      itemId: item.inventoryItem.id,
+                      locationId: item.stockLocation.id,
+                    })
                   }
                   hitSlop={8}
                   accessibilityRole="button"
@@ -179,6 +263,15 @@ export default function StockScreen() {
         }}
       />
 
+      <StockCountSheet
+        target={counting}
+        onClose={() => setCounting(null)}
+        onDone={(message) => {
+          setCounting(null);
+          void load();
+          Alert.alert('Count recorded', message);
+        }}
+      />
       <NewStockItemSheet
         visible={newItemOpen}
         canSetPrice={canSetPrice}

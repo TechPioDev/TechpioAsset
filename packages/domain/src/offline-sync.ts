@@ -19,6 +19,11 @@ export const OFFLINE_OP_TYPES = [
   'ASSET_PHOTO',
   'LOCATION_UPDATE',
   'NOTE',
+  // v2.82 (Phase 6) - custody and stock, recorded with no signal.
+  'ASSET_ASSIGN',
+  'ASSET_REASSIGN',
+  'ASSET_RETURN',
+  'STOCK_COUNT',
 ] as const;
 export type OfflineOpType = (typeof OFFLINE_OP_TYPES)[number];
 
@@ -208,4 +213,81 @@ export function mayQueueOffline(opType: string): boolean {
   return (
     !ONLINE_ONLY_OP_TYPES.has(opType) && (OFFLINE_OP_TYPES as readonly string[]).includes(opType)
   );
+}
+
+// ---------------------------------------------------------------------------
+// v2.82 (Phase 6) - the rules for a handover, return or stock count that was
+// recorded offline and reaches the server later.
+//
+// The question is never "did anything about this asset change" (a note or a
+// photo bumps the version and would make every offline handover a conflict).
+// It is "is the thing I acted on still the way I saw it": for custody, who
+// held the asset; for a count, how much the system said was on the shelf.
+// ---------------------------------------------------------------------------
+
+export const CUSTODY_OP_TYPES = ['ASSET_ASSIGN', 'ASSET_REASSIGN', 'ASSET_RETURN'] as const;
+export type CustodyOpType = (typeof CUSTODY_OP_TYPES)[number];
+
+export type CustodyDecision =
+  | { outcome: 'APPLY' }
+  | { outcome: 'ALREADY_DONE'; message: string }
+  | { outcome: 'CONFLICT'; message: string };
+
+/**
+ * Whether a custody change recorded offline may still be applied.
+ *
+ * - APPLY when the asset is held by exactly whom the phone saw.
+ * - ALREADY_DONE when the change the phone recorded is already true (someone
+ *   else did the same thing): nothing to apply, nothing lost.
+ * - CONFLICT otherwise - somebody else moved it in between. Never applied on
+ *   top: the person who recorded it decides, with the current holder in view.
+ */
+export function decideCustody(
+  type: CustodyOpType,
+  op: { seenHolderId: string | null; targetUserId?: string | null },
+  current: { holderId: string | null; holderName?: string | null },
+): CustodyDecision {
+  const now = current.holderId;
+  const who = current.holderName ?? 'someone else';
+  if (type === 'ASSET_RETURN') {
+    if (now === op.seenHolderId) return { outcome: 'APPLY' };
+    if (now === null)
+      return { outcome: 'ALREADY_DONE', message: 'Already returned by someone else.' };
+    return {
+      outcome: 'CONFLICT',
+      message: `It is now held by ${who} - it changed after you recorded the return.`,
+    };
+  }
+  if (op.targetUserId && now === op.targetUserId) {
+    return { outcome: 'ALREADY_DONE', message: `Already with ${who}.` };
+  }
+  if (now === op.seenHolderId) return { outcome: 'APPLY' };
+  return {
+    outcome: 'CONFLICT',
+    message:
+      now === null
+        ? 'It was returned after you recorded the handover. Hand it over again if it is still right.'
+        : `It is now held by ${who} - it changed after you recorded the handover.`,
+  };
+}
+
+/**
+ * Whether a stock count recorded offline may still be applied. A count is
+ * "there are N on the shelf", taken against what the system said at the time.
+ * If stock has moved since (issued, received, counted by someone else),
+ * setting it to N would silently undo those movements, so it is a conflict:
+ * count again. Equal numbers mean nothing moved and the count applies.
+ */
+export function decideStockCount(
+  op: { seenQuantity: number; countedQuantity: number },
+  current: { quantity: number },
+): CustodyDecision {
+  if (current.quantity === op.seenQuantity) return { outcome: 'APPLY' };
+  if (current.quantity === op.countedQuantity) {
+    return { outcome: 'ALREADY_DONE', message: `The system already shows ${op.countedQuantity}.` };
+  }
+  return {
+    outcome: 'CONFLICT',
+    message: `Stock moved after you counted: the system said ${op.seenQuantity} then, and ${current.quantity} now. Count again.`,
+  };
 }

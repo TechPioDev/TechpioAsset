@@ -607,6 +607,7 @@ model Company {
   documents             VendorProductDocument[]
   stockChanges          VendorProductStockChange[]
   assetVerifications    AssetVerification[]
+  offlineReceipts       OfflineOperationReceipt[]
 
   @@index([deletedAt])
   @@map("companies")
@@ -1575,6 +1576,28 @@ model AssetConditionLog {
 /// a verification round. It changes nothing about the asset: it is the evidence
 /// an auditor reads, which is why an Auditor - read-only by invariant - can see
 /// these and never write one.
+/// v2.82 (Phase 6) - one row per offline change the server APPLIED (or found
+/// already done), keyed by the phone's clientGeneratedId. A phone that retries
+/// its queue after a dropped connection gets DUPLICATE, never a second handover
+/// or a second stock movement. Conflicts are not recorded: they were not applied.
+model OfflineOperationReceipt {
+  id                String   @id @default(cuid())
+  companyId         String
+  userId            String?
+  clientGeneratedId String   @unique
+  type              String
+  outcome           String
+  serverId          String?
+  message           String?
+  capturedAt        DateTime
+  createdAt         DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@map("offline_operation_receipts")
+}
+
 model AssetVerification {
   id        String @id @default(cuid())
   companyId String

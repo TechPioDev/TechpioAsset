@@ -59,6 +59,9 @@ import {
 } from '../../src/lib/asset-overview';
 import { primaryPhotoId, unitPhotos, usesLegacyPhotoRoutes } from '../../src/lib/asset-photos';
 import { useSession } from '../../src/providers/session';
+import { cacheAsset, cachedAsset, savedLabel } from '../../src/lib/offline-cache';
+import { isNoConnection } from '../../src/lib/sync-service';
+import { SyncBanner } from '../../src/components/sync-banner';
 import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { ConditionPhotoSheet, type PhotoStage } from '../../src/components/condition-photo-sheet';
@@ -233,9 +236,23 @@ export default function AssetDetailScreen() {
   const anchors = useRef<Partial<Record<Anchor, number>>>({});
   const [pendingJump, setPendingJump] = useState<Anchor | null>(null);
 
+  // v2.82 - when this copy came from the phone rather than the server.
+  const [offlineSince, setOfflineSince] = useState<string | null>(null);
   const load = useCallback(async () => {
-    const data = await api.request<AssetDetail>(`/assets/${id}`);
-    setAsset(data);
+    try {
+      const data = await api.request<AssetDetail>(`/assets/${id}`);
+      setAsset(data);
+      setOfflineSince(null);
+      void cacheAsset(id, data);
+    } catch (error) {
+      // No signal: the copy from the last time it was opened, so a handover
+      // can still be recorded. The server's own refusals are not hidden.
+      if (!isNoConnection(error)) throw error;
+      const cached = await cachedAsset<AssetDetail>(id);
+      if (!cached) throw error;
+      setAsset(cached.value);
+      setOfflineSince(cached.savedAt);
+    }
   }, [api, id]);
 
   // Reloaded on focus, not just mount, so coming back from Edit shows the save.
@@ -559,6 +576,16 @@ export default function AssetDetailScreen() {
 
   return (
     <Screen scroll scrollRef={scrollRef}>
+      {offlineSince ? (
+        <Card style={{ marginBottom: spacing.md, borderColor: c.warning, borderWidth: 1 }}>
+          <Text style={{ color: c.text, fontWeight: '700', fontSize: 14 }}>No connection</Text>
+          <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }}>
+            Showing this asset as of {savedLabel(offlineSince)}. A handover or return you record is
+            saved on the phone and sent when you are back online.
+          </Text>
+        </Card>
+      ) : null}
+      <SyncBanner />
       {/* Header: who this device is, in one glance. */}
       <Card style={{ marginBottom: spacing.lg }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>
@@ -1166,6 +1193,7 @@ export default function AssetDetailScreen() {
         assetId={asset.id}
         assetName={asset.name}
         holderName={holderName}
+        holderId={holderId}
         onClose={() => setHandover(null)}
         onDone={() => {
           void load();

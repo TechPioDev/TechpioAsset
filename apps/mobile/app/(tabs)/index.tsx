@@ -25,6 +25,7 @@ import {
 import { UpdateBanner } from '../../src/components/update-banner';
 import { HomeQueue, QuickActions } from '../../src/components/home/home-sections';
 import { ReceiptCard } from '../../src/components/home/receipt-card';
+import { SyncBanner } from '../../src/components/sync-banner';
 import { homePlan } from '../../src/lib/home-plan';
 
 interface AssetRow {
@@ -179,6 +180,8 @@ export default function HomeScreen() {
 
       {/* v2.80 - a handover waiting on this person comes before everything
           else they could do: it is the one thing only they can do. */}
+      {/* v2.82 - anything recorded with no signal, and whether it went. */}
+      <SyncBanner />
       {user && !isVendor ? (
         <ReceiptCard waiting={receiptsWaiting(assets, user.id)} onConfirmed={load} />
       ) : null}

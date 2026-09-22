@@ -65,7 +65,9 @@ export default function OffboardScreen() {
   const [task, setTask] = useState<Task | null>(null);
   const [consumables, setConsumables] = useState<HeldConsumable[]>([]);
   const [startError, setStartError] = useState<string | null>(null);
-  const [handover, setHandover] = useState<{ mode: HandoverMode; row: OffboardingRow } | null>(null);
+  const [handover, setHandover] = useState<{ mode: HandoverMode; row: OffboardingRow } | null>(
+    null,
+  );
   const [exceptionOpen, setExceptionOpen] = useState(false);
   const [exceptionReason, setExceptionReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,7 +81,10 @@ export default function OffboardScreen() {
       try {
         const [p, t, s] = await Promise.all([
           api.request<Person>(`/users/${id}`),
-          api.request<Task>('/lifecycle/offboarding', { method: 'POST', body: { subjectUserId: id } }),
+          api.request<Task>('/lifecycle/offboarding', {
+            method: 'POST',
+            body: { subjectUserId: id },
+          }),
           api.request<HeldConsumable[]>(`/stock/held-by/${id}`).catch(() => []),
         ]);
         if (cancelled) return;
@@ -135,7 +140,12 @@ export default function OffboardScreen() {
       <Screen>
         <Card>
           <Text style={{ color: c.danger, fontSize: 14 }}>{startError}</Text>
-          <Button label="Back" variant="secondary" onPress={() => router.back()} style={{ marginTop: spacing.md }} />
+          <Button
+            label="Back"
+            variant="secondary"
+            onPress={() => router.back()}
+            style={{ marginTop: spacing.md }}
+          />
         </Card>
       </Screen>
     );
@@ -198,7 +208,10 @@ export default function OffboardScreen() {
                   color={row.returned ? c.success : c.brand}
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
+                  <Text
+                    style={{ color: c.text, fontWeight: '700', fontSize: 15 }}
+                    numberOfLines={1}
+                  >
                     {row.name}
                   </Text>
                   <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
@@ -243,8 +256,8 @@ export default function OffboardScreen() {
       {progress.blocking > 0 && !gates.canReturn ? (
         // HR may run the offboarding but not touch custody; say who can.
         <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.lg }}>
-          Recording a return needs the assets:return permission - ask IT or an office admin. Pull this
-          screen open again as they record each one.
+          Recording a return needs the assets:return permission - ask IT or an office admin. Pull
+          this screen open again as they record each one.
         </Text>
       ) : null}
 
@@ -338,12 +351,22 @@ export default function OffboardScreen() {
                   padding: spacing.md,
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: spacing.md }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    marginBottom: spacing.md,
+                  }}
+                >
                   <Ionicons name="warning-outline" size={18} color={palette.warning.fg} />
-                  <Text style={{ color: palette.warning.fg, fontSize: 13, flex: 1, lineHeight: 18 }}>
-                    The {progress.blocking} outstanding {progress.blocking === 1 ? 'asset stays' : 'assets stay'}{' '}
-                    recorded against {name} after their account is closed. Your name is recorded as having
-                    approved this.
+                  <Text
+                    style={{ color: palette.warning.fg, fontSize: 13, flex: 1, lineHeight: 18 }}
+                  >
+                    The {progress.blocking} outstanding{' '}
+                    {progress.blocking === 1 ? 'asset stays' : 'assets stay'} recorded against{' '}
+                    {name} after their account is closed. Your name is recorded as having approved
+                    this.
                   </Text>
                 </View>
                 <Field
@@ -355,7 +378,9 @@ export default function OffboardScreen() {
                   maxLength={1000}
                 />
                 {exceptionReason.length > 0 && exceptionProblem ? (
-                  <Text style={{ color: c.danger, fontSize: 12, marginBottom: spacing.sm }}>{exceptionProblem}</Text>
+                  <Text style={{ color: c.danger, fontSize: 12, marginBottom: spacing.sm }}>
+                    {exceptionProblem}
+                  </Text>
                 ) : null}
                 <Button
                   label="Complete with exception and deactivate"
@@ -381,8 +406,8 @@ export default function OffboardScreen() {
       </Card>
 
       <Text style={{ color: c.subtle, fontSize: 12, marginBottom: spacing.lg }}>
-        Licence seats are not listed here: the register has no per-person seat view for administrators
-        yet. Reclaim them from the licence itself.
+        Licence seats are not listed here: the register has no per-person seat view for
+        administrators yet. Reclaim them from the licence itself.
       </Text>
 
       <HandoverSheet
@@ -391,11 +416,14 @@ export default function OffboardScreen() {
         assetId={handover?.row.assetId ?? ''}
         assetName={handover?.row.name ?? ''}
         holderName={name}
+        holderId={id ?? null}
         onClose={() => setHandover(null)}
         onDone={() => {
           showFlash(
             'success',
-            handover?.mode === 'return' ? `${handover.row.name} returned` : `${handover?.row.name} handed over`,
+            handover?.mode === 'return'
+              ? `${handover.row.name} returned`
+              : `${handover?.row.name} handed over`,
           );
           void reloadTask();
         }}

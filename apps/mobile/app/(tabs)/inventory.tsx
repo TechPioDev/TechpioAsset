@@ -2,12 +2,12 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, Text, useColorScheme, View } from 'react-native';
 import { ulid } from '../../src/lib/ulid';
-import { OfflineQueue } from '../../src/lib/offline-queue';
 import { SqliteStore } from '../../src/lib/sqlite-store';
+import { refreshSyncStatus, sendNow, syncQueue } from '../../src/lib/sync-service';
 import { NativeOnlyNotice } from '../../src/components/native-only-notice';
 import { useSession } from '../../src/providers/session';
 import { colors } from '../../src/theme';
-import type { OperationResult, QueueStatus } from '@techpioasset/domain';
+import type { QueueStatus } from '@techpioasset/domain';
 
 /**
  * Offline physical inventory (spec section 16).
@@ -18,10 +18,14 @@ import type { OperationResult, QueueStatus } from '@techpioasset/domain';
  * retry after a dropped connection never double-counts. The sync-status line
  * shows pending / synced / conflicts clearly, as the spec requires.
  */
-const queue = new OfflineQueue(new SqliteStore());
+// v2.82 - the app's one queue, so scans also go up from the background
+// runner, and the stock-take they belong to survives an app restart.
+const queue = syncQueue;
+const sessionStore = new SqliteStore();
+const SESSION_KEY = 'stocktake.session';
 
 export default function InventoryScreen() {
-  const { api } = useSession();
+  const { api, user } = useSession();
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
 
@@ -38,6 +42,13 @@ export default function InventoryScreen() {
 
   useEffect(() => {
     void refreshPending();
+    // Pick up the stock-take this phone was in the middle of.
+    void sessionStore
+      .get(SESSION_KEY)
+      .then((id) => {
+        if (id) setSessionId(id);
+      })
+      .catch(() => undefined);
   }, [refreshPending]);
 
   // Offline inventory is a camera-driven, on-device stocktake; the browser build
@@ -52,11 +63,21 @@ export default function InventoryScreen() {
   }
 
   async function startSession() {
-    const session = await api.request<{ id: string }>('/mobile/inventory/sessions', {
-      method: 'POST',
-      body: { name: `Stocktake ${new Date().toLocaleDateString()}` },
-    });
+    let session: { id: string };
+    try {
+      session = await api.request<{ id: string }>('/mobile/inventory/sessions', {
+        method: 'POST',
+        body: { name: `Stocktake ${new Date().toLocaleDateString()}` },
+      });
+    } catch {
+      Alert.alert(
+        'Needs a connection to start',
+        'Start the stock-take where there is signal. After that, scanning works with none.',
+      );
+      return;
+    }
     setSessionId(session.id);
+    void sessionStore.set(SESSION_KEY, session.id).catch(() => undefined);
     setScanning(true);
   }
 
@@ -71,7 +92,11 @@ export default function InventoryScreen() {
       clientGeneratedId: ulid(),
       type: 'INVENTORY_SCAN',
       entityId: null,
-      payload: { scannedCode: code },
+      payload: {
+        scannedCode: code,
+        ...(sessionId ? { sessionId } : {}),
+        ...(user ? { recordedBy: user.id } : {}),
+      },
       capturedAt: new Date().toISOString(),
     });
     await refreshPending();
@@ -79,14 +104,12 @@ export default function InventoryScreen() {
 
   async function sync() {
     if (!sessionId) return;
-    const result = await queue.flush(
-      (operations, sid) =>
-        api.request<{ results: OperationResult[] }>('/mobile/sync', {
-          method: 'POST',
-          body: { sessionId: sid, operations },
-        }),
-      sessionId,
-    );
+    const result = await sendNow(api, sessionId).catch(() => null);
+    await refreshSyncStatus();
+    if (!result) {
+      await refreshPending();
+      return;
+    }
     setStatus(result);
     await refreshPending();
     if (result.conflict > 0 || result.rejected > 0) {

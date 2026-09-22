@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  decideCustody,
+  decideStockCount,
   orderOperationsForReplay,
   decideOperation,
   summariseQueue,
@@ -233,5 +235,69 @@ describe('end-to-end replay is convergent', () => {
     // Both converge to "only the conflict remains".
     expect(afterFull).toEqual(['c']);
     expect(afterPartial).toEqual(['c']);
+  });
+});
+
+describe('custody and stock recorded offline (v2.82)', () => {
+  it('applies a handover when the asset is held by whom the phone saw', () => {
+    expect(
+      decideCustody('ASSET_ASSIGN', { seenHolderId: null, targetUserId: 'b' }, { holderId: null }),
+    ).toEqual({
+      outcome: 'APPLY',
+    });
+    expect(
+      decideCustody('ASSET_REASSIGN', { seenHolderId: 'a', targetUserId: 'b' }, { holderId: 'a' })
+        .outcome,
+    ).toBe('APPLY');
+    expect(decideCustody('ASSET_RETURN', { seenHolderId: 'a' }, { holderId: 'a' }).outcome).toBe(
+      'APPLY',
+    );
+  });
+
+  it('treats a change already made by someone else as done, not as a conflict', () => {
+    expect(
+      decideCustody(
+        'ASSET_ASSIGN',
+        { seenHolderId: null, targetUserId: 'b' },
+        { holderId: 'b', holderName: 'Ben' },
+      ),
+    ).toEqual({ outcome: 'ALREADY_DONE', message: 'Already with Ben.' });
+    expect(decideCustody('ASSET_RETURN', { seenHolderId: 'a' }, { holderId: null }).outcome).toBe(
+      'ALREADY_DONE',
+    );
+  });
+
+  it('refuses to apply on top of someone else’s change, and says who holds it now', () => {
+    const d = decideCustody(
+      'ASSET_ASSIGN',
+      { seenHolderId: null, targetUserId: 'b' },
+      { holderId: 'c', holderName: 'Cara' },
+    );
+    expect(d.outcome).toBe('CONFLICT');
+    expect(d.outcome === 'CONFLICT' && d.message).toMatch(/Cara/);
+    expect(decideCustody('ASSET_RETURN', { seenHolderId: 'a' }, { holderId: 'c' }).outcome).toBe(
+      'CONFLICT',
+    );
+    expect(
+      decideCustody('ASSET_REASSIGN', { seenHolderId: 'a', targetUserId: 'b' }, { holderId: null })
+        .outcome,
+    ).toBe('CONFLICT');
+  });
+
+  it('applies a stock count only if nothing moved since it was taken', () => {
+    expect(
+      decideStockCount({ seenQuantity: 10, countedQuantity: 7 }, { quantity: 10 }).outcome,
+    ).toBe('APPLY');
+    expect(
+      decideStockCount({ seenQuantity: 10, countedQuantity: 7 }, { quantity: 7 }).outcome,
+    ).toBe('ALREADY_DONE');
+    const moved = decideStockCount({ seenQuantity: 10, countedQuantity: 7 }, { quantity: 8 });
+    expect(moved.outcome).toBe('CONFLICT');
+    expect(moved.outcome === 'CONFLICT' && moved.message).toMatch(/10 then, and 8 now/);
+  });
+
+  it('lets the new types be queued', () => {
+    for (const t of ['ASSET_ASSIGN', 'ASSET_REASSIGN', 'ASSET_RETURN', 'STOCK_COUNT'])
+      expect(mayQueueOffline(t)).toBe(true);
   });
 });

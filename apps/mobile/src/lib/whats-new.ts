@@ -17,6 +17,26 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.37',
+    items: [
+      {
+        icon: 'cloud-offline-outline',
+        title: 'Works with no signal',
+        body: 'Record a handover, a return or a stock count with no connection. It is sent as soon as you are back online.',
+      },
+      {
+        icon: 'alert-circle-outline',
+        title: 'Nothing overwritten',
+        body: 'If someone else changed the same asset first, yours is held back and shown to you - never applied on top.',
+      },
+      {
+        icon: 'layers-outline',
+        title: 'Count stock',
+        body: 'Tap Count on any stock line to record what is on the shelf.',
+      },
+    ],
+  },
+  {
     version: '0.3.36',
     items: [
       {

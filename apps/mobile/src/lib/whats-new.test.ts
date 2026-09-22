@@ -17,7 +17,7 @@ describe('what is new after an update', () => {
   });
 
   it('shows nothing for a release with no notes', () => {
-    expect(notesToShow('0.3.37', '0.3.36')).toEqual([]);
+    expect(notesToShow('9.9.9', '9.9.8')).toEqual([]);
   });
 
   it('never more than three releases at once', () => {
