@@ -1,5 +1,8 @@
 import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { Dimensions, Platform } from 'react-native';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { isPhoneSized } from '../src/lib/tablet-layout-rules';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppearanceProvider } from '../src/providers/appearance';
@@ -25,7 +28,26 @@ export default function RootLayout() {
   );
 }
 
+/**
+ * v2.83 - a phone stays upright, as it always has; a tablet on the IT desk or
+ * in the store room may be turned on its side. Decided by the device's
+ * shortest side, once, at launch.
+ */
+function useOrientationPolicy() {
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const { width, height } = Dimensions.get('screen');
+    const phone = isPhoneSized(width, height);
+    void (
+      phone
+        ? ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)
+        : ScreenOrientation.unlockAsync()
+    ).catch(() => undefined);
+  }, []);
+}
+
 function RootShell() {
+  useOrientationPolicy();
   const { c } = useTheme();
   return (
     <SafeAreaProvider>

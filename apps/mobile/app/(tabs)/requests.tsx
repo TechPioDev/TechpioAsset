@@ -36,6 +36,9 @@ import {
   useFlash,
   usePhotoMarkers,
 } from '../../src/components/requests/photo-markers';
+import { MasterDetail } from '../../src/components/master-detail';
+import { useTabletLayout } from '../../src/lib/tablet-layout';
+import { RequestDetailView } from '../request/[id]';
 
 interface RequestRow {
   id: string;
@@ -68,13 +71,18 @@ export default function RequestsScreen() {
   const { flash, showFlash, clearFlash } = useFlash();
   const pictures = usePhotoMarkers({ text: reason, setText: setReason, showFlash });
   const { photos } = pictures;
+  // v2.83 - on a tablet the chosen request opens beside the form and list.
+  const { tablet } = useTabletLayout();
+  const [selected, setSelected] = useState<string | null>(null);
 
   const loadPolicy = useCallback(async () => {
     try {
       const decision = await api.request<{ allowed: boolean; reason?: string }>(
         '/requests/can-create',
       );
-      setRaiseBlockedReason(decision.allowed ? null : (decision.reason ?? 'You cannot raise requests.'));
+      setRaiseBlockedReason(
+        decision.allowed ? null : (decision.reason ?? 'You cannot raise requests.'),
+      );
     } catch {
       // If the check itself fails, leave the form up: the server still enforces
       // the rule, so the worst case is the old behaviour, not a false block.
@@ -134,7 +142,11 @@ export default function RequestsScreen() {
           const form = new FormData();
           for (const [name, value] of payload.fields) form.append(name, value);
           for (const file of payload.files) {
-            form.append(file.field, { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+            form.append(file.field, {
+              uri: file.uri,
+              name: file.name,
+              type: file.type,
+            } as unknown as Blob);
           }
           try {
             await api.request(`/requests/${created.id}/comments`, { formData: form });
@@ -155,7 +167,9 @@ export default function RequestsScreen() {
     } catch (caught) {
       setFormError(
         caught instanceof ApiError
-          ? (caught.problem?.detail ?? caught.problem?.title ?? 'Could not submit. Please try again.')
+          ? (caught.problem?.detail ??
+              caught.problem?.title ??
+              'Could not submit. Please try again.')
           : createdId
             ? 'The request was saved as a draft but not submitted. Check your connection and open it to submit.'
             : 'Could not submit. Check your connection and try again.',
@@ -165,7 +179,7 @@ export default function RequestsScreen() {
     }
   }
 
-  return (
+  const list = (
     <FlatList
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
@@ -175,7 +189,9 @@ export default function RequestsScreen() {
       ListHeaderComponent={
         <View style={{ marginBottom: spacing.xl }}>
           <Card>
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 16, marginBottom: spacing.md }}>
+            <Text
+              style={{ color: c.text, fontWeight: '700', fontSize: 16, marginBottom: spacing.md }}
+            >
               {raiseBlockedReason ? 'Raising requests' : 'New request'}
             </Text>
             {raiseBlockedReason ? (
@@ -184,7 +200,12 @@ export default function RequestsScreen() {
               </Text>
             ) : (
               <>
-                <Field label="What do you need?" placeholder="e.g. Laptop docking station" value={item} onChangeText={setItem} />
+                <Field
+                  label="What do you need?"
+                  placeholder="e.g. Laptop docking station"
+                  value={item}
+                  onChangeText={setItem}
+                />
                 <Field
                   label="Business reason"
                   placeholder="Why do you need it? (at least 10 characters)"
@@ -197,21 +218,34 @@ export default function RequestsScreen() {
                   multiline
                   maxLength={2000}
                 />
-                <PhotoMarkerStrip photos={photos} onRemove={pictures.remove} disabled={submitting} />
+                <PhotoMarkerStrip
+                  photos={photos}
+                  onRemove={pictures.remove}
+                  disabled={submitting}
+                />
                 <PhotoPickButtons
                   onLibrary={pictures.addFromLibrary}
                   onCamera={pictures.addFromCamera}
                   disabled={submitting}
                   count={photos.length}
                 />
-                <Text style={{ color: c.subtle, fontSize: 12, marginTop: -4, marginBottom: spacing.md }}>
+                <Text
+                  style={{ color: c.subtle, fontSize: 12, marginTop: -4, marginBottom: spacing.md }}
+                >
                   Photos of the fault or the item help approvers decide. {PHOTO_MARKER_HINT}
                 </Text>
                 {formError ? (
-                  <Text style={{ color: c.danger, fontSize: 13, marginBottom: spacing.md }}>{formError}</Text>
+                  <Text style={{ color: c.danger, fontSize: 13, marginBottom: spacing.md }}>
+                    {formError}
+                  </Text>
                 ) : null}
                 <FlashBanner flash={flash} />
-                <Button label="Submit request" icon="send" onPress={() => void submit()} loading={submitting} />
+                <Button
+                  label="Submit request"
+                  icon="send"
+                  onPress={() => void submit()}
+                  loading={submitting}
+                />
               </>
             )}
           </Card>
@@ -220,9 +254,15 @@ export default function RequestsScreen() {
         </View>
       }
       ListEmptyComponent={
-        loading ? <ListSkeleton /> : (
+        loading ? (
+          <ListSkeleton />
+        ) : (
           <Card>
-            <EmptyState icon="document-text-outline" title="No requests yet" message="Requests you raise will appear here." />
+            <EmptyState
+              icon="document-text-outline"
+              title="No requests yet"
+              message="Requests you raise will appear here."
+            />
           </Card>
         )
       }
@@ -230,12 +270,20 @@ export default function RequestsScreen() {
         const tone = palette[REQUEST_STATUS_TOKENS[row.status].tone];
         return (
           <Card
-            onPress={() => router.push(`/request/${row.id}`)}
-            style={{ marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+            onPress={() => (tablet ? setSelected(row.id) : router.push(`/request/${row.id}`))}
+            style={{
+              marginBottom: spacing.md,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+              ...(tablet && selected === row.id ? { borderColor: c.brand, borderWidth: 2 } : {}),
+            }}
           >
             <IconBadge icon="document-text-outline" />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>{row.requestNumber}</Text>
+              <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>
+                {row.requestNumber}
+              </Text>
               <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
                 {row.businessReason}
               </Text>
@@ -250,6 +298,30 @@ export default function RequestsScreen() {
             <Chevron />
           </Card>
         );
+      }}
+    />
+  );
+
+  if (!tablet) return list;
+  return (
+    <MasterDetail
+      list={list}
+      detailKey={selected}
+      detail={
+        selected ? (
+          <RequestDetailView
+            id={selected}
+            onFinished={() => {
+              setSelected(null);
+              void load();
+            }}
+          />
+        ) : null
+      }
+      placeholder={{
+        icon: 'document-text-outline',
+        title: 'No request open',
+        message: 'Raise one on the left, or choose one of yours to see it here.',
       }}
     />
   );

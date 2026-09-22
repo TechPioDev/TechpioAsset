@@ -213,7 +213,15 @@ type Anchor = 'custody' | 'transfer' | 'disposal';
  * twice, not two slightly different ones.
  */
 export default function AssetDetailScreen() {
-  const { id, action: actionParam } = useLocalSearchParams<{ id: string; action?: string }>();
+  const { id, action } = useLocalSearchParams<{ id: string; action?: string }>();
+  return <AssetDetailView id={id} action={action} />;
+}
+
+/**
+ * The asset page itself (v2.83): a screen of its own on a phone, and the
+ * right-hand pane beside the asset list on a tablet.
+ */
+export function AssetDetailView({ id, action: actionParam }: { id: string; action?: string }) {
   // 0.3.31 - the scanner's sheet sends somebody here to DO something
   // (?action=reassign): the flow they asked for opens once the asset is
   // loaded, and only once - a reload after saving must not reopen it.

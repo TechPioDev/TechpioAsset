@@ -50,6 +50,9 @@ import {
   StatusPill,
 } from '../../src/components/ui';
 import { formatMoney } from '../../src/lib/format';
+import { MasterDetail } from '../../src/components/master-detail';
+import { useTabletLayout } from '../../src/lib/tablet-layout';
+import { AssetDetailView } from '../asset/[id]';
 import {
   AVAILABILITY_OPTIONS,
   LIFECYCLE_OPTIONS,
@@ -136,6 +139,9 @@ export default function AssetsScreen() {
   const mayCreate = user?.permissions.includes(PERMISSIONS.ASSETS_CREATE) ?? false;
 
   const [rows, setRows] = useState<AssetRow[]>([]);
+  // v2.83 - on a tablet the chosen asset opens beside the list.
+  const { tablet } = useTabletLayout();
+  const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -430,7 +436,7 @@ export default function AssetsScreen() {
     </View>
   );
 
-  return (
+  const list = (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       <FlatList
         style={{ flex: 1, backgroundColor: c.background }}
@@ -466,12 +472,13 @@ export default function AssetsScreen() {
           const kind = [item.category?.name, item.subcategory?.name].filter(Boolean).join(' · ');
           return (
             <Card
-              onPress={() => router.push(`/asset/${item.id}`)}
+              onPress={() => (tablet ? setSelected(item.id) : router.push(`/asset/${item.id}`))}
               style={{
                 marginBottom: spacing.md,
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: spacing.md,
+                ...(tablet && selected === item.id ? { borderColor: c.brand, borderWidth: 2 } : {}),
               }}
             >
               <IconBadge icon="hardware-chip-outline" />
@@ -720,5 +727,19 @@ export default function AssetsScreen() {
         </View>
       </Modal>
     </View>
+  );
+
+  if (!tablet) return list;
+  return (
+    <MasterDetail
+      list={list}
+      detailKey={selected}
+      detail={selected ? <AssetDetailView id={selected} /> : null}
+      placeholder={{
+        icon: 'cube-outline',
+        title: 'No asset open',
+        message: 'Choose an asset on the left to see it here.',
+      }}
+    />
   );
 }

@@ -26,6 +26,7 @@ import { UpdateBanner } from '../../src/components/update-banner';
 import { HomeQueue, QuickActions } from '../../src/components/home/home-sections';
 import { ReceiptCard } from '../../src/components/home/receipt-card';
 import { SyncBanner } from '../../src/components/sync-banner';
+import { useTabletLayout } from '../../src/lib/tablet-layout';
 import { homePlan } from '../../src/lib/home-plan';
 
 interface AssetRow {
@@ -119,6 +120,9 @@ export default function HomeScreen() {
     [user?.roles, user?.permissions],
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  // v2.83 - a tablet shows more tiles to a row, and assets two by two.
+  const { tablet, columns } = useTabletLayout();
+  const tileWidth = tablet ? `${Math.floor(100 / columns) - 2}%` : '47%';
 
   // A supplier has no equipment issued to it and cannot read /assets at all.
   const isVendor = !!user?.roles?.includes('VENDOR');
@@ -199,7 +203,7 @@ export default function HomeScreen() {
         {tiles.map((tile) => {
           const route = TILE_ROUTE[tile.key];
           return (
-            <View key={tile.key} style={{ width: '47%' }}>
+            <View key={tile.key} style={{ width: tileWidth as `${number}%` }}>
               <StatCard
                 icon={TILE_ICON[tile.icon] ?? 'ellipse-outline'}
                 value={tile.value}
@@ -289,36 +293,44 @@ export default function HomeScreen() {
           />
         </Card>
       ) : (
-        assets.map((item) => {
-          const tone = statusColor(item.status, scheme);
-          return (
-            <Card
-              key={item.id}
-              onPress={() => router.push(`/asset/${item.id}`)}
-              style={{
-                marginBottom: spacing.md,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: spacing.md,
-              }}
-            >
-              <IconBadge icon="hardware-chip-outline" />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
-                  {item.assetTag}
-                  {item.serialNumber ? ` · ${item.serialNumber}` : ''}
-                </Text>
-                <View style={{ marginTop: 8 }}>
-                  <StatusPill label={statusLabel(item.status)} bg={tone.bg} fg={tone.fg} />
+        <View
+          style={tablet ? { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md } : undefined}
+        >
+          {assets.map((item) => {
+            const tone = statusColor(item.status, scheme);
+            return (
+              <Card
+                key={item.id}
+                onPress={() => router.push(`/asset/${item.id}`)}
+                style={{
+                  ...(tablet ? { width: '48.5%' } : {}),
+                  marginBottom: spacing.md,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                }}
+              >
+                <IconBadge icon="hardware-chip-outline" />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{ color: c.text, fontWeight: '700', fontSize: 15 }}
+                    numberOfLines={1}
+                  >
+                    {item.name}
+                  </Text>
+                  <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                    {item.assetTag}
+                    {item.serialNumber ? ` · ${item.serialNumber}` : ''}
+                  </Text>
+                  <View style={{ marginTop: 8 }}>
+                    <StatusPill label={statusLabel(item.status)} bg={tone.bg} fg={tone.fg} />
+                  </View>
                 </View>
-              </View>
-              <Chevron />
-            </Card>
-          );
-        })
+                <Chevron />
+              </Card>
+            );
+          })}
+        </View>
       )}
 
       {plan.equipmentFirst

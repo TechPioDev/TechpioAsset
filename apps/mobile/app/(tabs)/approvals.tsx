@@ -1,5 +1,5 @@
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Text, View } from 'react-native';
 import {
   REQUEST_STATUS_TOKENS,
@@ -10,7 +10,18 @@ import type { RequestStatus } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
 import { personName, formatMoney } from '../../src/lib/format';
-import { Avatar, Card, Chevron, EmptyState, ListSkeleton, PullRefresh, StatusPill } from '../../src/components/ui';
+import {
+  Avatar,
+  Card,
+  Chevron,
+  EmptyState,
+  ListSkeleton,
+  PullRefresh,
+  StatusPill,
+} from '../../src/components/ui';
+import { MasterDetail } from '../../src/components/master-detail';
+import { useTabletLayout } from '../../src/lib/tablet-layout';
+import { RequestDetailView } from '../request/[id]';
 
 interface ApprovalRow {
   id: string;
@@ -37,6 +48,9 @@ export default function ApprovalsScreen() {
 
   const [rows, setRows] = useState<ApprovalRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // v2.83 - on a tablet the chosen request opens beside the queue.
+  const { tablet } = useTabletLayout();
+  const [selected, setSelected] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,7 +68,15 @@ export default function ApprovalsScreen() {
     }, [load]),
   );
 
-  return (
+  // The first in the queue is open straight away; one decided drops out and
+  // the next takes its place.
+  useEffect(() => {
+    if (!tablet) return;
+    if (selected && rows.some((r) => r.id === selected)) return;
+    setSelected(rows[0]?.id ?? null);
+  }, [tablet, rows, selected]);
+
+  const list = (
     <FlatList
       style={{ flex: 1, backgroundColor: c.background }}
       data={rows}
@@ -62,7 +84,9 @@ export default function ApprovalsScreen() {
       refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 }}
       ListEmptyComponent={
-        loading ? <ListSkeleton /> : (
+        loading ? (
+          <ListSkeleton />
+        ) : (
           <EmptyState
             icon="checkmark-done-outline"
             title="You're all caught up"
@@ -78,13 +102,23 @@ export default function ApprovalsScreen() {
           .join(', ');
         return (
           <Card
-            onPress={() => router.push(`/request/${item.id}`)}
-            style={{ marginBottom: spacing.md }}
+            onPress={() => (tablet ? setSelected(item.id) : router.push(`/request/${item.id}`))}
+            style={{
+              marginBottom: spacing.md,
+              ...(tablet && selected === item.id ? { borderColor: c.brand, borderWidth: 2 } : {}),
+            }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <Avatar name={who} size={40} />
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
                   <Text
                     style={{ color: c.text, fontWeight: '700', fontSize: 14, flexShrink: 1 }}
                     numberOfLines={1}
@@ -128,6 +162,30 @@ export default function ApprovalsScreen() {
             </View>
           </Card>
         );
+      }}
+    />
+  );
+
+  if (!tablet) return list;
+  return (
+    <MasterDetail
+      list={list}
+      detailKey={selected}
+      detail={
+        selected ? (
+          <RequestDetailView
+            id={selected}
+            onFinished={() => {
+              setSelected(null);
+              void load();
+            }}
+          />
+        ) : null
+      }
+      placeholder={{
+        icon: 'checkmark-done-outline',
+        title: 'Nothing open',
+        message: 'Choose a request on the left.',
       }}
     />
   );

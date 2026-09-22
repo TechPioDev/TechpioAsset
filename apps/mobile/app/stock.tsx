@@ -17,6 +17,7 @@ import { StockCountSheet, type CountTarget } from '../src/components/stock-count
 import { cacheStock, cachedStock, savedLabel } from '../src/lib/offline-cache';
 import { isNoConnection } from '../src/lib/sync-service';
 import { SyncBanner } from '../src/components/sync-banner';
+import { useTabletLayout } from '../src/lib/tablet-layout';
 
 interface Level {
   id: string;
@@ -42,6 +43,8 @@ export default function StockScreen() {
   // v2.82 - counting a shelf, and whether the list came from the phone.
   const [counting, setCounting] = useState<CountTarget | null>(null);
   const [offlineSince, setOfflineSince] = useState<string | null>(null);
+  // v2.83 - the store-room tablet shows two stock lines side by side.
+  const { tablet } = useTabletLayout();
 
   const canAdjust = user?.permissions.includes(PERMISSIONS.INVENTORY_ADJUST) ?? false;
   const canSetPrice = user?.permissions.includes(PERMISSIONS.ASSETS_COST_READ) ?? false;
@@ -151,6 +154,9 @@ export default function StockScreen() {
       ) : null}
 
       <FlatList
+        key={tablet ? 'grid' : 'list'}
+        numColumns={tablet ? 2 : 1}
+        {...(tablet ? { columnWrapperStyle: { gap: spacing.md } } : {})}
         style={{ flex: 1 }}
         data={visible}
         keyExtractor={(r) => r.id}
@@ -187,6 +193,7 @@ export default function StockScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: spacing.md,
+                ...(tablet ? { flex: 1 } : {}),
               }}
             >
               <IconBadge icon="layers-outline" />

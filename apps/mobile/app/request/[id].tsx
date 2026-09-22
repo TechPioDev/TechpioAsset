@@ -69,7 +69,24 @@ interface RequestDetail {
 
 /** Request detail with approve / reject (spec section 12). */
 export default function RequestDetailScreen() {
-  const { id, action: actionParam } = useLocalSearchParams<{ id: string; action?: string }>();
+  const { id, action } = useLocalSearchParams<{ id: string; action?: string }>();
+  return <RequestDetailView id={id} action={action} />;
+}
+
+/**
+ * The request page itself (v2.83): its own screen on a phone, the pane beside
+ * the list on a tablet. `onFinished` replaces "go back" when there is
+ * nothing to go back to - the list is right there.
+ */
+export function RequestDetailView({
+  id,
+  action: actionParam,
+  onFinished,
+}: {
+  id: string;
+  action?: string;
+  onFinished?: () => void;
+}) {
   // v2.78 - a button on the approval push (Approve / Reject) lands here asked
   // to do it. Handled once the request has loaded, and only once.
   const askedAction = actionParam === 'approve' || actionParam === 'reject' ? actionParam : null;
@@ -132,7 +149,8 @@ export default function RequestDetailScreen() {
           ? 'Marked as needing a purchase — it moves on to be costed.'
           : 'Filled from stock — no purchase, so finance approval is skipped.',
       );
-      router.back();
+      if (onFinished) onFinished();
+      else router.back();
     } catch {
       Alert.alert('Could not record this', 'You may no longer be able to assess this request.');
     } finally {
@@ -158,7 +176,8 @@ export default function RequestDetailScreen() {
           ? 'The request moves to the next step.'
           : 'The requester has been notified.',
       );
-      router.back();
+      if (onFinished) onFinished();
+      else router.back();
     } catch {
       Alert.alert('Could not submit', 'You may no longer be the approver for this step.');
       await load();

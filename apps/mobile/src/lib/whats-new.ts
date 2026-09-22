@@ -17,6 +17,21 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.38',
+    items: [
+      {
+        icon: 'tablet-landscape-outline',
+        title: 'Made for tablets too',
+        body: 'On a tablet, Assets, Requests and Awaiting me show the list and the chosen item side by side.',
+      },
+      {
+        icon: 'phone-landscape-outline',
+        title: 'Turn a tablet sideways',
+        body: 'Tablets can be used in landscape. Phones stay upright as before.',
+      },
+    ],
+  },
+  {
     version: '0.3.37',
     items: [
       {
