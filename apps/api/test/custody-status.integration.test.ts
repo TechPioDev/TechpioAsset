@@ -140,6 +140,41 @@ describe('statuses on an asset somebody holds', () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(JSON.stringify(res.body)).toContain('Return action');
   });
+
+  it('refuses AVAILABLE, and every other "nobody has it" status, while held (v2.75)', async () => {
+    // The owner found a mouse shown as Available AND assigned to somebody in
+    // one row. Repair done at the holder's desk goes back to them, not to the
+    // shelf, unless the return is recorded first.
+    const id = await makeAssigned();
+    const repair = await api(app)
+      .post(`/api/v1/assets/${id}/status`)
+      .set(auth(s.itAdmin))
+      .send({ status: 'UNDER_REPAIR' });
+    expect(repair.status).toBeLessThan(300);
+
+    for (const status of ['AVAILABLE', 'IN_STORAGE', 'RETIRED']) {
+      const res = await api(app)
+        .post(`/api/v1/assets/${id}/status`)
+        .set(auth(s.itAdmin))
+        .send({ status });
+      expect(res.status, status).toBeGreaterThanOrEqual(400);
+      expect(JSON.stringify(res.body), status).toContain('still holds this asset');
+    }
+
+    // The holder is untouched and the list can never say "Available" of it.
+    const asset = await prisma.client.asset.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, assignedUserId: true },
+    });
+    expect(asset).toEqual({ status: 'UNDER_REPAIR', assignedUserId: s.employee.user.id });
+  });
+
+  it('is refused by the database too, whatever path tries it', async () => {
+    const id = await makeAssigned();
+    await expect(
+      prisma.client.$executeRawUnsafe(`UPDATE assets SET status = 'AVAILABLE' WHERE id = $1`, id),
+    ).rejects.toThrow(/assets_holder_matches_status/);
+  });
 });
 
 describe('the default status', () => {

@@ -31,12 +31,14 @@ describe('assignmentCount is a real count, not the capped list length', () => {
   it('reports 25 for a device assigned 25 times (list stays capped at 20)', async () => {
     const asset = await prisma.client.asset.findFirst({
       where: { companyId },
-      select: { id: true, condition: true, assignedUserId: true },
+      select: { id: true, condition: true, assignedUserId: true, status: true },
     });
     const original = asset!.assignedUserId;
+    const originalStatus = asset!.status;
+    // A holder needs a custody status (assets_holder_matches_status).
     await prisma.client.asset.update({
       where: { id: asset!.id },
-      data: { assignedUserId: s.employee.user.id },
+      data: { assignedUserId: s.employee.user.id, status: 'ASSIGNED' },
     });
 
     const existing = await prisma.client.assetAssignment.count({ where: { assetId: asset!.id } });
@@ -70,7 +72,7 @@ describe('assignmentCount is a real count, not the capped list length', () => {
     }
     await prisma.client.asset.update({
       where: { id: asset!.id },
-      data: { assignedUserId: original },
+      data: { assignedUserId: original, status: originalStatus },
     });
   }, 30_000);
 });

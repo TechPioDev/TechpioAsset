@@ -17,6 +17,8 @@ let s: Record<AccountKey, Session>;
 let prisma: PrismaService;
 let categoryId: string;
 let assetId: string;
+/** Assets the held-repair case makes; cleaned up with the rest. */
+const heldAssetIds: string[] = [];
 let foreignCompanyId: string;
 let foreignOrderId: string;
 
@@ -80,6 +82,13 @@ afterAll(async () => {
   await prisma.client.notification.deleteMany({ where: { entityId: { in: ids } } });
   await prisma.client.maintenanceRecord.deleteMany({ where: { assetId } });
   await prisma.client.asset.delete({ where: { id: assetId } }).catch(() => undefined);
+  for (const heldId of heldAssetIds) {
+    const held = await prisma.client.maintenanceRecord.findMany({ where: { assetId: heldId }, select: { id: true } });
+    await prisma.client.notification.deleteMany({ where: { entityId: { in: held.map((o) => o.id) } } });
+    await prisma.client.maintenanceRecord.deleteMany({ where: { assetId: heldId } });
+    await prisma.client.$executeRawUnsafe('DELETE FROM asset_assignments WHERE "assetId" = $1', heldId);
+    await prisma.client.asset.delete({ where: { id: heldId } }).catch(() => undefined);
+  }
   await prisma.client.company.delete({ where: { id: foreignCompanyId } }).catch(() => undefined);
   await app?.close();
 });
@@ -244,6 +253,43 @@ describe('completion and sign-off', () => {
     // Closed is closed.
     expect((await post(s.officeAdmin, id, 'approve')).status).toBe(409);
     expect((await post(s.officeAdmin, id, 'cancel')).status).toBe(409);
+  });
+
+  it('restores a repaired unit to the person who still holds it, not to the shelf (v2.75)', async () => {
+    // A laptop repaired at its holder's desk used to come back AVAILABLE while
+    // still assigned - the row the owner found and the database now refuses.
+    const held = await api(app)
+      .post('/api/v1/assets')
+      .set(auth(s.superAdmin))
+      .send({ assetTag: `SO-H-${run}`, name: 'Held rig', categoryId, status: 'AVAILABLE' });
+    expect(held.status).toBe(201);
+    const heldId = held.body.data.id as string;
+    heldAssetIds.push(heldId);
+    const assigned = await api(app)
+      .post(`/api/v1/assets/${heldId}/assign`)
+      .set(auth(s.itAdmin))
+      .send({ userId: s.employee.user.id, conditionOut: 'GOOD' });
+    expect(assigned.status).toBeLessThan(300);
+
+    const order = await api(app)
+      .post(base)
+      .set(auth(s.officeAdmin))
+      .send({ assetId: heldId, type: 'REPAIR', title: `Held repair ${run}` });
+    expect(order.status).toBe(201);
+    const id = order.body.data.id as string;
+    expect((await post(s.officeAdmin, id, 'assign', { technicianId: s.itAdmin.user.id })).status).toBe(201);
+    expect((await post(s.itAdmin, id, 'accept')).status).toBe(201);
+    expect((await post(s.itAdmin, id, 'start')).status).toBe(201);
+    expect((await post(s.itAdmin, id, 'complete', { restoreAsset: true })).status).toBe(201);
+
+    const approved = await post(s.officeAdmin, id, 'approve');
+    expect(approved.status, JSON.stringify(approved.body)).toBe(201);
+    expect(approved.body.data.asset.status).toBe('ASSIGNED');
+    const asset = await prisma.client.asset.findUniqueOrThrow({
+      where: { id: heldId },
+      select: { status: true, assignedUserId: true },
+    });
+    expect(asset).toEqual({ status: 'ASSIGNED', assignedUserId: s.employee.user.id });
   });
 
   it('leaves the asset out of service when the technician said not to restore it', async () => {

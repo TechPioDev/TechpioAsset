@@ -20,6 +20,7 @@ import {
   assetStatusMachine,
   ASSET_STATUSES_ASSIGNABLE,
   ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
+  ASSET_STATUSES_WITHOUT_HOLDER,
   detectWarrantyVendor,
   MAX_ASSET_PHOTOS,
   PERMISSIONS,
@@ -935,7 +936,8 @@ export class AssetsService {
 
   private async assertCustodyMatchesStatus(id: string, next: AssetStatus): Promise<void> {
     const custody = ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(next);
-    if (!custody && next !== 'RETURNED') return;
+    const noHolder = ASSET_STATUSES_WITHOUT_HOLDER.includes(next);
+    if (!custody && !noHolder) return;
 
     const open = await this.prisma.client.assetAssignment.findFirst({
       where: { assetId: id, returnedAt: null },
@@ -952,7 +954,10 @@ export class AssetsService {
     // The mirror image: "returned" while somebody still holds it would leave the
     // assignment open, the holder still shown, and the asset assignable to a
     // second person while the first never gave it back.
-    if (next === 'RETURNED' && open) {
+    // v2.75 - the same for every status that says nobody has it: Available,
+    // In storage, Retired... A laptop back from repair goes to its holder,
+    // not to the shelf, unless it is first recorded as returned.
+    if (noHolder && open) {
       throw new AppError(
         'ILLEGAL_STATE_TRANSITION',
         'Somebody still holds this asset. Use the Return action instead - it records ' +

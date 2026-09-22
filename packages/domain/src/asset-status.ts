@@ -76,6 +76,30 @@ export const assetStatusMachine: StateMachine<AssetStatus> = {
 /** Statuses that mean the asset is physically held by an employee. */
 export const ASSET_STATUSES_IN_EMPLOYEE_CUSTODY: readonly AssetStatus[] = ['ASSIGNED', 'IN_USE'];
 
+/**
+ * Statuses that say nobody holds the asset (v2.75): it is in stock, on its
+ * way in, or gone. A record in one of these must not name a holder - the
+ * owner found a mouse shown as Available and Assigned to Banti Kumar in the
+ * same row, and asked that an assigned asset never show as available. The
+ * API refuses a status change that would do it, and the database refuses
+ * the row (assets_holder_matches_status). Held assets can still be under
+ * repair, damaged, in transit, lost or stolen: those are things that happen
+ * to a unit somebody has.
+ */
+export const ASSET_STATUSES_WITHOUT_HOLDER: readonly AssetStatus[] = [
+  'DRAFT',
+  'REQUESTED',
+  'ORDERED',
+  'RECEIVED',
+  'AVAILABLE',
+  'RESERVED',
+  'IN_STORAGE',
+  'RETURNED',
+  'RETIRED',
+  'DISPOSED',
+  'DONATED',
+];
+
 /** Statuses that make an asset eligible for a new assignment. */
 export const ASSET_STATUSES_ASSIGNABLE: readonly AssetStatus[] = ['AVAILABLE', 'RESERVED'];
 

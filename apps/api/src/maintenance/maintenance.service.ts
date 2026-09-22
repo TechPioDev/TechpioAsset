@@ -314,18 +314,22 @@ export class MaintenanceService {
         },
       });
 
-      // Restore the asset to AVAILABLE if requested and legal - the rule
-      // completion used to apply: only an asset that is UNDER_REPAIR.
+      // Restore the asset if requested and legal - the rule completion used
+      // to apply: only an asset that is UNDER_REPAIR. v2.75: back to the
+      // person who still holds it (ASSIGNED), and to the shelf (AVAILABLE)
+      // only when nobody does. It used to go AVAILABLE either way, which left
+      // a laptop repaired at its holder's desk shown as available and
+      // assigned in the same row; the database now refuses that row.
       if (restore) {
         const asset = await tx.asset.findUnique({
           where: { id: record.assetId },
-          select: { status: true },
+          select: { status: true, assignedUserId: true },
         });
         if (asset?.status === 'UNDER_REPAIR') {
           await tx.asset.update({
             where: { id: record.assetId },
             data: {
-              status: 'AVAILABLE',
+              status: asset.assignedUserId ? 'ASSIGNED' : 'AVAILABLE',
               condition: 'GOOD',
               updatedById: actor.id,
               version: { increment: 1 },

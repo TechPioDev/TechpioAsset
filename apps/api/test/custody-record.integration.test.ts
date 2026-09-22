@@ -25,7 +25,8 @@ const made: string[] = [];
 const tag = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 /** An asset exactly as the importers left it: a holder, and no assignment row. */
-async function importedAsset(holderId: string | null, status: 'ASSIGNED' | 'AVAILABLE' = 'ASSIGNED') {
+async function importedAsset(holderId: string | null) {
+  const status = holderId ? 'ASSIGNED' : 'AVAILABLE';
   const company = s.superAdmin.user.companyId;
   const category = await prisma.client.category.findFirst({ where: { companyId: company } });
   const asset = await prisma.client.asset.create({
@@ -114,7 +115,7 @@ describe('returning an imported asset that has a holder but no custody record', 
   });
 
   it('still refuses an asset that really has no holder', async () => {
-    const id = await importedAsset(null, 'AVAILABLE');
+    const id = await importedAsset(null);
     const res = await returnIt(id);
     expect(res.status).toBe(422);
     expect(await prisma.client.assetAssignment.count({ where: { assetId: id } })).toBe(0);
@@ -127,10 +128,8 @@ describe('the migration that restores the records in bulk', () => {
     'utf8',
   );
 
-  it('writes one open record per held asset, once, and leaves an odd one alone', async () => {
+  it('writes one open record per held asset, once', async () => {
     const held = await importedAsset(s.employee.user.id);
-    // Names a holder but is Available: a different inconsistency, not papered over.
-    const odd = await importedAsset(s.employee.user.id, 'AVAILABLE');
 
     await prisma.client.$executeRawUnsafe(sql);
     await prisma.client.$executeRawUnsafe(sql);
@@ -142,7 +141,6 @@ describe('the migration that restores the records in bulk', () => {
     expect(rows).toEqual([
       { returnedAt: null, acknowledgedAt: null, acknowledgementMethod: IMPORT_BACKFILL_METHOD, conditionOut: 'GOOD' },
     ]);
-    expect(await prisma.client.assetAssignment.count({ where: { assetId: odd } })).toBe(0);
 
     // And the restored record is what a return now closes.
     expect((await returnIt(held)).status).toBeLessThan(300);
