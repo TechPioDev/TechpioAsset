@@ -876,6 +876,17 @@ export default function AssetDetailScreen() {
                       : 'Not assigned to anyone right now.'}
                   </Text>
 
+                  {openAssignment && isMine ? (
+                    // v2.80 - the holder reports a fault on THIS item, already chosen.
+                    <Button
+                      label="Report a problem"
+                      icon="warning-outline"
+                      variant="secondary"
+                      onPress={() => router.push(`/report-problem?assetId=${asset.id}`)}
+                      style={{ marginBottom: spacing.md }}
+                    />
+                  ) : null}
+
                   {openAssignment && isMine && !openAssignment.acknowledgedAt ? (
                     <Button
                       label="Confirm receipt"

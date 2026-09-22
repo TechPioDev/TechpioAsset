@@ -52,6 +52,7 @@ export * from './device-activity';
 export * from './agent-coverage';
 export * from './push-actions';
 export * from './weekly-summary';
+export * from './receipt-waiting';
 export * from './asset-receipt';
 export * from './expenses';
 export * from './device-agent';

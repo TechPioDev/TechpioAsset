@@ -71,6 +71,14 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
         href: '/(tabs)/requests',
         anyOf: [P.REQUESTS_READ],
       },
+      // v2.80 - a fault on something issued to you, with a photo.
+      {
+        icon: 'warning-outline',
+        label: 'Report a problem',
+        description: 'Something issued to you is not working',
+        href: '/report-problem',
+        anyOf: [P.REQUESTS_CREATE],
+      },
       {
         icon: 'laptop-outline',
         label: 'My equipment',
@@ -365,7 +373,10 @@ export function canSee(
  * `roles` defaults to none, so a caller that forgets it hides role-gated items
  * rather than showing them.
  */
-export function visibleMenu(permissions: readonly string[], roles: readonly string[] = []): MenuGroup[] {
+export function visibleMenu(
+  permissions: readonly string[],
+  roles: readonly string[] = [],
+): MenuGroup[] {
   return MENU_GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((i) => canSee(i, permissions, roles)),

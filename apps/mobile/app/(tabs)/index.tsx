@@ -1,7 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { formatInr, type AssetStatus, type AssetCondition } from '@techpioasset/domain';
+import {
+  formatInr,
+  receiptsWaiting,
+  type AssetStatus,
+  type AssetCondition,
+} from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme, statusColor, statusLabel } from '../../src/theme';
 import {
@@ -19,6 +24,7 @@ import {
 } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/update-banner';
 import { HomeQueue, QuickActions } from '../../src/components/home/home-sections';
+import { ReceiptCard } from '../../src/components/home/receipt-card';
 import { homePlan } from '../../src/lib/home-plan';
 
 interface AssetRow {
@@ -28,6 +34,13 @@ interface AssetRow {
   status: AssetStatus;
   condition: AssetCondition;
   serialNumber: string | null;
+  assignedUser?: { id: string } | null;
+  assignments?: {
+    id: string;
+    assignedAt: string | null;
+    acknowledgedAt: string | null;
+    acknowledgementMethod?: string | null;
+  }[];
 }
 
 interface OfferRow {
@@ -164,6 +177,12 @@ export default function HomeScreen() {
         {plan.focus}
       </Text>
 
+      {/* v2.80 - a handover waiting on this person comes before everything
+          else they could do: it is the one thing only they can do. */}
+      {user && !isVendor ? (
+        <ReceiptCard waiting={receiptsWaiting(assets, user.id)} onConfirmed={load} />
+      ) : null}
+
       <QuickActions actions={plan.quickActions} />
 
       <View
@@ -192,7 +211,9 @@ export default function HomeScreen() {
 
       {plan.equipmentFirst
         ? null
-        : plan.queues.map((queue) => <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />)}
+        : plan.queues.map((queue) => (
+            <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />
+          ))}
 
       {/* A supplier is never issued equipment, so showing it "My assets" and an
           empty state about kit it will never have is the whole screen wasted.
@@ -200,15 +221,17 @@ export default function HomeScreen() {
       {/* 0.3.30 - for a role whose Home is about other work, an empty "My
           assets" box is noise; it shows once they hold something. */}
       {showEquipment ? (
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <SectionTitle>{isVendor ? 'Your offers' : 'My assets'}</SectionTitle>
-        <Pressable
-          onPress={() => router.push(isVendor ? '/(tabs)/catalogue' : '/my-equipment')}
-          hitSlop={8}
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
         >
-          <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>See all</Text>
-        </Pressable>
-      </View>
+          <SectionTitle>{isVendor ? 'Your offers' : 'My assets'}</SectionTitle>
+          <Pressable
+            onPress={() => router.push(isVendor ? '/(tabs)/catalogue' : '/my-equipment')}
+            hitSlop={8}
+          >
+            <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>See all</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {/* 0.3.29 - the first load drew a title over an empty page until the
@@ -296,7 +319,9 @@ export default function HomeScreen() {
       )}
 
       {plan.equipmentFirst
-        ? plan.queues.map((queue) => <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />)
+        ? plan.queues.map((queue) => (
+            <HomeQueue key={queue} queue={queue} refreshKey={refreshKey} />
+          ))
         : null}
     </Screen>
   );

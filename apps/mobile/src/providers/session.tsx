@@ -73,6 +73,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       const stored = await tokenStore.getRefreshToken();
+      // Locked until the person proves it is them: no data leaves the API
+      // before then (api-client setLocked).
+      api.setLocked(Boolean(stored));
       setStatus(stored ? 'locked' : 'anonymous');
     })();
   }, []);
@@ -80,6 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const finishLogin = useCallback(
     (accessToken: string, refresh: string | null, authUser: AuthUser) => {
       api.setAccessToken(accessToken);
+      api.setLocked(false);
       if (refresh) void tokenStore.setRefreshToken(refresh);
       setUser(authUser);
       setStatus('authenticated');
@@ -128,6 +132,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
       if (!result.success) return false;
     }
+    api.setLocked(false);
 
     try {
       const me = await api.request<AuthUser>('/auth/me');
@@ -136,6 +141,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return true;
     } catch {
       await tokenStore.setRefreshToken(null);
+      api.setLocked(false);
       setStatus('anonymous');
       return false;
     }
@@ -151,6 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       await tokenStore.setRefreshToken(null);
       api.setAccessToken(null);
+      api.setLocked(false);
       setUser(null);
       setStatus('anonymous');
     }

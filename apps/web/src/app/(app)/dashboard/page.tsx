@@ -38,6 +38,7 @@ import { useOfferPolicy } from '@/components/catalogue/use-offer-policy';
 import { StatusBadge } from '@/components/status-badge';
 import { StatusBarChart } from '@/components/charts/status-bar-chart';
 import { RoleTiles } from '@/components/dashboard/role-tiles';
+import { ReceiptPrompt } from '@/components/dashboard/receipt-prompt';
 import {
   AllocationPie,
   DonutChart,
@@ -637,6 +638,8 @@ export default function DashboardPage() {
   // severity - recommendations first, then the specific devices behind them.
   return (
     <div className="grid gap-6">
+      {/* v2.80 - a handover waiting on this person, before anything else. */}
+      <ReceiptPrompt />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section
         className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] p-6 sm:p-7"

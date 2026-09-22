@@ -218,6 +218,9 @@ export class AssetsService {
           // same afternoon are otherwise indistinguishable in the kit table.
           assignedAt: true,
           acknowledgedAt: true,
+          // v2.80 - so a "confirm receipt" prompt can leave out custody restored
+          // from an imported register, which nobody handed over in PioAssets.
+          acknowledgementMethod: true,
           expectedReturnAt: true,
           // Who handed the device over - accountability the holder should see.
           assignedBy: {

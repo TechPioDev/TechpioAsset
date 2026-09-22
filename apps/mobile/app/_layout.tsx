@@ -1,4 +1,4 @@
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -73,6 +73,10 @@ function RootShell() {
           />
           <Stack.Screen name="help" options={{ headerShown: true, title: 'Help' }} />
           <Stack.Screen name="request/[id]" options={{ headerShown: true, title: 'Request' }} />
+          <Stack.Screen
+            name="report-problem"
+            options={{ headerShown: true, title: 'Report a problem' }}
+          />
           <Stack.Screen name="scan" options={{ headerShown: true, title: 'Scan' }} />
           <Stack.Screen
             name="purchase-orders"
@@ -138,9 +142,13 @@ function SessionGate() {
   const { status } = useSession();
   const segments = useSegments();
   const router = useRouter();
+  // Navigating before the root navigator has mounted throws ("Attempted to
+  // navigate before mounting the Root Layout") - seen on a cold load straight
+  // onto a record. Wait until the navigator has a state to navigate within.
+  const ready = Boolean(useRootNavigationState()?.key);
   const target = gateRedirect(status, segments);
   useEffect(() => {
-    if (target) router.replace(target);
-  }, [target, router]);
+    if (ready && target) router.replace(target);
+  }, [ready, target, router]);
   return null;
 }

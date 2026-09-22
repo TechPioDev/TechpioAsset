@@ -45,6 +45,21 @@ export class ApiClient {
 
   constructor(private readonly options: ApiClientOptions) {}
 
+  /**
+   * v2.80 - while the app waits for its biometric unlock, nothing but the
+   * sign-in endpoints is fetched, and the stored session is not refreshed
+   * behind the lock. A screen that mounts before the lock screen takes over
+   * (a link into the app, a cold start onto a record) used to load its data
+   * anyway, silently refreshing the session to do it.
+   */
+  // Starts locked: until the session provider has read the keychain, nobody
+  // is known to be signed in, so nothing is fetched.
+  private locked = true;
+
+  setLocked(locked: boolean): void {
+    this.locked = locked;
+  }
+
   private get base(): string {
     return `${this.options.baseUrl}/api/v1`;
   }
@@ -132,7 +147,15 @@ export class ApiClient {
       identifySession?: boolean;
     } = {},
   ): Promise<T> {
-    const sessionToken = options.identifySession ? await this.options.tokenStore.getRefreshToken() : null;
+    if (this.locked && !path.startsWith('/auth/')) {
+      throw new ApiError(
+        { title: 'Locked', detail: 'Unlock the app to continue.' } as unknown as ProblemDetails,
+        401,
+      );
+    }
+    const sessionToken = options.identifySession
+      ? await this.options.tokenStore.getRefreshToken()
+      : null;
     const response = await fetch(`${this.base}${path}`, {
       method: options.method ?? (options.formData ? 'POST' : 'GET'),
       headers: {

@@ -27,25 +27,11 @@ import { PERMISSIONS } from '@techpioasset/domain';
 const P = PERMISSIONS;
 
 export type Persona =
-  | 'vendor'
-  | 'admin'
-  | 'it'
-  | 'stores'
-  | 'finance'
-  | 'hr'
-  | 'auditor'
-  | 'approver'
-  | 'employee';
+  'vendor' | 'admin' | 'it' | 'stores' | 'finance' | 'hr' | 'auditor' | 'approver' | 'employee';
 
 /** Tab screens that exist under app/(tabs); `index` and `more` are always on. */
 export type TabKey =
-  | 'assets'
-  | 'requests'
-  | 'approvals'
-  | 'catalogue'
-  | 'scan'
-  | 'inventory'
-  | 'capture';
+  'assets' | 'requests' | 'approvals' | 'catalogue' | 'scan' | 'inventory' | 'capture';
 
 export type QueueKey =
   | 'awaiting-me'
@@ -125,11 +111,31 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     anyOf: [P.ASSETS_READ],
   },
   request: {
-    value: { key: 'request', label: 'New request', icon: 'add-circle-outline', href: '/(tabs)/requests' },
+    value: {
+      key: 'request',
+      label: 'New request',
+      icon: 'add-circle-outline',
+      href: '/(tabs)/requests',
+    },
+    anyOf: [P.REQUESTS_CREATE],
+  },
+  // v2.80 - the phone's front door to the issue catalogue.
+  problem: {
+    value: {
+      key: 'problem',
+      label: 'Report a problem',
+      icon: 'warning-outline',
+      href: '/report-problem',
+    },
     anyOf: [P.REQUESTS_CREATE],
   },
   equipment: {
-    value: { key: 'equipment', label: 'My equipment', icon: 'laptop-outline', href: '/my-equipment' },
+    value: {
+      key: 'equipment',
+      label: 'My equipment',
+      icon: 'laptop-outline',
+      href: '/my-equipment',
+    },
     anyOf: [P.ASSETS_READ],
   },
   register: {
@@ -137,15 +143,30 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     anyOf: [P.ASSETS_CREATE],
   },
   workOrders: {
-    value: { key: 'workOrders', label: 'Work orders', icon: 'construct-outline', href: '/work-orders' },
+    value: {
+      key: 'workOrders',
+      label: 'Work orders',
+      icon: 'construct-outline',
+      href: '/work-orders',
+    },
     anyOf: [P.MAINTENANCE_MANAGE],
   },
   count: {
-    value: { key: 'count', label: 'Stock count', icon: 'clipboard-outline', href: '/(tabs)/inventory' },
+    value: {
+      key: 'count',
+      label: 'Stock count',
+      icon: 'clipboard-outline',
+      href: '/(tabs)/inventory',
+    },
     anyOf: [P.INVENTORY_ADJUST],
   },
   receive: {
-    value: { key: 'receive', label: 'Receive order', icon: 'download-outline', href: '/purchase-orders' },
+    value: {
+      key: 'receive',
+      label: 'Receive order',
+      icon: 'download-outline',
+      href: '/purchase-orders',
+    },
     anyOf: [P.PROCUREMENT_RECEIVE],
   },
   stock: {
@@ -165,11 +186,21 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     anyOf: [P.USERS_READ],
   },
   invitations: {
-    value: { key: 'invitations', label: 'Invitations', icon: 'mail-unread-outline', href: '/people-invitations' },
+    value: {
+      key: 'invitations',
+      label: 'Invitations',
+      icon: 'mail-unread-outline',
+      href: '/people-invitations',
+    },
     anyOf: [P.USERS_MANAGE],
   },
   approvals: {
-    value: { key: 'approvals', label: 'Awaiting me', icon: 'checkmark-done-outline', href: '/(tabs)/approvals' },
+    value: {
+      key: 'approvals',
+      label: 'Awaiting me',
+      icon: 'checkmark-done-outline',
+      href: '/(tabs)/approvals',
+    },
     anyOf: [P.REQUESTS_APPROVE, P.REQUESTS_ASSESS],
   },
   reports: {
@@ -177,7 +208,12 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     anyOf: [P.REPORTS_READ],
   },
   verify: {
-    value: { key: 'verify', label: 'Verify round', icon: 'shield-checkmark-outline', href: '/verification' },
+    value: {
+      key: 'verify',
+      label: 'Verify round',
+      icon: 'shield-checkmark-outline',
+      href: '/verification',
+    },
     anyOf: [P.AUDIT_READ, P.ASSETS_UPDATE, P.ASSETS_ASSIGN, P.ASSETS_RETURN],
   },
   audit: {
@@ -185,11 +221,21 @@ const ACTIONS: Record<string, Gated<QuickAction>> = {
     anyOf: [P.AUDIT_READ],
   },
   offers: {
-    value: { key: 'offers', label: 'My offers', icon: 'pricetags-outline', href: '/(tabs)/catalogue' },
+    value: {
+      key: 'offers',
+      label: 'My offers',
+      icon: 'pricetags-outline',
+      href: '/(tabs)/catalogue',
+    },
     anyOf: [P.VENDOR_PRODUCTS_READ],
   },
   company: {
-    value: { key: 'company', label: 'Company details', icon: 'business-outline', href: '/vendor-company' },
+    value: {
+      key: 'company',
+      label: 'Company details',
+      icon: 'business-outline',
+      href: '/vendor-company',
+    },
     anyOf: [P.VENDOR_PORTAL_ACCESS],
   },
 };
@@ -241,13 +287,13 @@ const SPEC: Record<Persona, PersonaSpec> = {
   },
   employee: {
     focus: 'Your equipment and your requests',
-    actions: ['request', 'equipment', 'scan'],
+    actions: ['problem', 'request', 'equipment', 'scan'],
     queues: ['awaiting-me'],
     tabs: ['requests', 'assets', 'scan'],
   },
   approver: {
     focus: 'Requests waiting for your decision',
-    actions: ['approvals', 'request', 'equipment', 'scan'],
+    actions: ['approvals', 'request', 'problem', 'equipment', 'scan'],
     queues: ['awaiting-me'],
     tabs: ['approvals', 'requests', 'assets'],
   },
