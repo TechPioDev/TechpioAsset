@@ -2,7 +2,7 @@
   "expo": {
     "name": "PioAssets",
     "slug": "dalbeir-asset",
-    "version": "0.3.35",
+    "version": "0.3.36",
     "orientation": "portrait",
     "scheme": "techpioasset",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.techpio.asset",
-      "versionCode": 50,
+      "versionCode": 51,
       "permissions": [
         "CAMERA",
         "USE_BIOMETRIC",
@@ -50,7 +50,8 @@
       ],
       "expo-local-authentication",
       "expo-notifications",
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/with-android-shortcuts"
     ],
     "extra": {
       "apiUrl": "http://localhost:3001",

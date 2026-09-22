@@ -3,6 +3,7 @@ import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { takeDestination } from '../src/lib/pending-route';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { Button, Card, Field } from '../src/components/ui';
@@ -35,7 +36,8 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (status === 'authenticated') router.replace('/(tabs)');
+    // v2.81 - back to where a shortcut or link was going, if the lock stopped it.
+    if (status === 'authenticated') router.replace((takeDestination() ?? '/(tabs)') as never);
   }, [status, router]);
 
   async function onSubmit() {
@@ -89,9 +91,7 @@ export default function LoginScreen() {
             >
               {needsMfa ? 'One more step' : 'Welcome back'}
             </Text>
-            <Text
-              style={{ color: c.muted, fontSize: 13, marginTop: 4, textAlign: 'center' }}
-            >
+            <Text style={{ color: c.muted, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
               {needsMfa
                 ? 'Confirm the code from your authenticator app.'
                 : 'Sign in to your PioAssets account to continue.'}

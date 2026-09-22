@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs, Redirect } from 'expo-router';
+import { Tabs, Redirect, usePathname } from 'expo-router';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ComponentProps } from 'react';
@@ -8,6 +8,7 @@ import { useTheme } from '../../src/theme';
 import { NotificationBadge } from '../../src/components/notification-badge';
 import { homePlan, tabOrder, type TabKey } from '../../src/lib/home-plan';
 import { HeaderSearchButton } from '../../src/components/header-search-button';
+import { rememberDestination } from '../../src/lib/pending-route';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const icon =
@@ -36,8 +37,15 @@ export default function TabsLayout() {
   const { status, user } = useSession();
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
 
-  if (status !== 'authenticated' || !user) return <Redirect href="/login" />;
+  if (status !== 'authenticated' || !user) {
+    // v2.81 - a shortcut onto a tab (Scan, New request) lands there after the
+    // unlock, not on Home. Only while starting up or locked: after a sign-out
+    // the next person must not inherit where the last one was.
+    if (status === 'loading' || status === 'locked') rememberDestination(pathname);
+    return <Redirect href="/login" />;
+  }
 
   const plan = homePlan(user.roles ?? [], user.permissions);
   const barTabs = tabOrder(plan);

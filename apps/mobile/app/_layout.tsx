@@ -1,11 +1,13 @@
-import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
+import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppearanceProvider } from '../src/providers/appearance';
 import { SessionProvider, useSession } from '../src/providers/session';
 import { gateRedirect } from '../src/lib/session-gate';
+import { rememberDestination } from '../src/lib/pending-route';
 import { NotificationTaps } from '../src/components/notification-taps';
+import { WhatsNewGate } from '../src/components/whats-new-gate';
 import { useTheme } from '../src/theme';
 
 /**
@@ -30,6 +32,7 @@ function RootShell() {
         <StatusBar style="auto" />
         <NotificationTaps />
         <SessionGate />
+        <WhatsNewGate />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -76,6 +79,10 @@ function RootShell() {
           <Stack.Screen
             name="report-problem"
             options={{ headerShown: true, title: 'Report a problem' }}
+          />
+          <Stack.Screen
+            name="whats-new"
+            options={{ headerShown: true, title: 'What’s new', presentation: 'modal' }}
           />
           <Stack.Screen name="scan" options={{ headerShown: true, title: 'Scan' }} />
           <Stack.Screen
@@ -141,6 +148,7 @@ function RootShell() {
 function SessionGate() {
   const { status } = useSession();
   const segments = useSegments();
+  const pathname = usePathname();
   const router = useRouter();
   // Navigating before the root navigator has mounted throws ("Attempted to
   // navigate before mounting the Root Layout") - seen on a cold load straight
@@ -148,7 +156,10 @@ function SessionGate() {
   const ready = Boolean(useRootNavigationState()?.key);
   const target = gateRedirect(status, segments);
   useEffect(() => {
-    if (ready && target) router.replace(target);
-  }, [ready, target, router]);
+    if (!ready || !target) return;
+    // v2.81 - so a shortcut or link lands where it was going once unlocked.
+    if (status === 'locked') rememberDestination(pathname);
+    router.replace(target);
+  }, [ready, target, router, pathname, status]);
   return null;
 }
