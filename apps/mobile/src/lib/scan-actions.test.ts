@@ -16,27 +16,45 @@ describe('what a scan offers', () => {
   it('keeps the flow that existed for somebody with nothing to do but look', () => {
     // An employee scanning their own laptop, and an auditor scanning anything:
     // no sheet, straight to the asset page, as before.
-    const employee = scanActions({ asset: held, permissions: ROLE_PERMISSIONS.EMPLOYEE, userId: 'u-holder' });
+    const employee = scanActions({
+      asset: held,
+      permissions: ROLE_PERMISSIONS.EMPLOYEE,
+      userId: 'u-holder',
+    });
     expect(stopsOnSheet(employee)).toBe(false);
     expect(keys(employee)).toEqual(['open', 'damage']);
 
-    const auditor = scanActions({ asset: held, permissions: ROLE_PERMISSIONS.AUDITOR, userId: 'u-audit' });
+    const auditor = scanActions({
+      asset: held,
+      permissions: ROLE_PERMISSIONS.AUDITOR,
+      userId: 'u-audit',
+    });
     expect(stopsOnSheet(auditor)).toBe(false);
     expect(keys(auditor)).toEqual(['open']);
   });
 
   it('always puts "Open asset" first, so the old path is one tap', () => {
     for (const role of ['IT_ADMIN', 'IT_TECHNICIAN', 'SUPER_ADMIN', 'OFFICE_ADMIN'] as const) {
-      expect(keys(scanActions({ asset: held, permissions: ROLE_PERMISSIONS[role], userId: 'x' }))[0]).toBe('open');
+      expect(
+        keys(scanActions({ asset: held, permissions: ROLE_PERMISSIONS[role], userId: 'x' }))[0],
+      ).toBe('open');
     }
   });
 
   it('offers a technician the custody acts that fit the unit in hand', () => {
-    const onHeld = scanActions({ asset: held, permissions: ROLE_PERMISSIONS.IT_ADMIN, userId: 'u-it' });
+    const onHeld = scanActions({
+      asset: held,
+      permissions: ROLE_PERMISSIONS.IT_ADMIN,
+      userId: 'u-it',
+    });
     expect(stopsOnSheet(onHeld)).toBe(true);
     expect(keys(onHeld)).toEqual(['open', 'seen', 'reassign', 'return', 'damage']);
 
-    const onFree = scanActions({ asset: free, permissions: ROLE_PERMISSIONS.IT_ADMIN, userId: 'u-it' });
+    const onFree = scanActions({
+      asset: free,
+      permissions: ROLE_PERMISSIONS.IT_ADMIN,
+      userId: 'u-it',
+    });
     expect(keys(onFree)).toEqual(['open', 'seen', 'assign', 'damage']);
   });
 
@@ -65,6 +83,7 @@ describe('what a scan offers', () => {
     expect(scanActionHref('a1', 'reassign')).toBe('/asset/a1?action=reassign');
     expect(assetScreenAction('return')).toBe('return');
     expect(assetScreenAction(['damage'])).toBe('damage');
+    expect(assetScreenAction('confirm-receipt')).toBe('confirm-receipt');
     expect(assetScreenAction('delete-everything')).toBeNull();
     expect(assetScreenAction(undefined)).toBeNull();
   });

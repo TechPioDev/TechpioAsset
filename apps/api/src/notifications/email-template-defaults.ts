@@ -16,9 +16,10 @@ export interface EmailTemplateDefinition {
 
 export const DEFAULT_EMAIL_TEMPLATES: Partial<Record<NotificationType, EmailTemplateDefinition>> = {
   WARRANTY_EXPIRATION: {
-    subject: 'Action required: warranty expiring in {{warranty.days_remaining}} days — {{asset.asset_tag}}',
+    subject:
+      'Action required: warranty expiring in {{warranty.days_remaining}} days — {{asset.asset_tag}}',
     heading: 'Warranty expiring in {{warranty.days_remaining}} days',
-    body: "{{asset.name}} ({{asset.asset_tag}}) is approaching the end of its warranty on {{warranty.expiry_date}}.\n\nPlease review the asset and determine whether it should be renewed, replaced, or retired before coverage ends.",
+    body: '{{asset.name}} ({{asset.asset_tag}}) is approaching the end of its warranty on {{warranty.expiry_date}}.\n\nPlease review the asset and determine whether it should be renewed, replaced, or retired before coverage ends.',
     ctaLabel: 'View asset',
   },
   ASSET_ASSIGNED: {
@@ -56,6 +57,12 @@ export const DEFAULT_EMAIL_TEMPLATES: Partial<Record<NotificationType, EmailTemp
     heading: 'An account has been deactivated',
     body: "{{subject.name}}'s account has been deactivated.\n\nThe assets still assigned to this person require return before offboarding can be completed. Review the outstanding list and arrange collection.",
     ctaLabel: 'View profile',
+  },
+  WEEKLY_SUMMARY: {
+    subject: 'PioAssets Monday summary — {{notification.date}}',
+    heading: 'Your week in PioAssets',
+    body: 'Here is what is waiting on people at the start of the week, and what happened last week.',
+    ctaLabel: 'Open PioAssets dashboard',
   },
   DAILY_DIGEST: {
     subject: 'PioAssets daily summary — {{notification.date}}',
@@ -128,7 +135,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Partial<Record<NotificationType, EmailTemp
 /** Variable reference shown in the template editor. */
 export const VARIABLE_HELP: { group: string; vars: string[] }[] = [
   { group: 'Recipient', vars: ['{{user.name}}', '{{user.email}}'] },
-  { group: 'Person concerned', vars: ['{{subject.name}}', '{{subject.email}}', '{{subject.department}}'] },
+  {
+    group: 'Person concerned',
+    vars: ['{{subject.name}}', '{{subject.email}}', '{{subject.department}}'],
+  },
   {
     group: 'Asset',
     vars: [
@@ -157,5 +167,8 @@ export const VARIABLE_HELP: { group: string; vars: string[] }[] = [
       '{{invitation.accept_url}}',
     ],
   },
-  { group: 'Company & system', vars: ['{{company.name}}', '{{system.url}}', '{{notification.date}}', '{{notification.time}}'] },
+  {
+    group: 'Company & system',
+    vars: ['{{company.name}}', '{{system.url}}', '{{notification.date}}', '{{notification.time}}'],
+  },
 ];

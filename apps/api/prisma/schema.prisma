@@ -328,6 +328,8 @@ enum NotificationChannel {
 
 /// Spec section 19 - notification triggers.
 enum NotificationType {
+  RFQ_REQUESTED
+  WEEKLY_SUMMARY
   NEW_REQUEST
   APPROVAL_REQUIRED
   APPROVAL_ESCALATED

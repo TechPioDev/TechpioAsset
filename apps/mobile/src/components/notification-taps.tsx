@@ -3,8 +3,8 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useSession } from '../providers/session';
-import { notificationRoute } from '../lib/notification-route';
-import { registerForPush } from '../lib/push';
+import { notificationTarget } from '../lib/notification-route';
+import { registerForPush, registerPushCategories } from '../lib/push';
 
 // Show a push that arrives while the app is open (v2.57).
 //
@@ -57,17 +57,31 @@ export function NotificationTaps() {
   // Collect the tap, whether it arrived now or launched the app.
   useEffect(() => {
     if (Platform.OS === 'web') return;
+    // v2.78 - the buttons each kind of push shows. Registered on every start,
+    // so an updated app replaces what an older one stored.
+    void registerPushCategories();
 
     const take = (response: Notifications.NotificationResponse | null) => {
       if (!response) return;
       const key = response.notification.request.identifier;
       if (handled.current.has(key)) return;
       handled.current.add(key);
-      const route = notificationRoute(response.notification.request.content.data?.linkPath);
+      // v2.78 - a button (Approve, Reject, Confirm receipt) leads to the screen
+      // that offers it, asked to open it; a plain tap follows the link.
+      const route = notificationTarget(
+        response.actionIdentifier,
+        response.notification.request.content.data as Record<string, unknown> | null,
+      );
+      if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
+        // Android leaves an alert up after one of its buttons is pressed.
+        void Notifications.dismissNotificationAsync(key).catch(() => undefined);
+      }
       if (route) setPending(route);
     };
 
-    void Notifications.getLastNotificationResponseAsync().then(take).catch(() => undefined);
+    void Notifications.getLastNotificationResponseAsync()
+      .then(take)
+      .catch(() => undefined);
     const subscription = Notifications.addNotificationResponseReceivedListener(take);
     return () => subscription.remove();
   }, []);

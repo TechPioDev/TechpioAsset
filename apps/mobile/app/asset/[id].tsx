@@ -62,12 +62,21 @@ import { useSession } from '../../src/providers/session';
 import { AuthImage } from '../../src/components/auth-image';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { ConditionPhotoSheet, type PhotoStage } from '../../src/components/condition-photo-sheet';
-import { ConditionPhotoStrip, useConditionPhotoGroups } from '../../src/components/condition-photo-strip';
+import {
+  ConditionPhotoStrip,
+  useConditionPhotoGroups,
+} from '../../src/components/condition-photo-strip';
 import { AssetImageCard, DeviceIcon } from '../../src/components/assets/asset-image-card';
 import { AssetNotes } from '../../src/components/assets/asset-notes';
 import { DisposalCard, type DisposalRecord } from '../../src/components/assets/disposal-card';
 import { EquipmentKit } from '../../src/components/assets/equipment-kit';
-import { CardLink, CardTitle, InfoRow, TabStrip, ToneBadge } from '../../src/components/assets/detail-parts';
+import {
+  CardLink,
+  CardTitle,
+  InfoRow,
+  TabStrip,
+  ToneBadge,
+} from '../../src/components/assets/detail-parts';
 import {
   HardwareTab,
   HealthTab,
@@ -284,6 +293,8 @@ export default function AssetDetailScreen() {
       setBusy(false);
     }
   }
+  const confirmReceiptRef = useRef(confirmReceipt);
+  confirmReceiptRef.current = confirmReceipt;
 
   // The effect above must call the current reportDamage without listing it as
   // an input (it is re-created every render).
@@ -313,7 +324,12 @@ export default function AssetDetailScreen() {
   useEffect(() => {
     if (!askedAction || actionHandled.current || !assetStatus) return;
     actionHandled.current = true;
-    const custody = custodyOptions({ canAssign: mayAssign, canReturn: mayReturn, status: assetStatus, isHeld });
+    const custody = custodyOptions({
+      canAssign: mayAssign,
+      canReturn: mayReturn,
+      status: assetStatus,
+      isHeld,
+    });
     const allowed =
       (askedAction === 'assign' && custody.show && custody.assign) ||
       (askedAction === 'reassign' && custody.show && custody.handOver) ||
@@ -321,12 +337,49 @@ export default function AssetDetailScreen() {
     if (allowed) {
       setHandover(askedAction as HandoverMode);
     } else if (askedAction === 'damage' && assetStatus !== 'DAMAGED' && (mayEdit || isMine)) {
-      Alert.alert('Report this asset as damaged?', 'IT is notified and its status changes to Damaged.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Report damage', style: 'destructive', onPress: () => void reportDamageRef.current() },
-      ]);
+      Alert.alert(
+        'Report this asset as damaged?',
+        'IT is notified and its status changes to Damaged.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Report damage',
+            style: 'destructive',
+            onPress: () => void reportDamageRef.current(),
+          },
+        ],
+      );
+    } else if (askedAction === 'confirm-receipt') {
+      // v2.78 - from the handover push. A receipt is evidence the device
+      // reached this person, so it is asked once, with the tag in view, and
+      // only the holder can give it (the server refuses anyone else too).
+      if (openAssignment && isMine && !openAssignment.acknowledgedAt) {
+        Alert.alert(
+          `Confirm you have ${asset?.name ?? 'this asset'}?`,
+          `${asset?.assetTag ?? ''} — only confirm if it is with you. If it is not, tell IT instead.`,
+          [
+            { text: 'Not yet', style: 'cancel' },
+            { text: 'Confirm receipt', onPress: () => void confirmReceiptRef.current() },
+          ],
+        );
+      } else if (openAssignment && isMine) {
+        Alert.alert('Already confirmed', 'You have already confirmed you received this asset.');
+      } else {
+        Alert.alert('Nothing to confirm', 'This asset is not assigned to you any more.');
+      }
     }
-  }, [askedAction, assetStatus, mayAssign, mayReturn, isHeld, mayEdit, isMine]);
+  }, [
+    askedAction,
+    assetStatus,
+    mayAssign,
+    mayReturn,
+    isHeld,
+    mayEdit,
+    isMine,
+    openAssignment,
+    asset?.name,
+    asset?.assetTag,
+  ]);
 
   if (!asset) {
     return (
@@ -347,7 +400,12 @@ export default function AssetDetailScreen() {
   // Offered to whoever the API lets report it - a fleet manager, or the person
   // holding the device - and not once it already is (web: same rule).
   const mayReportDamage = asset.status !== 'DAMAGED' && (mayEdit || isMine);
-  const offer = custodyOptions({ canAssign: mayAssign, canReturn: mayReturn, status: asset.status, isHeld });
+  const offer = custodyOptions({
+    canAssign: mayAssign,
+    canReturn: mayReturn,
+    status: asset.status,
+    isHeld,
+  });
 
   const transfer = transferView({
     canTransfer: can(PERMISSIONS.ASSETS_TRANSFER),
@@ -355,7 +413,8 @@ export default function AssetDetailScreen() {
     holderId,
     hasOpenTransfer: Boolean(asset.transfers?.[0]),
   });
-  const canDispose = !asset.disposal && can(PERMISSIONS.ASSETS_DISPOSE) && DISPOSABLE_FROM.includes(asset.status);
+  const canDispose =
+    !asset.disposal && can(PERMISSIONS.ASSETS_DISPOSE) && DISPOSABLE_FROM.includes(asset.status);
   const actionGroups = moreActions({
     hasHolder: Boolean(asset.assignedUser),
     canUpdate: mayEdit,
@@ -493,9 +552,10 @@ export default function AssetDetailScreen() {
     }
   }
 
-  const openListing = asset.vendorProduct && canOpenCatalogue
-    ? () => router.push(`/offer/${asset.vendorProduct!.id}`)
-    : undefined;
+  const openListing =
+    asset.vendorProduct && canOpenCatalogue
+      ? () => router.push(`/offer/${asset.vendorProduct!.id}`)
+      : undefined;
 
   return (
     <Screen scroll scrollRef={scrollRef}>
@@ -529,7 +589,8 @@ export default function AssetDetailScreen() {
               {asset.name}
               {identifier ? (
                 <Text style={{ color: c.muted, fontWeight: '400', fontSize: 15 }}>
-                  {' '}· {identifier.label} {identifier.value}
+                  {' '}
+                  · {identifier.label} {identifier.value}
                 </Text>
               ) : null}
             </Text>
@@ -559,7 +620,13 @@ export default function AssetDetailScreen() {
         </View>
 
         <View
-          style={{ marginTop: spacing.md, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
+          style={{
+            marginTop: spacing.md,
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 6,
+            alignItems: 'center',
+          }}
         >
           {assetPills(asset, scheme, { includeOwnership: true }).map((p) => (
             <StatusPill key={p.label} label={p.label} bg={p.bg} fg={p.fg} />
@@ -571,14 +638,25 @@ export default function AssetDetailScreen() {
           />
           {/* Agent freshness, never "online": the agent reports on a schedule,
               so the honest claim is how recently it did. */}
-          {agent ? <StatusPill label={agent.label} bg={palette[agent.tone].bg} fg={palette[agent.tone].fg} /> : null}
+          {agent ? (
+            <StatusPill
+              label={agent.label}
+              bg={palette[agent.tone].bg}
+              fg={palette[agent.tone].fg}
+            />
+          ) : null}
         </View>
 
         {lastReport ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md }}>
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md }}
+          >
             <Ionicons name="sync-outline" size={13} color={c.subtle} />
             <Text style={{ color: c.subtle, fontSize: 12, flex: 1 }}>
-              Last sync <Text style={{ color: c.muted, fontWeight: '600' }}>{new Date(lastReport.at).toLocaleString()}</Text>
+              Last sync{' '}
+              <Text style={{ color: c.muted, fontWeight: '600' }}>
+                {new Date(lastReport.at).toLocaleString()}
+              </Text>
               {' · '}
               {lastSyncLine(lastReport)}
             </Text>
@@ -623,8 +701,17 @@ export default function AssetDetailScreen() {
 
           {/* Keyed by asset so it is shut again if this screen is ever handed
               a different asset without remounting. */}
-          <CollapsibleListCard key={asset.id} title="Key information" summary={keyInformationSummary(asset)}>
-            <InfoRow label="Serial number" value={asset.serialNumber} copy={asset.serialNumber} mono />
+          <CollapsibleListCard
+            key={asset.id}
+            title="Key information"
+            summary={keyInformationSummary(asset)}
+          >
+            <InfoRow
+              label="Serial number"
+              value={asset.serialNumber}
+              copy={asset.serialNumber}
+              mono
+            />
             <InfoRow label="Asset tag" value={asset.assetTag} copy={asset.assetTag} mono />
             <InfoRow label="Category" value={asset.category?.name} />
             <InfoRow label="Type" value={asset.subcategory?.name} />
@@ -640,7 +727,9 @@ export default function AssetDetailScreen() {
             {/* 0.3.31 - when the unit was last physically seen on a verification round. */}
             <InfoRow
               label="Last verified"
-              value={lastVerifiedLabel(asset.lastVerification ?? null, new Date(), (d) => fmtDate(d.toISOString()))}
+              value={lastVerifiedLabel(asset.lastVerification ?? null, new Date(), (d) =>
+                fmtDate(d.toISOString()),
+              )}
             />
             <InfoRow
               label="Assigned to"
@@ -648,7 +737,9 @@ export default function AssetDetailScreen() {
               value={
                 holderName ? (
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 14, textAlign: 'right' }}>
+                    <Text
+                      style={{ color: c.text, fontWeight: '600', fontSize: 14, textAlign: 'right' }}
+                    >
                       {holderName}
                       {asset.assignedUser?.profile?.employeeNumber ? (
                         <Text style={{ color: c.subtle, fontSize: 12, fontWeight: '400' }}>
@@ -658,7 +749,9 @@ export default function AssetDetailScreen() {
                       ) : null}
                     </Text>
                     {issuedBy ? (
-                      <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>issued by {issuedBy}</Text>
+                      <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>
+                        issued by {issuedBy}
+                      </Text>
                     ) : null}
                   </View>
                 ) : (
@@ -667,7 +760,11 @@ export default function AssetDetailScreen() {
               }
             />
             {asset.department ? (
-              <InfoRow label="Team / department" value={asset.department.name} last={!asset.vendorProduct} />
+              <InfoRow
+                label="Team / department"
+                value={asset.department.name}
+                last={!asset.vendorProduct}
+              />
             ) : null}
             {/* v2.53 - what this unit is according to the supplier who sold it.
                 A link only for someone who can open the catalogue: an employee
@@ -688,14 +785,18 @@ export default function AssetDetailScreen() {
               <CardTitle
                 action={
                   lastReport ? (
-                    <Text style={{ color: c.subtle, fontSize: 12 }}>Reported {relativeAge(lastReport.at)}</Text>
+                    <Text style={{ color: c.subtle, fontSize: 12 }}>
+                      Reported {relativeAge(lastReport.at)}
+                    </Text>
                   ) : null
                 }
               >
                 Device health
               </CardTitle>
               <HealthTileGrid tiles={tiles} />
-              {showDiscovery ? <CardLink label="View health details" onPress={() => setTab('health')} /> : null}
+              {showDiscovery ? (
+                <CardLink label="View health details" onPress={() => setTab('health')} />
+              ) : null}
             </Card>
           ) : null}
 
@@ -704,7 +805,12 @@ export default function AssetDetailScreen() {
           {spec.rows.length > 0 ? (
             <ListCard title={`${spec.title} specification`}>
               {spec.rows.map(([label, value], i) => (
-                <InfoRow key={label} label={label} value={value} last={i === spec.rows.length - 1} />
+                <InfoRow
+                  key={label}
+                  label={label}
+                  value={value}
+                  last={i === spec.rows.length - 1}
+                />
               ))}
             </ListCard>
           ) : null}
@@ -727,17 +833,26 @@ export default function AssetDetailScreen() {
             <CardTitle
               action={
                 <Pressable onPress={() => setTab('lifecycle')} accessibilityRole="link" hitSlop={6}>
-                  <Text style={{ color: c.brand, fontSize: 13, fontWeight: '600' }}>Full lifecycle →</Text>
+                  <Text style={{ color: c.brand, fontSize: 13, fontWeight: '600' }}>
+                    Full lifecycle →
+                  </Text>
                 </Pressable>
               }
             >
               {'Lifecycle & service'}
             </CardTitle>
             {events.length === 0 ? (
-              <Text style={{ color: c.muted, fontSize: 14 }}>Nothing recorded for this device yet.</Text>
+              <Text style={{ color: c.muted, fontSize: 14 }}>
+                Nothing recorded for this device yet.
+              </Text>
             ) : (
               events.map((e, i) => (
-                <TimelineEvent key={i} event={e} formatDate={fmtDate} last={i === events.length - 1} />
+                <TimelineEvent
+                  key={i}
+                  event={e}
+                  formatDate={fmtDate}
+                  last={i === events.length - 1}
+                />
               ))
             )}
           </Card>
@@ -756,7 +871,9 @@ export default function AssetDetailScreen() {
                 <SectionTitle>Custody</SectionTitle>
                 <Card style={{ marginBottom: spacing.xl }}>
                   <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
-                    {isHeld ? `Currently with ${holderName ?? 'someone'}.` : 'Not assigned to anyone right now.'}
+                    {isHeld
+                      ? `Currently with ${holderName ?? 'someone'}.`
+                      : 'Not assigned to anyone right now.'}
                   </Text>
 
                   {openAssignment && isMine && !openAssignment.acknowledgedAt ? (
@@ -834,20 +951,32 @@ export default function AssetDetailScreen() {
             </View>
           </Card>
 
-          <ListCard title={'Warranty & purchase'} action={<ToneBadge tone={standing.tone} label={standing.label} />}>
+          <ListCard
+            title={'Warranty & purchase'}
+            action={<ToneBadge tone={standing.tone} label={standing.label} />}
+          >
             <InfoRow label="Purchased on" value={fmtDate(asset.purchaseDate)} />
             {asset.vendorProduct?.warrantyMonths ? (
               <InfoRow label="Cover" value={`${asset.vendorProduct.warrantyMonths} months`} />
             ) : null}
             {asset.expectedReplacementDate ? (
-              <InfoRow label="Expected replacement" value={fmtDate(asset.expectedReplacementDate)} />
+              <InfoRow
+                label="Expected replacement"
+                value={fmtDate(asset.expectedReplacementDate)}
+              />
             ) : null}
             <InfoRow
               label="Warranty ends"
               last
               value={
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: standing.expired ? c.danger : c.text, fontWeight: '600', fontSize: 14 }}>
+                  <Text
+                    style={{
+                      color: standing.expired ? c.danger : c.text,
+                      fontWeight: '600',
+                      fontSize: 14,
+                    }}
+                  >
                     {fmtDate(asset.warrantyEndDate)}
                   </Text>
                   {/* The maker's official lookup, detected from what the asset
@@ -880,7 +1009,12 @@ export default function AssetDetailScreen() {
             }
           >
             {specs.map((row, i) => (
-              <InfoRow key={row.label} label={row.label} value={row.value} last={i === specs.length - 1} />
+              <InfoRow
+                key={row.label}
+                label={row.label}
+                value={row.value}
+                last={i === specs.length - 1}
+              />
             ))}
           </ListCard>
 
@@ -927,7 +1061,9 @@ export default function AssetDetailScreen() {
             >
               <Ionicons name="document-text-outline" size={16} color={c.subtle} />
               <Text style={{ color: c.muted, fontSize: 13, flex: 1 }} numberOfLines={2}>
-                {standing.expired ? <Text style={{ color: c.danger, fontWeight: '600' }}>Warranty out · </Text> : null}
+                {standing.expired ? (
+                  <Text style={{ color: c.danger, fontWeight: '600' }}>Warranty out · </Text>
+                ) : null}
                 {summary}
               </Text>
               <Text style={{ color: c.brand, fontSize: 12, fontWeight: '600' }}>Open notes</Text>
@@ -980,11 +1116,15 @@ export default function AssetDetailScreen() {
           <Card>
             <CardTitle>Documents</CardTitle>
             <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>
-              Documents are not yet stored against individual assets — the condition photos above are the
-              evidence on file for this unit.
-              {asset.vendorProduct ? ' Datasheets, manuals and certificates for this model live on its catalogue listing.' : ''}
+              Documents are not yet stored against individual assets — the condition photos above
+              are the evidence on file for this unit.
+              {asset.vendorProduct
+                ? ' Datasheets, manuals and certificates for this model live on its catalogue listing.'
+                : ''}
             </Text>
-            {openListing ? <CardLink label="Open the catalogue listing" onPress={openListing} /> : null}
+            {openListing ? (
+              <CardLink label="Open the catalogue listing" onPress={openListing} />
+            ) : null}
           </Card>
         </>
       ) : null}
@@ -1062,7 +1202,9 @@ function ListCard({
         <CardTitle action={action}>{title}</CardTitle>
       </View>
       {children}
-      {footer ? <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>{footer}</View> : null}
+      {footer ? (
+        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>{footer}</View>
+      ) : null}
     </Card>
   );
 }
@@ -1117,7 +1259,9 @@ function CollapsibleListCard({
           ) : null}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Text style={{ color: c.muted, fontSize: 12, fontWeight: '600' }}>{open ? 'Hide' : 'Show'}</Text>
+          <Text style={{ color: c.muted, fontSize: 12, fontWeight: '600' }}>
+            {open ? 'Hide' : 'Show'}
+          </Text>
           <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={c.muted} />
         </View>
       </Pressable>
@@ -1170,11 +1314,17 @@ function HistoryTab({ asset }: { asset: AssetDetail }) {
                   }}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>{entry.title}</Text>
+                  <Text style={{ color: c.text, fontWeight: '600', fontSize: 14 }}>
+                    {entry.title}
+                  </Text>
                   <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }}>
                     {entry.date}
                     {entry.suffix}
-                    {open ? (open.acknowledgedAt ? ' · receipt confirmed' : ' · awaiting receipt') : ''}
+                    {open
+                      ? open.acknowledgedAt
+                        ? ' · receipt confirmed'
+                        : ' · awaiting receipt'
+                      : ''}
                   </Text>
                   {entry.note ? (
                     <Text

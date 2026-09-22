@@ -59,11 +59,36 @@ export function holderNameOf(asset: Pick<ScannedAsset, 'assignedUser'>): string 
 
 const ACTIONS: Record<ScanActionKey, Omit<ScanAction, 'key'>> = {
   open: { label: 'Open asset', hint: 'Everything about it', icon: 'open-outline', tone: 'neutral' },
-  seen: { label: 'Mark as seen', hint: 'Counts towards this quarter’s verification', icon: 'checkmark-circle-outline', tone: 'primary' },
-  assign: { label: 'Assign', hint: 'Give it to somebody', icon: 'person-add-outline', tone: 'primary' },
-  reassign: { label: 'Hand over', hint: 'From its holder to somebody else', icon: 'swap-horizontal-outline', tone: 'primary' },
-  return: { label: 'Record return', hint: 'It has come back', icon: 'return-down-back-outline', tone: 'neutral' },
-  damage: { label: 'Report damage', hint: 'IT is told it is damaged', icon: 'warning-outline', tone: 'danger' },
+  seen: {
+    label: 'Mark as seen',
+    hint: 'Counts towards this quarter’s verification',
+    icon: 'checkmark-circle-outline',
+    tone: 'primary',
+  },
+  assign: {
+    label: 'Assign',
+    hint: 'Give it to somebody',
+    icon: 'person-add-outline',
+    tone: 'primary',
+  },
+  reassign: {
+    label: 'Hand over',
+    hint: 'From its holder to somebody else',
+    icon: 'swap-horizontal-outline',
+    tone: 'primary',
+  },
+  return: {
+    label: 'Record return',
+    hint: 'It has come back',
+    icon: 'return-down-back-outline',
+    tone: 'neutral',
+  },
+  damage: {
+    label: 'Report damage',
+    hint: 'IT is told it is damaged',
+    icon: 'warning-outline',
+    tone: 'danger',
+  },
 };
 
 export function scanActions(input: {
@@ -84,7 +109,10 @@ export function scanActions(input: {
   });
 
   const keys: ScanActionKey[] = ['open'];
-  if (canVerifyAssets(permissions) && !(NOT_VERIFIABLE_STATUSES as readonly string[]).includes(asset.status)) {
+  if (
+    canVerifyAssets(permissions) &&
+    !(NOT_VERIFIABLE_STATUSES as readonly string[]).includes(asset.status)
+  ) {
     keys.push('seen');
   }
   if (offer.show && offer.assign) keys.push('assign');
@@ -103,7 +131,9 @@ export function scanActions(input: {
  * have always had, and finds Report damage on the asset page as before.
  */
 export function stopsOnSheet(actions: readonly ScanAction[]): boolean {
-  return actions.some((a) => a.key === 'seen' || a.key === 'assign' || a.key === 'reassign' || a.key === 'return');
+  return actions.some(
+    (a) => a.key === 'seen' || a.key === 'assign' || a.key === 'reassign' || a.key === 'return',
+  );
 }
 
 /** Where an act leads: the asset page, asked to open the flow it already has. */
@@ -111,12 +141,21 @@ export function scanActionHref(assetId: string, key: Exclude<ScanActionKey, 'see
   return key === 'open' ? `/asset/${assetId}` : `/asset/${assetId}?action=${key}`;
 }
 
-/** The `action` the asset screen was opened with, if it is one it knows. */
+/**
+ * The `action` the asset screen was opened with, if it is one it knows.
+ * `confirm-receipt` (v2.78) comes from the button on a handover push.
+ */
 export function assetScreenAction(
   param: string | string[] | undefined,
-): 'assign' | 'reassign' | 'return' | 'damage' | null {
+): 'assign' | 'reassign' | 'return' | 'damage' | 'confirm-receipt' | null {
   const value = Array.isArray(param) ? param[0] : param;
-  return value === 'assign' || value === 'reassign' || value === 'return' || value === 'damage' ? value : null;
+  return value === 'assign' ||
+    value === 'reassign' ||
+    value === 'return' ||
+    value === 'damage' ||
+    value === 'confirm-receipt'
+    ? value
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,11 +172,16 @@ export function matchTypedCode<T extends { assetTag: string; serialNumber?: stri
   candidates: readonly T[],
 ): { match: T | null; reason: string | null } {
   const want = typed.trim().toLowerCase();
-  if (!want) return { match: null, reason: 'Type the asset tag or serial number printed on the label.' };
+  if (!want)
+    return { match: null, reason: 'Type the asset tag or serial number printed on the label.' };
   const exact = candidates.filter(
     (a) => a.assetTag.toLowerCase() === want || (a.serialNumber ?? '').toLowerCase() === want,
   );
   if (exact.length === 1) return { match: exact[0]!, reason: null };
-  if (exact.length > 1) return { match: null, reason: 'More than one asset carries that code. Open it from the Assets list instead.' };
+  if (exact.length > 1)
+    return {
+      match: null,
+      reason: 'More than one asset carries that code. Open it from the Assets list instead.',
+    };
   return { match: null, reason: `No asset you can see has the tag or serial "${typed.trim()}".` };
 }

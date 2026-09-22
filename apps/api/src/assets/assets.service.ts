@@ -29,6 +29,7 @@ import {
   normalizeMacAddress,
   normalizeImei,
   sanitizeAssetSpecs,
+  PUSH_CATEGORY,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { ensureOpenAssignment } from './custody-record.js';
@@ -839,11 +840,7 @@ export class AssetsService {
 
     // v2.20 - same normalisation and uniqueness rules as create; `before.id` is
     // excluded from the clash check so re-saving an unchanged asset is fine.
-    const identity = await this.resolveIdentity(
-      actor,
-      { macAddress, imei },
-      before.id,
-    );
+    const identity = await this.resolveIdentity(actor, { macAddress, imei }, before.id);
     const nextSpecs =
       specs === undefined
         ? undefined
@@ -1010,15 +1007,19 @@ export class AssetsService {
 
     if (status === 'LOST') {
       // v2.18: a missing asset is a high-priority, escalated event.
-      await this.notifications.notifyRoles(actor.companyId, {
-        type: 'ASSET_MISSING',
-        title: `URGENT: asset reported missing - ${before.assetTag}`,
-        body: `${before.name} (${before.assetTag}) has been marked as lost or missing.`,
-        linkPath: `/assets/${id}`,
-        entityType: 'Asset',
-        entityId: id,
-        vars: { 'asset.name': before.name, 'asset.asset_tag': before.assetTag },
-      }, { escalate: true, excludeUserIds: [actor.id] });
+      await this.notifications.notifyRoles(
+        actor.companyId,
+        {
+          type: 'ASSET_MISSING',
+          title: `URGENT: asset reported missing - ${before.assetTag}`,
+          body: `${before.name} (${before.assetTag}) has been marked as lost or missing.`,
+          linkPath: `/assets/${id}`,
+          entityType: 'Asset',
+          entityId: id,
+          vars: { 'asset.name': before.name, 'asset.asset_tag': before.assetTag },
+        },
+        { escalate: true, excludeUserIds: [actor.id] },
+      );
     }
 
     await this.recordConditionLog(id, before, after, reason);
@@ -1170,6 +1171,8 @@ export class AssetsService {
         linkPath: '/my-assets',
         entityType: 'Asset',
         entityId: input.assetId,
+        // v2.78 - Confirm receipt on the phone's notification.
+        push: { categoryId: PUSH_CATEGORY.receipt, data: { assetId: input.assetId } },
       });
     } catch (error) {
       this.logger.error(
@@ -1421,7 +1424,11 @@ export class AssetsService {
       entityType: 'Asset',
       entityId: id,
       previousValues: { assignedUserId: open.userId, status: asset.status },
-      newValues: { assignedUserId: input.userId, status: 'ASSIGNED', conditionIn: input.conditionIn },
+      newValues: {
+        assignedUserId: input.userId,
+        status: 'ASSIGNED',
+        conditionIn: input.conditionIn,
+      },
       reason: 'Reassigned directly to a new holder',
     });
 
@@ -1652,15 +1659,19 @@ export class AssetsService {
     });
 
     // v2.18: transfers are visible to the configured roles, not just parties.
-    await this.notifications.notifyRoles(actor.companyId, {
-      type: 'ASSET_TRANSFERRED',
-      title: `Asset transfer: ${asset.name}`,
-      body: `${asset.assetTag} is being transferred.`,
-      linkPath: `/assets/${id}`,
-      entityType: 'Asset',
-      entityId: id,
-      vars: { 'asset.name': asset.name, 'asset.asset_tag': asset.assetTag },
-    }, { excludeUserIds: [actor.id] });
+    await this.notifications.notifyRoles(
+      actor.companyId,
+      {
+        type: 'ASSET_TRANSFERRED',
+        title: `Asset transfer: ${asset.name}`,
+        body: `${asset.assetTag} is being transferred.`,
+        linkPath: `/assets/${id}`,
+        entityType: 'Asset',
+        entityId: id,
+        vars: { 'asset.name': asset.name, 'asset.asset_tag': asset.assetTag },
+      },
+      { excludeUserIds: [actor.id] },
+    );
 
     return this.findOne(actor, id);
   }

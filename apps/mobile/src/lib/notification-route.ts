@@ -1,3 +1,5 @@
+import { pushActionRoute, pushFallbackRoute } from '@techpioasset/domain';
+
 /**
  * Where tapping a notification should take you on the phone (v2.55).
  *
@@ -63,4 +65,24 @@ export function notificationRoute(linkPath: unknown): string | null {
   if (['new', 'import', 'compare', 'company', 'invitations', 'edit'].includes(id)) return list;
 
   return `${detail}/${id}`;
+}
+
+/**
+ * Where a tap on a push leads, button or not (v2.78).
+ *
+ * A button (Approve, Reject, Confirm receipt) goes to the screen that offers
+ * that action, asked to open it. A tap on the notification itself follows its
+ * web link as before, and when that link has no phone screen - "assigned to
+ * you" points at the web's My assets page - the asset or request the push
+ * names is the better landing than nowhere.
+ */
+export function notificationTarget(
+  actionIdentifier: string | null | undefined,
+  data: Readonly<Record<string, unknown>> | null | undefined,
+): string | null {
+  return (
+    pushActionRoute(actionIdentifier, data) ??
+    notificationRoute(data?.linkPath) ??
+    pushFallbackRoute(data)
+  );
 }

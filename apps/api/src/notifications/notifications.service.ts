@@ -30,6 +30,9 @@ const DEFAULT_RULE_ROLES: Partial<Record<NotificationType, string[]>> = {
   ASSET_TRANSFERRED: ['IT_ADMIN'],
   ASSET_MISSING: ['IT_ADMIN', 'SUPER_ADMIN'],
   USER_ACTIVATED: ['HR', 'IT_ADMIN'],
+  // v2.78 - the Monday summary goes to whoever runs the system until an
+  // admin routes it elsewhere under Settings -> Notifications.
+  WEEKLY_SUMMARY: ['SUPER_ADMIN', 'IT_ADMIN'],
   // DAILY_DIGEST is deliberately opt-in: no audience until configured.
 };
 
@@ -75,6 +78,12 @@ export interface NotifyInput {
   expand?: boolean;
   /** Also include the rule's escalation roles (thresholds crossed). */
   escalate?: boolean;
+  /**
+   * v2.78 - phone-only extras: the buttons to draw (a PUSH_CATEGORY) and
+   * the ids those buttons act on. Never shown to anyone; strings only,
+   * because FCM refuses anything else.
+   */
+  push?: { categoryId?: string; data?: Record<string, string> };
 }
 
 interface SendJobPayload {
@@ -96,6 +105,8 @@ interface PushJobPayload {
   title: string;
   body: string;
   linkPath?: string;
+  categoryId?: string;
+  data?: Record<string, string>;
 }
 
 interface ChatJobPayload {
@@ -141,9 +152,7 @@ export class NotificationsService implements OnModuleInit {
           // The logo is attached here rather than carried in the job payload:
           // it is the same 9KB on every message, and the queue should not be
           // storing a copy of it per queued email.
-          ...(payload.html
-            ? { html: payload.html, attachments: [BRAND_LOGO_ATTACHMENT] }
-            : {}),
+          ...(payload.html ? { html: payload.html, attachments: [BRAND_LOGO_ATTACHMENT] } : {}),
         });
 
         if (payload.notificationId) {
@@ -189,7 +198,15 @@ export class NotificationsService implements OnModuleInit {
         tokens: devices.map((d) => d.token),
         title: payload.title,
         body: payload.body,
-        ...(payload.linkPath ? { data: { linkPath: payload.linkPath } } : {}),
+        ...(payload.linkPath || payload.data
+          ? {
+              data: {
+                ...(payload.data ?? {}),
+                ...(payload.linkPath ? { linkPath: payload.linkPath } : {}),
+              },
+            }
+          : {}),
+        ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
       });
 
       // Prune tokens the push service reported as dead, so they stop being retried.
@@ -283,6 +300,8 @@ export class NotificationsService implements OnModuleInit {
         title: input.title,
         body: input.body,
         ...(input.linkPath ? { linkPath: input.linkPath } : {}),
+        ...(input.push?.categoryId ? { categoryId: input.push.categoryId } : {}),
+        ...(input.push?.data ? { data: input.push.data } : {}),
       });
     }
 
@@ -377,7 +396,10 @@ export class NotificationsService implements OnModuleInit {
    * own title/body. Variables interpolate into subject, heading and body.
    */
   async renderEmail(
-    input: Pick<NotifyInput, 'companyId' | 'type' | 'title' | 'body' | 'linkPath' | 'vars' | 'emailRows'>,
+    input: Pick<
+      NotifyInput,
+      'companyId' | 'type' | 'title' | 'body' | 'linkPath' | 'vars' | 'emailRows'
+    >,
     recipient: { name: string; email: string },
   ): Promise<{ subject: string; text: string; html: string }> {
     const override = await this.cache.wrap(`notify-tpl:${input.companyId}:${input.type}`, 30, () =>
@@ -388,9 +410,19 @@ export class NotificationsService implements OnModuleInit {
     const fallback = DEFAULT_EMAIL_TEMPLATES[input.type];
     const template =
       override && override.enabled
-        ? { subject: override.subject, heading: override.heading ?? override.subject, body: override.body, ctaLabel: override.ctaLabel ?? undefined }
+        ? {
+            subject: override.subject,
+            heading: override.heading ?? override.subject,
+            body: override.body,
+            ctaLabel: override.ctaLabel ?? undefined,
+          }
         : fallback
-          ? { subject: fallback.subject, heading: fallback.heading, body: fallback.body, ctaLabel: fallback.ctaLabel }
+          ? {
+              subject: fallback.subject,
+              heading: fallback.heading,
+              body: fallback.body,
+              ctaLabel: fallback.ctaLabel,
+            }
           : { subject: input.title, heading: input.title, body: input.body, ctaLabel: undefined };
 
     const company = await this.cache.wrap(`company-name:${input.companyId}`, 300, async () => {
@@ -416,7 +448,9 @@ export class NotificationsService implements OnModuleInit {
     const paragraphs = interpolate(template.body, vars)
       .split(/\n\n+/)
       .filter((par) => par.trim().length > 0);
-    const url = input.linkPath ? `${this.config.get('WEB_URL')}${input.linkPath}` : this.config.get('WEB_URL');
+    const url = input.linkPath
+      ? `${this.config.get('WEB_URL')}${input.linkPath}`
+      : this.config.get('WEB_URL');
     const html = renderBrandedEmail({
       heading: interpolate(template.heading, vars),
       paragraphs,

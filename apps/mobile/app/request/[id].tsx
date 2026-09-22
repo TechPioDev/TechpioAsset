@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import {
   REQUEST_STATUS_TOKENS,
@@ -13,8 +13,14 @@ import { personName, formatMoney } from '../../src/lib/format';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { ProcurementAssessment } from '../../src/components/requests/procurement-assessment';
-import { RequestConversation, type RequestComment } from '../../src/components/requests/request-conversation';
-import { RequestAttachments, type RequestAttachment } from '../../src/components/requests/request-attachments';
+import {
+  RequestConversation,
+  type RequestComment,
+} from '../../src/components/requests/request-conversation';
+import {
+  RequestAttachments,
+  type RequestAttachment,
+} from '../../src/components/requests/request-attachments';
 
 interface ApprovalStep {
   id: string;
@@ -63,7 +69,11 @@ interface RequestDetail {
 
 /** Request detail with approve / reject (spec section 12). */
 export default function RequestDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, action: actionParam } = useLocalSearchParams<{ id: string; action?: string }>();
+  // v2.78 - a button on the approval push (Approve / Reject) lands here asked
+  // to do it. Handled once the request has loaded, and only once.
+  const askedAction = actionParam === 'approve' || actionParam === 'reject' ? actionParam : null;
+  const actionHandled = useRef(false);
   const { api, user } = useSession();
   const router = useRouter();
   const { c, scheme, spacing } = useTheme();
@@ -144,7 +154,9 @@ export default function RequestDetailScreen() {
       });
       Alert.alert(
         decision === 'APPROVED' ? 'Approved' : 'Rejected',
-        decision === 'APPROVED' ? 'The request moves to the next step.' : 'The requester has been notified.',
+        decision === 'APPROVED'
+          ? 'The request moves to the next step.'
+          : 'The requester has been notified.',
       );
       router.back();
     } catch {
@@ -154,6 +166,38 @@ export default function RequestDetailScreen() {
       setBusy(false);
     }
   }
+  const decideRef = useRef(decide);
+  decideRef.current = decide;
+
+  // The button is a shortcut to the one on this screen, never a way round it:
+  // the same canDecide the card below uses, and Approve still asks once, with
+  // what is being approved in front of the approver.
+  useEffect(() => {
+    if (!askedAction || actionHandled.current || !request) return;
+    actionHandled.current = true;
+    const step = request.approvals.find((a) => a.decision === 'PENDING');
+    const assessment = Boolean(step) && step!.kind !== 'APPROVAL';
+    if (askedAction === 'approve') {
+      if (request.canDecide && !assessment) {
+        const items = request.items.map((i) => `${i.quantity} × ${i.description}`).join('\n');
+        const who = request.requester ? personName(request.requester) : 'Someone';
+        Alert.alert(`Approve ${request.requestNumber}?`, `${who} asked for:\n${items}`, [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Approve', onPress: () => void decideRef.current('APPROVED') },
+        ]);
+      } else {
+        Alert.alert(
+          'Nothing to approve',
+          'This request is no longer waiting on your approval. It may already have been decided.',
+        );
+      }
+    } else if (!request.canDecide && !request.canDecline) {
+      Alert.alert(
+        'Nothing to reject',
+        'This request is no longer waiting on you. It may already have been decided.',
+      );
+    }
+  }, [askedAction, request]);
 
   if (!request) {
     return (
@@ -174,8 +218,12 @@ export default function RequestDetailScreen() {
   return (
     <Screen scroll>
       <Card style={{ marginBottom: spacing.xl }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>{request.requestNumber}</Text>
+        <View
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+        >
+          <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>
+            {request.requestNumber}
+          </Text>
           <StatusPill
             label={
               request.approvals.find((a) => a.decision === 'PENDING')?.stepName ??
@@ -192,7 +240,10 @@ export default function RequestDetailScreen() {
           ) : null}
           <Row label="Priority" value={request.priority} />
           {request.estimatedCost ? (
-            <Row label="Estimated cost" value={formatMoney(request.estimatedCost, request.currency)} />
+            <Row
+              label="Estimated cost"
+              value={formatMoney(request.estimatedCost, request.currency)}
+            />
           ) : null}
           {request.requiredBy ? (
             <Row label="Required by" value={new Date(request.requiredBy).toLocaleDateString()} />
@@ -202,7 +253,9 @@ export default function RequestDetailScreen() {
 
       <SectionTitle>Reason</SectionTitle>
       <Card style={{ marginBottom: spacing.xl }}>
-        <Text style={{ color: c.text, fontSize: 14, lineHeight: 21 }}>{request.businessReason}</Text>
+        <Text style={{ color: c.text, fontSize: 14, lineHeight: 21 }}>
+          {request.businessReason}
+        </Text>
       </Card>
 
       <SectionTitle>Items</SectionTitle>
@@ -247,15 +300,24 @@ export default function RequestDetailScreen() {
             }}
           >
             <View
-              style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: decisionColor(step.decision, scheme) }}
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                backgroundColor: decisionColor(step.decision, scheme),
+              }}
             />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: c.text, fontSize: 14, fontWeight: '600' }}>{step.stepName}</Text>
+              <Text style={{ color: c.text, fontSize: 14, fontWeight: '600' }}>
+                {step.stepName}
+              </Text>
               {step.approver ? (
                 <Text style={{ color: c.muted, fontSize: 12 }}>{personName(step.approver)}</Text>
               ) : null}
               {step.comment ? (
-                <Text style={{ color: c.muted, fontSize: 12, fontStyle: 'italic' }}>“{step.comment}”</Text>
+                <Text style={{ color: c.muted, fontSize: 12, fontStyle: 'italic' }}>
+                  “{step.comment}”
+                </Text>
               ) : null}
             </View>
             <Text style={{ color: c.muted, fontSize: 12, fontWeight: '600' }}>
@@ -278,8 +340,8 @@ export default function RequestDetailScreen() {
             Is this available in stock?
           </Text>
           <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
-            Answering completes the step. Filling from stock closes the request without
-            finance approval; needing a purchase sends it on to be costed.
+            Answering completes the step. Filling from stock closes the request without finance
+            approval; needing a purchase sends it on to be costed.
           </Text>
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <Button
@@ -301,7 +363,11 @@ export default function RequestDetailScreen() {
         // Same gate as the web page: requests:assess, and never on your own
         // request. The full commercial form - product, prices, tax, shipping,
         // discount, note - with the total computed by the server.
-        <ProcurementAssessment requestId={request.id} currency={request.currency} onSaved={() => void load()} />
+        <ProcurementAssessment
+          requestId={request.id}
+          currency={request.currency}
+          onSaved={() => void load()}
+        />
       ) : null}
 
       {/*
@@ -324,11 +390,19 @@ export default function RequestDetailScreen() {
             />
           ) : null}
           <Field
-            label="Comment (required to reject)"
-            placeholder="Add a note…"
+            label={
+              askedAction === 'reject'
+                ? 'Why are you rejecting it? (required)'
+                : 'Comment (required to reject)'
+            }
+            placeholder={
+              askedAction === 'reject' ? 'The requester sees this reason…' : 'Add a note…'
+            }
             value={comment}
             onChangeText={setComment}
             multiline
+            // Reject from the notification: the reason is the one thing left to do.
+            autoFocus={askedAction === 'reject'}
           />
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <Button
@@ -339,13 +413,23 @@ export default function RequestDetailScreen() {
               style={{ flex: 1 }}
             />
             {isAssessmentStage || !request.canDecide ? null : (
-              <Button label="Approve" icon="checkmark" onPress={() => void decide('APPROVED')} loading={busy} style={{ flex: 1 }} />
+              <Button
+                label="Approve"
+                icon="checkmark"
+                onPress={() => void decide('APPROVED')}
+                loading={busy}
+                style={{ flex: 1 }}
+              />
             )}
           </View>
         </Card>
       ) : null}
 
-      <RequestAttachments requestId={request.id} attachments={request.attachments ?? []} onChanged={load} />
+      <RequestAttachments
+        requestId={request.id}
+        attachments={request.attachments ?? []}
+        onChanged={load}
+      />
 
       <RequestConversation
         requestId={request.id}
@@ -363,7 +447,15 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
       <Text style={{ color: c.muted, fontSize: 14 }}>{label}</Text>
-      <Text style={{ color: c.text, fontWeight: '600', flexShrink: 1, textAlign: 'right', fontSize: 14 }}>
+      <Text
+        style={{
+          color: c.text,
+          fontWeight: '600',
+          flexShrink: 1,
+          textAlign: 'right',
+          fontSize: 14,
+        }}
+      >
         {value}
       </Text>
     </View>

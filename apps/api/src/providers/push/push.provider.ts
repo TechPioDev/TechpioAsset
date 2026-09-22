@@ -13,6 +13,12 @@ export interface PushMessage {
   body: string;
   /** Deep-link path the app opens on tap. */
   data?: Record<string, string>;
+  /**
+   * v2.78 - which buttons the phone draws (see PUSH_CATEGORY in the domain).
+   * A phone on an older build has not registered the category and simply
+   * shows the notification without buttons.
+   */
+  categoryId?: string;
 }
 
 export interface PushResult {

@@ -6,6 +6,12 @@ import {
   expiryState,
   isHighUtilization,
   seatsAvailable,
+  PUSH_CATEGORY,
+  AGENT_DEVICE_TYPES,
+  localWeekStart,
+  notEnrolledDevices,
+  weeklySummaryDue,
+  weeklySummaryText,
 } from '@techpioasset/domain';
 import { AuditAction, Prisma } from '@prisma/client';
 import { AppConfig } from '../config/config.module.js';
@@ -76,30 +82,38 @@ export class AlertSweepService implements OnModuleInit {
       // One span per nightly pass, so a slow or failing sweep is visible
       // rather than inferred from log timestamps.
       void withSpan('sweep.daily', async () => {
-      void this.runWarrantySweep();
-      void this.runApprovalEscalationSweep();
-      void this.runLicenseSweep();
-      void this.runStockSweep();
-      void this.runExpirySweep();
-      void this.runWorkOrderSweep();
-      void this.runHealthSweep();
-      void this.runDiscoveryStalenessSweep();
-      void this.runReceiptSweep();
-      void this.runReturnOverdueSweep();
-      void this.runVendorOfferSweep();
-      // Zero-touch warranty refresh: Lenovo answers serial lookups directly,
-      // so those dates never need a human. Summary is logged by the service.
-      void this.lenovoWarranty.sweep();
-      void this.runDailyDigest();
-      void this.runInviteSweep();
-      // Retention: delete refresh tokens that have been dead for over a week.
-      // Nothing ever removed them before, so the table only grew.
-      void this.tokens.purgeDeadTokens();
+        void this.runWarrantySweep();
+        void this.runApprovalEscalationSweep();
+        void this.runLicenseSweep();
+        void this.runStockSweep();
+        void this.runExpirySweep();
+        void this.runWorkOrderSweep();
+        void this.runHealthSweep();
+        void this.runDiscoveryStalenessSweep();
+        void this.runReceiptSweep();
+        void this.runReturnOverdueSweep();
+        void this.runVendorOfferSweep();
+        // Zero-touch warranty refresh: Lenovo answers serial lookups directly,
+        // so those dates never need a human. Summary is logged by the service.
+        void this.lenovoWarranty.sweep();
+        void this.runDailyDigest();
+        void this.runInviteSweep();
+        // Retention: delete refresh tokens that have been dead for over a week.
+        // Nothing ever removed them before, so the table only grew.
+        void this.tokens.purgeDeadTokens();
       });
     };
     this.timer = setInterval(daily, 24 * 60 * 60 * 1000);
     this.timer.unref?.();
     setTimeout(daily, 5000).unref?.();
+
+    // v2.78 - the Monday summary is due at a wall-clock time (09:00 in each
+    // company's zone), which a once-a-day timer started at deploy time would
+    // miss by hours. An hourly look is cheap: most hours it finds it is not
+    // Monday morning anywhere and does nothing.
+    const hourly = setInterval(() => void this.runWeeklySummary(), 60 * 60 * 1000);
+    hourly.unref?.();
+    setTimeout(() => void this.runWeeklySummary(), 15_000).unref?.();
   }
 
   /**
@@ -138,7 +152,11 @@ export class AlertSweepService implements OnModuleInit {
         });
         thresholdsByCompany.set(
           companyId,
-          rule && !rule.enabled ? [] : rule?.thresholds?.length ? rule.thresholds : [90, 60, 30, 15, 7, 1, 0],
+          rule && !rule.enabled
+            ? []
+            : rule?.thresholds?.length
+              ? rule.thresholds
+              : [90, 60, 30, 15, 7, 1, 0],
         );
       }
       return thresholdsByCompany.get(companyId)!;
@@ -147,7 +165,9 @@ export class AlertSweepService implements OnModuleInit {
     let raised = 0;
     for (const asset of assets) {
       if (!asset.warrantyEndDate) continue;
-      const daysRemaining = Math.ceil((asset.warrantyEndDate.getTime() - now.getTime()) / 86_400_000);
+      const daysRemaining = Math.ceil(
+        (asset.warrantyEndDate.getTime() - now.getTime()) / 86_400_000,
+      );
       const thresholds = await thresholdsFor(asset.companyId);
       if (!thresholds.includes(daysRemaining)) continue;
 
@@ -263,8 +283,7 @@ export class AlertSweepService implements OnModuleInit {
 
     // Self-approval is refused at the decide guard, so escalating to the
     // requester would send somebody to a button they cannot press.
-    const notRequester = (ids: string[]) =>
-      ids.filter((id) => id !== approval.request.requesterId);
+    const notRequester = (ids: string[]) => ids.filter((id) => id !== approval.request.requesterId);
 
     if (approval.approverId) return notRequester([approval.approverId]);
 
@@ -603,7 +622,9 @@ export class AlertSweepService implements OnModuleInit {
        WHERE ("inventoryItemId", "stockLocationId") IN (${pairs})
        GROUP BY "inventoryItemId", "stockLocationId"`);
 
-    return new Map(rows.map((r) => [`${r.inventoryItemId}:${r.stockLocationId}`, Number(r.balance)]));
+    return new Map(
+      rows.map((r) => [`${r.inventoryItemId}:${r.stockLocationId}`, Number(r.balance)]),
+    );
   }
 
   /**
@@ -816,7 +837,9 @@ export class AlertSweepService implements OnModuleInit {
         where: { entityId: assignment.id, type: 'RECEIPT_CONFIRMATION' },
       });
       if (sent >= RECEIPT_MAX_REMINDERS) continue;
-      if (await this.remindedWithin(assignment.id, 'RECEIPT_CONFIRMATION', RECEIPT_INTERVAL_DAYS, now))
+      if (
+        await this.remindedWithin(assignment.id, 'RECEIPT_CONFIRMATION', RECEIPT_INTERVAL_DAYS, now)
+      )
         continue;
 
       const waiting = Math.floor((now.getTime() - assignment.assignedAt.getTime()) / 86_400_000);
@@ -831,6 +854,7 @@ export class AlertSweepService implements OnModuleInit {
         // this at three, and an asset reassigned later deserves its own three.
         entityType: 'AssetAssignment',
         entityId: assignment.id,
+        push: { categoryId: PUSH_CATEGORY.receipt, data: { assetId: assignment.asset.id } },
       });
       raised += 1;
     }
@@ -897,7 +921,6 @@ export class AlertSweepService implements OnModuleInit {
     if (raised > 0) this.logger.log(`Return sweep raised ${raised} overdue alert(s)`);
     return raised;
   }
-
 
   /**
    * Supplier offers that are about to stop being buyable (v2.50).
@@ -1019,12 +1042,28 @@ export class AlertSweepService implements OnModuleInit {
 
       const companyFilter = { companyId: rule.companyId, deletedAt: null } as const;
       const [expiring, expired, newAssets, assignments, missing, openRequests] = await Promise.all([
-        this.prisma.client.asset.count({ where: { ...companyFilter, warrantyEndDate: { gte: now, lte: in30 } } }),
-        this.prisma.client.asset.count({ where: { ...companyFilter, warrantyEndDate: { lt: now }, status: { notIn: ['RETIRED', 'DISPOSED'] } } }),
+        this.prisma.client.asset.count({
+          where: { ...companyFilter, warrantyEndDate: { gte: now, lte: in30 } },
+        }),
+        this.prisma.client.asset.count({
+          where: {
+            ...companyFilter,
+            warrantyEndDate: { lt: now },
+            status: { notIn: ['RETIRED', 'DISPOSED'] },
+          },
+        }),
         this.prisma.client.asset.count({ where: { ...companyFilter, createdAt: { gte: dayAgo } } }),
-        this.prisma.client.assetAssignment.count({ where: { assignedAt: { gte: dayAgo }, asset: { companyId: rule.companyId } } }),
+        this.prisma.client.assetAssignment.count({
+          where: { assignedAt: { gte: dayAgo }, asset: { companyId: rule.companyId } },
+        }),
         this.prisma.client.asset.count({ where: { ...companyFilter, status: 'LOST' } }),
-        this.prisma.client.assetRequest.count({ where: { companyId: rule.companyId, createdAt: { gte: dayAgo }, status: { not: 'DRAFT' } } }),
+        this.prisma.client.assetRequest.count({
+          where: {
+            companyId: rule.companyId,
+            createdAt: { gte: dayAgo },
+            status: { not: 'DRAFT' },
+          },
+        }),
       ]);
 
       await this.notifications.notifyRoles(rule.companyId, {
@@ -1045,6 +1084,143 @@ export class AlertSweepService implements OnModuleInit {
     }
     if (sent > 0) this.logger.log(`Daily digest sent for ${sent} company(ies)`);
     return sent;
+  }
+
+  /**
+   * v2.78 - the Monday summary for admins.
+   *
+   * Once per company per week, from 09:00 Monday in the company's time zone,
+   * to whoever the WEEKLY_SUMMARY rule names (default: Super Admin and IT
+   * Admin). "Once" is the notifications already written since the local week
+   * began, so a restart, a second instance or the hourly re-check cannot
+   * send it twice. A company whose rule is switched off is skipped by
+   * notifyRoles itself.
+   */
+  async runWeeklySummary(now: Date = new Date()): Promise<number> {
+    const companies = await this.prisma.client.company.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, timezone: true },
+    });
+    let sent = 0;
+    for (const company of companies) {
+      if (!weeklySummaryDue(now, company.timezone)) continue;
+      const weekStart = localWeekStart(now, company.timezone);
+      const already = await this.prisma.client.notification.count({
+        where: { companyId: company.id, type: 'WEEKLY_SUMMARY', createdAt: { gte: weekStart } },
+      });
+      if (already > 0) continue;
+
+      const counts = await this.weeklyCounts(company.id, now);
+      const { pushBody, rows } = weeklySummaryText(counts);
+      await this.notifications.notifyRoles(company.id, {
+        type: 'WEEKLY_SUMMARY',
+        title: 'Monday summary',
+        body: pushBody,
+        linkPath: '/dashboard',
+        emailRows: rows,
+      });
+      sent += 1;
+    }
+    if (sent > 0) this.logger.log(`Monday summary sent for ${sent} company(ies)`);
+    return sent;
+  }
+
+  /** The figures, each counted the way the screen it comes from counts it. */
+  private async weeklyCounts(companyId: string, now: Date) {
+    const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+    const in30 = new Date(now.getTime() + 30 * 86_400_000);
+    const openHandover = { returnedAt: null, asset: { companyId, deletedAt: null } } as const;
+    const [
+      approvalsWaiting,
+      receiptsUnconfirmed,
+      returnsOverdue,
+      stockLevels,
+      warrantiesExpiring,
+      machines,
+      agents,
+      requestsRaised,
+      assetsHandedOut,
+    ] = await Promise.all([
+      this.prisma.client.requestApproval.count({
+        where: { decision: 'PENDING', request: { companyId } },
+      }),
+      this.prisma.client.assetAssignment.count({
+        where: {
+          ...openHandover,
+          acknowledgedAt: null,
+          // Same rule as the receipt sweep: imported custody was never handed over here.
+          OR: [
+            { acknowledgementMethod: null },
+            { acknowledgementMethod: { not: IMPORT_BACKFILL_METHOD } },
+          ],
+        },
+      }),
+      this.prisma.client.assetAssignment.count({
+        where: { ...openHandover, expectedReturnAt: { lt: now } },
+      }),
+      this.prisma.client.stockLevel.findMany({
+        where: { companyId, inventoryItem: { minStock: { not: null } } },
+        select: { quantity: true, inventoryItem: { select: { minStock: true } } },
+      }),
+      this.prisma.client.asset.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          warrantyEndDate: { gte: now, lte: in30 },
+          status: { notIn: ['RETIRED', 'DISPOSED', 'DONATED', 'LOST', 'STOLEN'] },
+        },
+      }),
+      this.prisma.client.asset.findMany({
+        where: {
+          companyId,
+          deletedAt: null,
+          status: { notIn: ['DISPOSED', 'DONATED', 'RETIRED', 'LOST', 'STOLEN'] },
+          subcategory: { key: { in: [...AGENT_DEVICE_TYPES] } },
+        },
+        select: {
+          id: true,
+          name: true,
+          assetTag: true,
+          serialNumber: true,
+          subcategory: { select: { key: true } },
+        },
+        take: 2000,
+      }),
+      this.prisma.client.deviceAgent.findMany({
+        where: { companyId },
+        select: { serialNumber: true, revokedAt: true },
+      }),
+      this.prisma.client.assetRequest.count({
+        where: { companyId, createdAt: { gte: weekAgo }, status: { not: 'DRAFT' } },
+      }),
+      this.prisma.client.assetAssignment.count({
+        where: { assignedAt: { gte: weekAgo }, asset: { companyId, deletedAt: null } },
+      }),
+    ]);
+    const lowStock = stockLevels.filter(
+      (l) =>
+        l.inventoryItem.minStock !== null && Number(l.quantity) <= Number(l.inventoryItem.minStock),
+    ).length;
+    const laptopsWithoutAgent = notEnrolledDevices(
+      machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        assetTag: m.assetTag,
+        serialNumber: m.serialNumber,
+        subcategoryKey: m.subcategory?.key ?? null,
+      })),
+      agents,
+    ).length;
+    return {
+      approvalsWaiting,
+      receiptsUnconfirmed,
+      returnsOverdue,
+      lowStock,
+      warrantiesExpiring,
+      laptopsWithoutAgent,
+      requestsRaised,
+      assetsHandedOut,
+    };
   }
 
   /**
@@ -1077,7 +1253,10 @@ export class AlertSweepService implements OnModuleInit {
     // Stored INVITE_REMINDER rules per company: disabled means no reminders
     // (and no token churn); thresholds override the default stages.
     const reminderRules = await this.prisma.client.notificationRule.findMany({
-      where: { type: 'INVITE_REMINDER', companyId: { in: [...new Set(invited.map((u) => u.companyId))] } },
+      where: {
+        type: 'INVITE_REMINDER',
+        companyId: { in: [...new Set(invited.map((u) => u.companyId))] },
+      },
       select: { companyId: true, enabled: true, thresholds: true },
     });
     const ruleByCompany = new Map(reminderRules.map((r) => [r.companyId, r]));
@@ -1090,7 +1269,9 @@ export class AlertSweepService implements OnModuleInit {
       // notice - re-engaging them is an explicit Resend, not a 4am surprise.
       if (daysSince > 30) continue;
       const rule = ruleByCompany.get(user.companyId);
-      const stages = (rule?.thresholds?.length ? rule.thresholds : [1, 3, 6]).slice().sort((a, b) => a - b);
+      const stages = (rule?.thresholds?.length ? rule.thresholds : [1, 3, 6])
+        .slice()
+        .sort((a, b) => a - b);
       const firstName = user.profile?.firstName ?? user.email;
 
       const reminderCount = await this.prisma.client.emailLog.count({
@@ -1109,7 +1290,12 @@ export class AlertSweepService implements OnModuleInit {
         !lastReminder || now.getTime() - lastReminder.createdAt.getTime() > 20 * 3_600_000;
 
       const nextStage = stages[reminderCount];
-      if ((rule?.enabled ?? true) && cooledDown && nextStage !== undefined && daysSince >= nextStage) {
+      if (
+        (rule?.enabled ?? true) &&
+        cooledDown &&
+        nextStage !== undefined &&
+        daysSince >= nextStage
+      ) {
         const token = await this.auth.issueInviteToken(user.id);
         const expiry = new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
         const acceptPath = `/accept-invite?token=${token}`;
@@ -1169,5 +1355,4 @@ export class AlertSweepService implements OnModuleInit {
     if (sent > 0) this.logger.log(`Invite sweep: ${sent} reminder/expiry email(s)`);
     return sent;
   }
-
 }

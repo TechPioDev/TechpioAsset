@@ -124,6 +124,9 @@ export class FcmPushProvider extends PushProvider {
               message: message.body,
               body: JSON.stringify(message.data ?? {}),
               channelId: ANDROID_CHANNEL_ID,
+              // Read by the phone's notification library as the category,
+              // which is what puts Approve / Confirm receipt on the alert.
+              ...(message.categoryId ? { categoryId: message.categoryId } : {}),
             },
             // Without high priority a data message waits for the phone to wake
             // on its own schedule, which on a dozing handset can be hours.

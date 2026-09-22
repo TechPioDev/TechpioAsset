@@ -223,7 +223,14 @@ export const NOTIFICATION_CATALOGUE: Readonly<Record<NotificationType, Notificat
     mandatory: false,
     channels: ['IN_APP'],
   },
-  LOW_STOCK: { type: 'LOW_STOCK', title: 'Low stock', mandatory: false, channels: ['IN_APP'] },
+  // v2.78: to the phone as well - whoever keeps the stockroom is rarely at a
+  // desk when the last one goes out.
+  LOW_STOCK: {
+    type: 'LOW_STOCK',
+    title: 'Low stock',
+    mandatory: false,
+    channels: ['IN_APP', 'PUSH'],
+  },
   // v2.9 C4: email as well as in-app, because stock going off is a deadline
   // rather than a state - nobody discovers it by opening the app in time.
   STOCK_EXPIRING: {
@@ -357,6 +364,21 @@ export const NOTIFICATION_CATALOGUE: Readonly<Record<NotificationType, Notificat
     // The good news, and the one they will want fastest.
     type: 'VENDOR_OFFER_SELECTED',
     title: 'Your offer was chosen',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL', 'PUSH'],
+  },
+  // ── v2.78 Phase 2 ─────────────────────────────────────────────────────────
+  RFQ_REQUESTED: {
+    // To the supplier's own accounts only: their quote, never the other
+    // suppliers asked or any price.
+    type: 'RFQ_REQUESTED',
+    title: 'Quote requested',
+    mandatory: false,
+    channels: ['IN_APP', 'EMAIL', 'PUSH'],
+  },
+  WEEKLY_SUMMARY: {
+    type: 'WEEKLY_SUMMARY',
+    title: 'Monday summary',
     mandatory: false,
     channels: ['IN_APP', 'EMAIL', 'PUSH'],
   },

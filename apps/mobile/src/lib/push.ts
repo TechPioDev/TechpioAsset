@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { PUSH_CATEGORY_BUTTONS } from '@techpioasset/domain';
 import type { ApiClient } from './api-client';
 
 /**
@@ -24,7 +25,8 @@ const CHANNEL_ID = 'default';
 
 async function deviceToken(): Promise<string> {
   // iOS is not built; there, the Expo token keeps the old behaviour.
-  if (Platform.OS === 'android') return (await Notifications.getDevicePushTokenAsync()).data as string;
+  if (Platform.OS === 'android')
+    return (await Notifications.getDevicePushTokenAsync()).data as string;
   return (await Notifications.getExpoPushTokenAsync()).data;
 }
 
@@ -63,5 +65,29 @@ export async function unregisterPush(api: ApiClient): Promise<void> {
     await api.request(`/mobile/devices/${encodeURIComponent(token)}`, { method: 'DELETE' });
   } catch {
     // Nothing to undo, or offline; the server prunes a dead token on its next send.
+  }
+}
+
+/**
+ * Tell the phone what buttons each kind of push shows (v2.78): Approve /
+ * Reject on an approval, Confirm receipt on a handover. Stored by the OS, so
+ * it holds for pushes that arrive while the app is closed. Every button opens
+ * the app - nothing is approved or confirmed without the screen being seen.
+ */
+export async function registerPushCategories(): Promise<void> {
+  if (Platform.OS === 'web') return;
+  try {
+    for (const [category, buttons] of Object.entries(PUSH_CATEGORY_BUTTONS)) {
+      await Notifications.setNotificationCategoryAsync(
+        category,
+        buttons.map((b) => ({
+          identifier: b.identifier,
+          buttonTitle: b.title,
+          options: { opensAppToForeground: true },
+        })),
+      );
+    }
+  } catch {
+    // An older OS without categories shows the notification without buttons.
   }
 }

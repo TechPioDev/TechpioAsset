@@ -11,6 +11,7 @@ import { compareQuotes, quoteSubtotal } from '@techpioasset/domain';
 import { AuditService } from '../audit/audit.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { VendorNotificationsService } from '../vendor-products/vendor-notifications.service.js';
 
 /**
  * v2.9 C3 — competitive quoting.
@@ -26,6 +27,7 @@ export class RfqService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
   async create(actor: AuthUser, purchaseRequestId: string, input: CreateRfqInput) {
@@ -37,19 +39,28 @@ export class RfqService {
     // Quoting an unapproved request would put vendors to work on a purchase
     // nobody has agreed to make.
     if (pr.status !== 'APPROVED') {
-      throw new AppError('ILLEGAL_STATE_TRANSITION', `Quotes can only be requested for an APPROVED request (${pr.prNumber} is ${pr.status})`);
+      throw new AppError(
+        'ILLEGAL_STATE_TRANSITION',
+        `Quotes can only be requested for an APPROVED request (${pr.prNumber} is ${pr.status})`,
+      );
     }
     const live = await this.prisma.client.quoteRequest.findFirst({
       where: { purchaseRequestId, status: 'SENT', deletedAt: null },
       select: { rfqNumber: true },
     });
     if (live) {
-      throw AppError.conflict('CONFLICT', `${live.rfqNumber} is already out for this request; cancel it first`);
+      throw AppError.conflict(
+        'CONFLICT',
+        `${live.rfqNumber} is already out for this request; cancel it first`,
+      );
     }
 
     const vendorIds = [...new Set(input.vendorIds)];
     if (vendorIds.length < 2) {
-      throw new AppError('VALIDATION_FAILED', 'Ask at least two different vendors - one quote is not a comparison');
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'Ask at least two different vendors - one quote is not a comparison',
+      );
     }
     const vendors = await this.prisma.client.vendor.findMany({
       where: { id: { in: vendorIds }, companyId: actor.companyId, deletedAt: null },
@@ -83,9 +94,63 @@ export class RfqService {
       action: AuditAction.RFQ_CREATED,
       entityType: 'QuoteRequest',
       entityId: rfq.id,
-      newValues: { rfqNumber: rfq.rfqNumber, purchaseRequest: pr.prNumber, vendors: vendors.map((v) => v.name) },
+      newValues: {
+        rfqNumber: rfq.rfqNumber,
+        purchaseRequest: pr.prNumber,
+        vendors: vendors.map((v) => v.name),
+      },
     });
+    await this.tellVendors(actor, rfq, purchaseRequestId, input.dueDate ?? null, vendorIds);
     return this.find(actor, rfq.id);
+  }
+
+  /**
+   * v2.78 - each supplier asked hears about its own request. One message per
+   * supplier, built separately, so nothing about one can reach another.
+   * Failures are logged by the notifier and never undo the RFQ.
+   */
+  private async tellVendors(
+    actor: AuthUser,
+    rfq: { id: string; rfqNumber: string },
+    purchaseRequestId: string,
+    dueDate: Date | string | null,
+    vendorIds: string[],
+  ) {
+    const [lines, buyer, company] = await Promise.all([
+      this.prisma.client.purchaseRequestLine.findMany({
+        where: { purchaseRequestId },
+        orderBy: { lineNumber: 'asc' },
+        // Description and quantity only. The estimated price stays internal.
+        select: { description: true, quantity: true },
+      }),
+      this.prisma.client.user.findUnique({
+        where: { id: actor.id },
+        select: { email: true, profile: { select: { firstName: true, lastName: true } } },
+      }),
+      this.prisma.client.company.findUnique({
+        where: { id: actor.companyId },
+        select: { name: true },
+      }),
+    ]);
+    for (const vendorId of vendorIds) {
+      await this.vendorNotifications.quoteRequested({
+        companyId: actor.companyId,
+        vendorId,
+        rfqId: rfq.id,
+        rfqNumber: rfq.rfqNumber,
+        companyName: company?.name ?? 'A buyer',
+        dueDate: dueDate ? new Date(dueDate) : null,
+        lines: lines.map((l) => ({ description: l.description, quantity: Number(l.quantity) })),
+        buyer: buyer
+          ? {
+              name: buyer.profile
+                ? `${buyer.profile.firstName} ${buyer.profile.lastName}`.trim()
+                : buyer.email,
+              email: buyer.email,
+            }
+          : null,
+      });
+    }
   }
 
   async list(actor: AuthUser, purchaseRequestId?: string) {
@@ -132,7 +197,9 @@ export class RfqService {
         awardReason: true,
         awardedAt: true,
         createdAt: true,
-        purchaseRequest: { select: { id: true, prNumber: true, estimatedTotal: true, currency: true } },
+        purchaseRequest: {
+          select: { id: true, prNumber: true, estimatedTotal: true, currency: true },
+        },
         quotes: {
           orderBy: { createdAt: 'asc' },
           select: {
@@ -190,7 +257,9 @@ export class RfqService {
     if (quote.status === 'AWARDED' || quote.status === 'LOST') {
       throw new AppError('ILLEGAL_STATE_TRANSITION', 'This quote has already been decided');
     }
-    const subtotal = quoteSubtotal(input.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice })));
+    const subtotal = quoteSubtotal(
+      input.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice })),
+    );
 
     await this.prisma.client.$transaction(async (tx) => {
       // Re-recording replaces the vendor's numbers wholesale; a quote is one
@@ -263,7 +332,9 @@ export class RfqService {
         rfqNumber: true,
         status: true,
         awardedQuoteId: true,
-        quotes: { select: { id: true, status: true, total: true, vendor: { select: { name: true } } } },
+        quotes: {
+          select: { id: true, status: true, total: true, vendor: { select: { name: true } } },
+        },
       },
     });
     if (!rfq) throw AppError.notFound('Quote request', rfqId);
@@ -349,7 +420,10 @@ export class RfqService {
     });
     if (!rfq) throw AppError.notFound('Quote request', rfqId);
     if (rfq.status === 'AWARDED') {
-      throw new AppError('ILLEGAL_STATE_TRANSITION', 'An awarded RFQ cannot be cancelled - the decision is on the record');
+      throw new AppError(
+        'ILLEGAL_STATE_TRANSITION',
+        'An awarded RFQ cannot be cancelled - the decision is on the record',
+      );
     }
     await this.prisma.client.quoteRequest.update({
       where: { id: rfqId },
@@ -377,7 +451,12 @@ export class RfqService {
    */
   async awardStateFor(actor: AuthUser, purchaseRequestId: string) {
     const rfq = await this.prisma.client.quoteRequest.findFirst({
-      where: { purchaseRequestId, companyId: actor.companyId, deletedAt: null, status: { not: 'CANCELLED' } },
+      where: {
+        purchaseRequestId,
+        companyId: actor.companyId,
+        deletedAt: null,
+        status: { not: 'CANCELLED' },
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -428,7 +507,9 @@ export class RfqService {
     return quote;
   }
 
-  private async nextRfqNumber(tx: { quoteRequest: { findFirst: (args: object) => Promise<{ rfqNumber: string } | null> } }) {
+  private async nextRfqNumber(tx: {
+    quoteRequest: { findFirst: (args: object) => Promise<{ rfqNumber: string } | null> };
+  }) {
     const full = `RFQ-${new Date().getFullYear()}-`;
     const latest = await tx.quoteRequest.findFirst({
       where: { rfqNumber: { startsWith: full } },

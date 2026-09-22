@@ -124,6 +124,7 @@ export class ExpoPushProvider extends PushProvider {
           title: message.title,
           body: message.body,
           ...(message.data ? { data: message.data } : {}),
+          ...(message.categoryId ? { categoryId: message.categoryId } : {}),
         })),
       ),
     });

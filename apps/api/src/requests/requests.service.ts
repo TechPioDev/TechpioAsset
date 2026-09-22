@@ -1,5 +1,11 @@
 import { Logger, Injectable } from '@nestjs/common';
-import { ApprovalDecision, AuditAction, Prisma, type NotificationType, type RequestType } from '@prisma/client';
+import {
+  ApprovalDecision,
+  AuditAction,
+  Prisma,
+  type NotificationType,
+  type RequestType,
+} from '@prisma/client';
 import {
   MAX_COMMENT_IMAGES,
   type AuthUser,
@@ -19,6 +25,7 @@ import {
   stripImageTokens,
   type RequestCreationPolicy,
   RETIRED_STEP_REASON,
+  PUSH_CATEGORY,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { signDownloadLink, verifyDownloadLink } from '../common/signed-download-link.js';
@@ -383,7 +390,10 @@ export class RequestsService {
       // oldest-first, which is how a conversation is followed.
       comments: [...request.comments].reverse().map((comment) => ({
         ...comment,
-        attachments: comment.attachments.map((a) => ({ ...a, isImage: a.mimeType.startsWith('image/') })),
+        attachments: comment.attachments.map((a) => ({
+          ...a,
+          isImage: a.mimeType.startsWith('image/'),
+        })),
       })),
       canDecide,
       canDecline,
@@ -425,7 +435,11 @@ export class RequestsService {
             // Bounded to match pendingApproverIds, which already caps a role's
             // holders at 25: this is a line of names under a heading, not a list.
             take: 25,
-            select: { id: true, email: true, profile: { select: { firstName: true, lastName: true } } },
+            select: {
+              id: true,
+              email: true,
+              profile: { select: { firstName: true, lastName: true } },
+            },
           })
         : Promise.resolve([]),
       step.approverRoleId
@@ -1002,7 +1016,12 @@ export class RequestsService {
       where: { id },
       select: { status: true },
     });
-    await this.recordSubmission(actor, id, request.requestNumber, submittedTo?.status ?? 'SUBMITTED');
+    await this.recordSubmission(
+      actor,
+      id,
+      request.requestNumber,
+      submittedTo?.status ?? 'SUBMITTED',
+    );
     if (promoted.skipped.length > 0) {
       await this.audit.record({
         companyId: actor.companyId,
@@ -1039,7 +1058,6 @@ export class RequestsService {
 
     return this.findOne(actor, id);
   }
-
 
   /**
    * Hand over the unit that was promised (v2.26).
@@ -1224,6 +1242,12 @@ export class RequestsService {
       linkPath: `/requests/${requestId}`,
       entityType: 'AssetRequest',
       entityId: requestId,
+      // v2.78 - Approve / Reject on the phone's notification. Only on a real
+      // approval: the stock and costing steps are answered, not approved.
+      push:
+        approval.kind === 'APPROVAL'
+          ? { categoryId: PUSH_CATEGORY.approval, data: { requestId } }
+          : { data: { requestId } },
     });
   }
 
@@ -1587,7 +1611,9 @@ export class RequestsService {
     // v2.24 - every fulfilment move reaches the requester's inbox and email,
     // not only "ready": a request that goes quiet between approval and handover
     // reads as lost, and "where is it?" tickets follow.
-    const fulfilmentNote: Partial<Record<RequestStatus, { type: NotificationType; title: string; body: string }>> = {
+    const fulfilmentNote: Partial<
+      Record<RequestStatus, { type: NotificationType; title: string; body: string }>
+    > = {
       INVENTORY_RESERVED: {
         type: 'ASSET_READY',
         title: `${request.requestNumber}: reserved from stock`,
@@ -1699,14 +1725,20 @@ export class RequestsService {
       throw new AppError('VALIDATION_FAILED', 'Write a message or add a photo');
     }
     if (images.length > MAX_COMMENT_IMAGES) {
-      throw new AppError('VALIDATION_FAILED', `A message can carry at most ${MAX_COMMENT_IMAGES} images`);
+      throw new AppError(
+        'VALIDATION_FAILED',
+        `A message can carry at most ${MAX_COMMENT_IMAGES} images`,
+      );
     }
     // v2.61 - pictures sit inline, as `![image N](pending:N)` tokens naming
     // the Nth file sent. Checked before anything is stored: a token for a file
     // that did not arrive, or one naming an attachment directly (the only way
     // in is by upload order, so a public message can never point at an
     // internal note's picture), is refused whole.
-    const placeholders = resolvePendingImages(body, images.map((_, i) => String(i)));
+    const placeholders = resolvePendingImages(
+      body,
+      images.map((_, i) => String(i)),
+    );
     if (!placeholders.ok) {
       throw new AppError(
         'VALIDATION_FAILED',
@@ -1731,7 +1763,10 @@ export class RequestsService {
       return { ...image, contentType };
     });
 
-    const stored: { image: (typeof checked)[number]; object: { key: string; sizeBytes: number; sha256: string } }[] = [];
+    const stored: {
+      image: (typeof checked)[number];
+      object: { key: string; sizeBytes: number; sha256: string };
+    }[] = [];
     for (const image of checked) {
       stored.push({
         image,
@@ -1776,7 +1811,10 @@ export class RequestsService {
         }
         const resolved = resolvePendingImages(body, ids);
         if (resolved.ok && resolved.body !== body) {
-          await tx.requestComment.update({ where: { id: comment.id }, data: { body: resolved.body } });
+          await tx.requestComment.update({
+            where: { id: comment.id },
+            data: { body: resolved.body },
+          });
         }
       }
     });
@@ -1803,7 +1841,8 @@ export class RequestsService {
     const photos = images.length === 1 ? 'Sent a photo' : `Sent ${images.length} photos`;
     // The notification carries the words, not the tokens.
     const words = stripImageTokens(body).replace(/\s+/g, ' ').trim();
-    const excerpt = words.length === 0 ? photos : words.length > 140 ? `${words.slice(0, 137)}…` : words;
+    const excerpt =
+      words.length === 0 ? photos : words.length > 140 ? `${words.slice(0, 137)}…` : words;
     const requesterSide = actor.id === request.requesterId || actor.id === request.beneficiaryId;
     if (requesterSide) {
       const approvers = (await this.pendingApproverIds(id)).filter((uid) => uid !== actor.id);
@@ -2012,10 +2051,7 @@ export class RequestsService {
    * ordered, received - the answer has been acted on and unwinding it is a
    * conversation, not a database write.
    */
-  async reopenStagesSkippedByStockAnswer(
-    actor: AuthUser,
-    requestId: string,
-  ): Promise<boolean> {
+  async reopenStagesSkippedByStockAnswer(actor: AuthUser, requestId: string): Promise<boolean> {
     const request = await this.prisma.client.assetRequest.findUnique({
       where: { id: requestId },
       select: {

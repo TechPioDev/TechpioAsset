@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { notificationRoute } from './notification-route';
+import { notificationRoute, notificationTarget } from './notification-route';
 
 describe('where tapping a notification takes you', () => {
   it('translates a web detail link into the phone screen for it', () => {
@@ -50,5 +50,35 @@ describe('where tapping a notification takes you', () => {
     expect(notificationRoute(42)).toBeNull();
     expect(notificationRoute('https://evil.example/catalogue/x')).toBeNull();
     expect(notificationRoute('')).toBeNull();
+  });
+});
+
+describe('where a notification button takes you (v2.78)', () => {
+  it('Approve and Reject open the request asked to do it', () => {
+    const data = { linkPath: '/requests/r1', requestId: 'r1' };
+    expect(notificationTarget('approve', data)).toBe('/request/r1?action=approve');
+    expect(notificationTarget('reject', data)).toBe('/request/r1?action=reject');
+  });
+
+  it('a tap on the notification itself still follows its link', () => {
+    expect(
+      notificationTarget('expo.modules.notifications.actions.DEFAULT', {
+        linkPath: '/requests/r1',
+        requestId: 'r1',
+      }),
+    ).toBe('/request/r1');
+  });
+
+  it('"assigned to you" lands on the asset, not nowhere', () => {
+    const data = { linkPath: '/my-assets', assetId: 'a1' };
+    expect(notificationTarget('expo.modules.notifications.actions.DEFAULT', data)).toBe(
+      '/asset/a1',
+    );
+    expect(notificationTarget('confirm-receipt', data)).toBe('/asset/a1?action=confirm-receipt');
+  });
+
+  it('a push from before v2.78, with no ids, behaves as it always did', () => {
+    expect(notificationTarget(undefined, { linkPath: '/catalogue/abc' })).toBe('/offer/abc');
+    expect(notificationTarget(undefined, { linkPath: '/my-assets' })).toBeNull();
   });
 });

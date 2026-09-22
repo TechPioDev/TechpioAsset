@@ -56,6 +56,57 @@ export class VendorNotificationsService {
     }
   }
 
+  /**
+   * A buyer asked this supplier for a quote (v2.78).
+   *
+   * What they are asked for and by when - and nothing else. Never a price
+   * (not our estimate, not anyone's quote) and never who else was asked: the
+   * supplier sees its own request exactly as if it were the only one. There
+   * is no quote screen in the supplier portal yet, so the message says who to
+   * answer rather than linking to a page that does not exist.
+   */
+  async quoteRequested(input: {
+    companyId: string;
+    vendorId: string;
+    rfqId: string;
+    rfqNumber: string;
+    companyName: string;
+    dueDate: Date | null;
+    lines: { description: string; quantity: number }[];
+    buyer: { name: string; email: string } | null;
+  }): Promise<void> {
+    const items = input.lines.map((l) => `${l.quantity} × ${l.description}`);
+    const shown =
+      items.slice(0, 3).join(', ') + (items.length > 3 ? ` and ${items.length - 3} more` : '');
+    const due = input.dueDate
+      ? ` by ${input.dueDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`
+      : '';
+    const answer = input.buyer
+      ? ` Reply${due} to ${input.buyer.name} (${input.buyer.email}).`
+      : due
+        ? ` Please reply${due}.`
+        : '';
+    await this.tell(input.companyId, input.vendorId, {
+      companyId: input.companyId,
+      type: 'RFQ_REQUESTED',
+      title: `Quote requested: ${input.rfqNumber}`,
+      body: `${input.companyName} asks you to quote for ${shown}.${answer}`,
+      entityType: 'QuoteRequest',
+      entityId: input.rfqId,
+      emailRows: [
+        ['Reference', input.rfqNumber],
+        ...input.lines.map((l, i): [string, string] => [
+          `Item ${i + 1}`,
+          `${l.quantity} × ${l.description}`,
+        ]),
+        ...(input.dueDate ? ([['Reply by', due.replace(/^ by /, '')]] as [string, string][]) : []),
+        ...(input.buyer
+          ? ([['Contact', `${input.buyer.name} — ${input.buyer.email}`]] as [string, string][])
+          : []),
+      ],
+    });
+  }
+
   /** Somebody internal approved the offer, and buyers can see it now. */
   async approved(product: {
     companyId: string;

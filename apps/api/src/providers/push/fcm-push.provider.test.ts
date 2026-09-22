@@ -36,7 +36,11 @@ function fakeGoogle(replies: Reply[] | ((token: string) => Reply)) {
   let n = 0;
   return vi.fn(async (url: string, init: { body: string }) => {
     if (url === account.token_uri) {
-      return { ok: true, status: 200, json: async () => ({ access_token: 'ya29.x', expires_in: 3600 }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'ya29.x', expires_in: 3600 }),
+      };
     }
     const token = (JSON.parse(init.body) as { message: { token: string } }).message.token;
     const reply = typeof replies === 'function' ? replies(token) : replies[n++]!;
@@ -106,6 +110,23 @@ describe('sending a push through FCM directly', () => {
     expect(Object.values(sent.data).every((v) => typeof v === 'string')).toBe(true);
   });
 
+  it('names the button category at the top of the data, where the phone reads it (v2.78)', async () => {
+    const fetchMock = fakeGoogle(() => ({ status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new FcmPushProvider(account);
+    await provider.send({
+      ...message,
+      categoryId: 'approval',
+      data: { linkPath: '/requests/r1', requestId: 'r1' },
+    });
+    const [, sendInit] = fetchMock.mock.calls[1]! as unknown as [string, { body: string }];
+    const sent = JSON.parse(sendInit.body).message;
+    // expo-notifications 0.29 NotificationData.categoryId reads data["categoryId"].
+    expect(sent.data.categoryId).toBe('approval');
+    expect(JSON.parse(sent.data.body)).toEqual({ linkPath: '/requests/r1', requestId: 'r1' });
+    expect(Object.values(sent.data).every((v) => typeof v === 'string')).toBe(true);
+  });
+
   it('signs in once and reuses the access token across sends', async () => {
     const fetchMock = fakeGoogle(() => ({ status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -127,7 +148,11 @@ describe('sending a push through FCM directly', () => {
           : token === 'garbled'
             ? {
                 status: 400,
-                body: fcmError('INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'The registration token is not a valid FCM registration token'),
+                body: fcmError(
+                  'INVALID_ARGUMENT',
+                  'INVALID_ARGUMENT',
+                  'The registration token is not a valid FCM registration token',
+                ),
               }
             : { status: 200 },
       ),
@@ -149,7 +174,10 @@ describe('sending a push through FCM directly', () => {
       'fetch',
       fakeGoogle([
         { status: 403, body: fcmError('PERMISSION_DENIED', 'SENDER_ID_MISMATCH') },
-        { status: 400, body: fcmError('INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'Invalid JSON payload') },
+        {
+          status: 400,
+          body: fcmError('INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'Invalid JSON payload'),
+        },
       ]),
     );
 
@@ -159,8 +187,13 @@ describe('sending a push through FCM directly', () => {
   });
 
   it('throws for a retry when nothing got through for a transient reason', async () => {
-    vi.stubGlobal('fetch', fakeGoogle([{ status: 503, body: fcmError('UNAVAILABLE', 'UNAVAILABLE') }]));
-    await expect(new FcmPushProvider(account).send(message)).rejects.toThrow(/FCM push failed: 503/);
+    vi.stubGlobal(
+      'fetch',
+      fakeGoogle([{ status: 503, body: fcmError('UNAVAILABLE', 'UNAVAILABLE') }]),
+    );
+    await expect(new FcmPushProvider(account).send(message)).rejects.toThrow(
+      /FCM push failed: 503/,
+    );
   });
 
   it('does not throw after a partial success, so a retry cannot double-notify', async () => {
