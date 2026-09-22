@@ -192,7 +192,7 @@ function RequestsTable() {
           <Input
             type="search"
             aria-label="Search requests"
-            placeholder="Search by number, item or reason…"
+            placeholder="Search by number, item, reason or person…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -297,96 +297,98 @@ function RequestsTable() {
           />
         ) : (
           <>
-          {/* v2.70 - on a phone each request is a card: the number and where
+            {/* v2.70 - on a phone each request is a card: the number and where
               it stands on one line, what was asked for under it, who asked
               and the estimate last. The whole card opens the request - a
               four-column table needed sideways scrolling to reach Status. */}
-          <ul className="divide-y divide-[var(--color-border)] sm:hidden">
-            {data.data.map((row) => (
-              <li key={row.id}>
-                <Link
-                  href={`/requests/${row.id}`}
-                  className="block px-4 py-3 active:bg-[var(--color-surface-sunken)]"
-                >
-                  <span className="flex items-start justify-between gap-2">
-                    <span className="text-sm font-medium">{row.requestNumber}</span>
-                    <StatusBadge
-                      token={REQUEST_STATUS_TOKENS[row.status]}
-                      size="sm"
-                      label={row.currentStep?.name}
-                    />
-                  </span>
-                  <span className="mt-1 line-clamp-2 block text-sm text-[var(--color-content-muted)]">
-                    {row.items.map((i) => i.description).join(', ') || 'No items'}
-                  </span>
-                  <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-subtle)]">
-                    <span className="min-w-0 truncate">
-                      {row.requester.profile
-                        ? `${row.requester.profile.firstName} ${row.requester.profile.lastName}`
-                        : row.requester.email}
-                    </span>
-                    {row.estimatedCost && Number(row.estimatedCost) > 0 ? (
-                      <span className="shrink-0 tabular-nums">
-                        {row.currency ?? ''} {Number(row.estimatedCost).toLocaleString()}
-                      </span>
-                    ) : null}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full text-sm">
-              <caption className="sr-only">Requests, {data.meta.page.totalItems} in total</caption>
-              <thead>
-                <tr className="border-b border-[var(--color-border)] text-left">
-                  <th scope="col" className="px-4 py-2.5 font-medium">
-                    Request
-                  </th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">
-                    Requester
-                  </th>
-                  <th scope="col" className="px-4 py-2.5 font-medium">
-                    Status
-                  </th>
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium">
-                    Estimate
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-border)]">
-                {data.data.map((row) => (
-                  <tr key={row.id} className="hover:bg-[var(--color-surface-sunken)]">
-                    <td className="px-4 py-2.5">
-                      <Link href={`/requests/${row.id}`} className="font-medium hover:underline">
-                        {row.requestNumber}
-                      </Link>
-                      <p className="max-w-md truncate text-xs text-[var(--color-content-subtle)]">
-                        {row.items.map((i) => i.description).join(', ')}
-                      </p>
-                    </td>
-                    <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
-                      {row.requester.profile
-                        ? `${row.requester.profile.firstName} ${row.requester.profile.lastName}`
-                        : row.requester.email}
-                    </td>
-                    <td className="px-4 py-2.5">
+            <ul className="divide-y divide-[var(--color-border)] sm:hidden">
+              {data.data.map((row) => (
+                <li key={row.id}>
+                  <Link
+                    href={`/requests/${row.id}`}
+                    className="block px-4 py-3 active:bg-[var(--color-surface-sunken)]"
+                  >
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-medium">{row.requestNumber}</span>
                       <StatusBadge
                         token={REQUEST_STATUS_TOKENS[row.status]}
                         size="sm"
                         label={row.currentStep?.name}
                       />
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      {row.estimatedCost && Number(row.estimatedCost) > 0
-                        ? `${row.currency ?? ''} ${Number(row.estimatedCost).toLocaleString()}`
-                        : '—'}
-                    </td>
+                    </span>
+                    <span className="mt-1 line-clamp-2 block text-sm text-[var(--color-content-muted)]">
+                      {row.items.map((i) => i.description).join(', ') || 'No items'}
+                    </span>
+                    <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-subtle)]">
+                      <span className="min-w-0 truncate">
+                        {row.requester.profile
+                          ? `${row.requester.profile.firstName} ${row.requester.profile.lastName}`
+                          : row.requester.email}
+                      </span>
+                      {row.estimatedCost && Number(row.estimatedCost) > 0 ? (
+                        <span className="shrink-0 tabular-nums">
+                          {row.currency ?? ''} {Number(row.estimatedCost).toLocaleString()}
+                        </span>
+                      ) : null}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <caption className="sr-only">
+                  Requests, {data.meta.page.totalItems} in total
+                </caption>
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] text-left">
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Request
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Requester
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Status
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                      Estimate
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {data.data.map((row) => (
+                    <tr key={row.id} className="hover:bg-[var(--color-surface-sunken)]">
+                      <td className="px-4 py-2.5">
+                        <Link href={`/requests/${row.id}`} className="font-medium hover:underline">
+                          {row.requestNumber}
+                        </Link>
+                        <p className="max-w-md truncate text-xs text-[var(--color-content-subtle)]">
+                          {row.items.map((i) => i.description).join(', ')}
+                        </p>
+                      </td>
+                      <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
+                        {row.requester.profile
+                          ? `${row.requester.profile.firstName} ${row.requester.profile.lastName}`
+                          : row.requester.email}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <StatusBadge
+                          token={REQUEST_STATUS_TOKENS[row.status]}
+                          size="sm"
+                          label={row.currentStep?.name}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {row.estimatedCost && Number(row.estimatedCost) > 0
+                          ? `${row.currency ?? ''} ${Number(row.estimatedCost).toLocaleString()}`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Card>

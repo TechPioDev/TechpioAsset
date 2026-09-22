@@ -39,6 +39,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { AiConfigService } from '../ai-config/ai-config.service.js';
 import { RoutingAiProvider } from '../providers/ai/routing-ai.provider.js';
+import { personMatches } from '../common/person-search.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 
@@ -280,6 +281,8 @@ export class AssetsService {
               { serialNumber: { contains: query.q, mode: 'insensitive' } },
               { brand: { contains: query.q, mode: 'insensitive' } },
               { model: { contains: query.q, mode: 'insensitive' } },
+              // v2.79 - the holder: "Ravi" finds what Ravi has.
+              ...(personMatches(query.q) ? [{ assignedUser: personMatches(query.q)! }] : []),
             ],
           }
         : {}),

@@ -114,14 +114,19 @@ export default function SearchScreen() {
           autoCorrect={false}
           autoCapitalize="none"
           returnKeyType="search"
-          placeholder="Name, asset tag, serial, request number…"
+          placeholder="Asset, tag, serial, request number or a person’s name…"
           placeholderTextColor={c.subtle}
           accessibilityLabel="Search everything"
           style={{ flex: 1, minHeight: 48, color: c.text, fontSize: 15 }}
         />
         {searching ? <ActivityIndicator size="small" color={c.brand} /> : null}
         {text ? (
-          <Pressable onPress={() => setText('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear search">
+          <Pressable
+            onPress={() => setText('')}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
             <Ionicons name="close-circle" size={18} color={c.subtle} />
           </Pressable>
         ) : null}
@@ -130,11 +135,14 @@ export default function SearchScreen() {
       {!term ? (
         <Text style={{ color: c.muted, fontSize: 13, lineHeight: 19 }}>
           Type at least {SEARCH_MIN_LENGTH} characters. Finds{' '}
-          {[...groups.map((g) => g.title.toLowerCase()), 'screens of the app'].join(', ')} you are allowed to
-          see.
+          {[...groups.map((g) => g.title.toLowerCase()), 'screens of the app'].join(', ')} you are
+          allowed to see.
         </Text>
       ) : searching && total === 0 ? null : (
-        <Text accessibilityRole="text" style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
+        <Text
+          accessibilityRole="text"
+          style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}
+        >
           {searchSummary(total, term)}
         </Text>
       )}
@@ -149,11 +157,19 @@ export default function SearchScreen() {
               <Card
                 key={row.id}
                 onPress={() => router.push(GROUP_HREF[group.key](row.id) as never)}
-                style={{ marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+                style={{
+                  marginBottom: spacing.sm,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.md,
+                }}
               >
                 <Ionicons name={GROUP_ICON[group.key]} size={20} color={c.brand} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ color: c.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>
+                  <Text
+                    style={{ color: c.text, fontWeight: '700', fontSize: 14 }}
+                    numberOfLines={1}
+                  >
                     {row.title}
                   </Text>
                   {row.subtitle ? (
@@ -162,7 +178,10 @@ export default function SearchScreen() {
                     </Text>
                   ) : null}
                   {row.badge ? (
-                    <Text style={{ color: c.subtle, fontSize: 12, fontWeight: '600', marginTop: 3 }} numberOfLines={1}>
+                    <Text
+                      style={{ color: c.subtle, fontSize: 12, fontWeight: '600', marginTop: 3 }}
+                      numberOfLines={1}
+                    >
                       {row.badge}
                     </Text>
                   ) : null}
@@ -181,7 +200,12 @@ export default function SearchScreen() {
             <Card
               key={item.href}
               onPress={() => router.push(item.href as never)}
-              style={{ marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+              style={{
+                marginBottom: spacing.sm,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+              }}
             >
               <Ionicons name={item.icon as IconName} size={20} color={c.brand} />
               <View style={{ flex: 1, minWidth: 0 }}>

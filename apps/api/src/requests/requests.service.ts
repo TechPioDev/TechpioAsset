@@ -37,6 +37,7 @@ import { requestScopeFilter, tenantFilter } from '../common/scope.js';
 import { AppConfig } from '../config/config.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { personMatches } from '../common/person-search.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageProvider } from '../providers/storage/storage.provider.js';
 import { validateUpload } from '../providers/storage/file-validation.js';
@@ -164,6 +165,10 @@ export class RequestsService {
               { requestNumber: { contains: query.q, mode: 'insensitive' } },
               { businessReason: { contains: query.q, mode: 'insensitive' } },
               { items: { some: { description: { contains: query.q, mode: 'insensitive' } } } },
+              // v2.79 - who raised it, and who it is for.
+              ...(personMatches(query.q)
+                ? [{ requester: personMatches(query.q)! }, { beneficiary: personMatches(query.q)! }]
+                : []),
             ],
           }
         : {}),

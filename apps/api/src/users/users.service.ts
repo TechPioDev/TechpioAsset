@@ -2,7 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { AuditAction, Prisma } from '@prisma/client';
 import type {
-  AdminUpdateProfileInput, ChangeUserEmailInput, InviteUserInput, SetUserRolesInput, SetUserStatusInput, SetUserVendorInput, UserListQuery } from '@techpioasset/contracts';
+  AdminUpdateProfileInput,
+  ChangeUserEmailInput,
+  InviteUserInput,
+  SetUserRolesInput,
+  SetUserStatusInput,
+  SetUserVendorInput,
+  UserListQuery,
+} from '@techpioasset/contracts';
 import type { AuthUser } from '@techpioasset/contracts';
 import { findSodConflicts } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
@@ -14,6 +21,7 @@ import { PasswordService } from '../auth/password.service.js';
 import { TokenService } from '../auth/token.service.js';
 import { AppConfig } from '../config/config.module.js';
 import { MailProvider } from '../providers/mail/mail.provider.js';
+import { personMatches } from '../common/person-search.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { StorageProvider } from '../providers/storage/storage.provider.js';
@@ -74,18 +82,9 @@ export class UsersService {
         query.view === 'deactivated'
           ? { status: 'DEACTIVATED' as const }
           : { status: { not: 'DEACTIVATED' as const } },
-        query.q
-          ? {
-              OR: [
-                { email: { contains: query.q, mode: 'insensitive' as const } },
-                { profile: { firstName: { contains: query.q, mode: 'insensitive' as const } } },
-                { profile: { lastName: { contains: query.q, mode: 'insensitive' as const } } },
-                {
-                  profile: { employeeNumber: { contains: query.q, mode: 'insensitive' as const } },
-                },
-              ],
-            }
-          : {},
+        // v2.79 - word by word, so "Ravi Menon" finds Ravi Menon (the whole
+        // phrase was compared with each field and matched nobody).
+        query.q ? (personMatches(query.q) ?? {}) : {},
         query.role ? { roles: { some: { role: { key: query.role } } } } : {},
         // v2.68 - vendor sign-ins have a list of their own. "Vendor account"
         // means Vendor is the ONLY role held: somebody on staff who also holds
@@ -446,12 +445,12 @@ export class UsersService {
             department: { select: { id: true, name: true } },
             office: { select: { id: true, name: true } },
             manager: {
-                  select: {
-                    id: true,
-                    email: true,
-                    profile: { select: { firstName: true, lastName: true } },
-                  },
-                },
+              select: {
+                id: true,
+                email: true,
+                profile: { select: { firstName: true, lastName: true } },
+              },
+            },
           },
         },
         roles: { select: { role: { select: { key: true, name: true } } } },
@@ -577,7 +576,9 @@ export class UsersService {
         type: 'ROLE_CHANGED',
         toEmail: changed.email,
         toUserId: id,
-        recipientName: changed.profile ? `${changed.profile.firstName} ${changed.profile.lastName}` : changed.email,
+        recipientName: changed.profile
+          ? `${changed.profile.firstName} ${changed.profile.lastName}`
+          : changed.email,
         title: 'Your PioAssets access has been updated',
         body: 'An administrator updated your role in PioAssets.',
         linkPath: '/my-assets',
@@ -626,7 +627,9 @@ export class UsersService {
     // there is no super-admin-only permission to require: the role simply
     // holds all of them.
     if (!actor.roles.includes('SUPER_ADMIN')) {
-      throw AppError.forbidden('Only a Super Admin can change the address an account signs in with');
+      throw AppError.forbidden(
+        'Only a Super Admin can change the address an account signs in with',
+      );
     }
 
     const target = await this.loadInScope(actor, id);
@@ -1044,7 +1047,12 @@ export class UsersService {
 
   /** Issue a fresh invite token (killing any outstanding one) and email the
    * branded invitation through the notification engine, best effort. */
-  private async sendInviteLink(userId: string, email: string, firstName: string, invitedBy?: string) {
+  private async sendInviteLink(
+    userId: string,
+    email: string,
+    firstName: string,
+    invitedBy?: string,
+  ) {
     const token = await this.auth.issueInviteToken(userId);
     const inviteUrl = `${this.config.get('WEB_URL')}/accept-invite?token=${token}`;
     const expiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
@@ -1079,7 +1087,9 @@ export class UsersService {
         emailRows: [
           ['Account email', email],
           ['Role', target?.roles.map((r) => r.role.name).join(', ') || 'Registered Employee'],
-          ...(target?.profile?.department?.name ? [['Department', target.profile.department.name] as [string, string]] : []),
+          ...(target?.profile?.department?.name
+            ? [['Department', target.profile.department.name] as [string, string]]
+            : []),
           ['Invited by', invitedBy ?? 'Administrator'],
           ['Link expires', expiry],
         ],
@@ -1156,7 +1166,10 @@ export class UsersService {
   // id, so there is no id parameter that could point at somebody else.
   // ───────────────────────────────────────────────────────────────────────────
 
-  async setAvatar(actor: AuthUser, file: { buffer: Buffer; originalname: string; mimetype: string }) {
+  async setAvatar(
+    actor: AuthUser,
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
     // Images only, verified by signature. validateUpload's allowlist is
     // configurable, so narrow it here to the image types a photo can be.
     const { contentType } = validateUpload({
@@ -1237,9 +1250,13 @@ export class UsersService {
       target.status === 'ACTIVE' &&
       (await this.activeSuperAdminCount(actor.companyId)) <= 1
     ) {
-      throw new AppError('VALIDATION_FAILED', 'The company must keep at least one active Super Admin', {
-        detail: 'Make someone else a Super Admin before deleting this account.',
-      });
+      throw new AppError(
+        'VALIDATION_FAILED',
+        'The company must keep at least one active Super Admin',
+        {
+          detail: 'Make someone else a Super Admin before deleting this account.',
+        },
+      );
     }
 
     const assetsOut = await this.prisma.client.assetAssignment.count({
@@ -1264,18 +1281,24 @@ export class UsersService {
       select: { name: true, assetTag: true },
       take: 20,
     });
-    await this.notifications.notifyRoles(actor.companyId, {
-      type: 'USER_DEACTIVATED',
-      title: `Employee offboarding: action required`,
-      body:
-        outstanding.length > 0
-          ? `${outstanding.length} asset(s) are still assigned to this person and require return before offboarding can be completed.`
-          : 'No assets remain assigned to this person.',
-      linkPath: `/people/${id}`,
-      entityType: 'User',
-      entityId: id,
-      emailRows: outstanding.map((a) => ['Outstanding', `${a.name} (${a.assetTag})`] as [string, string]),
-    }, { excludeUserIds: [actor.id, id] });
+    await this.notifications.notifyRoles(
+      actor.companyId,
+      {
+        type: 'USER_DEACTIVATED',
+        title: `Employee offboarding: action required`,
+        body:
+          outstanding.length > 0
+            ? `${outstanding.length} asset(s) are still assigned to this person and require return before offboarding can be completed.`
+            : 'No assets remain assigned to this person.',
+        linkPath: `/people/${id}`,
+        entityType: 'User',
+        entityId: id,
+        emailRows: outstanding.map(
+          (a) => ['Outstanding', `${a.name} (${a.assetTag})`] as [string, string],
+        ),
+      },
+      { excludeUserIds: [actor.id, id] },
+    );
     await this.tokens.revokeAllForUser(id, 'USER_DELETED');
 
     await this.audit.record({

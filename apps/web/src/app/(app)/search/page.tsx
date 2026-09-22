@@ -79,8 +79,8 @@ function SearchResults() {
       <header>
         <h1 className="text-xl font-semibold tracking-tight">Search</h1>
         <p className="mt-1 text-sm text-[var(--color-content-muted)]">
-          Finds {groups.map((g) => g.title.toLowerCase()).join(', ') || 'nothing'} you are allowed to
-          see.
+          Finds {groups.map((g) => g.title.toLowerCase()).join(', ') || 'nothing'} you are allowed
+          to see.
         </p>
       </header>
 
@@ -95,7 +95,7 @@ function SearchResults() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           aria-label="Search everything"
-          placeholder="Name, asset tag, serial, request number…"
+          placeholder="Asset, tag, serial, request number or a person’s name…"
           className="h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] pr-3 pl-9 text-sm"
         />
       </div>
@@ -133,7 +133,10 @@ function SearchResults() {
                       href={GROUP_HREF[group.key](row.id)}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--color-surface-sunken)]"
                     >
-                      <Icon aria-hidden="true" className="size-4 shrink-0 text-[var(--color-brand)]" />
+                      <Icon
+                        aria-hidden="true"
+                        className="size-4 shrink-0 text-[var(--color-brand)]"
+                      />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">{row.title}</span>
                         {row.subtitle ? (

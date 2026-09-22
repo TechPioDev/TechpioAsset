@@ -38,7 +38,17 @@ import { assetPills } from '../../src/asset-pills';
 import { ChipPicker } from '../../src/components/chip-picker';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Chevron, EmptyState, Field, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../../src/components/ui';
+import {
+  Button,
+  Card,
+  Chevron,
+  EmptyState,
+  Field,
+  IconBadge,
+  ListSkeleton,
+  PullRefresh,
+  StatusPill,
+} from '../../src/components/ui';
 import { formatMoney } from '../../src/lib/format';
 import {
   AVAILABILITY_OPTIONS,
@@ -267,7 +277,11 @@ export default function AssetsScreen() {
   const sortFields = assetListSortFields(canSeeCost);
   const empty = assetListEmptyState({ q, status: filters.status });
 
-  const smallButton = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void) => (
+  const smallButton = (
+    icon: keyof typeof Ionicons.glyphMap,
+    label: string,
+    onPress: () => void,
+  ) => (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
@@ -327,17 +341,23 @@ export default function AssetsScreen() {
           )
         : null}
       {vendorProductId
-        ? banner('Bought from one catalogue listing · show all assets', () => setVendorProductId(''))
+        ? banner('Bought from one catalogue listing · show all assets', () =>
+            setVendorProductId(''),
+          )
         : null}
       <Field
-        placeholder="Search by name, tag, serial, brand or model"
+        placeholder="Search by name, tag, serial, model or holder"
         value={search}
         onChangeText={setSearch}
         autoCorrect={false}
         autoCapitalize="none"
       />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        {smallButton('options-outline', active.length ? `Filter (${active.length})` : 'Filter', openSheet)}
+        {smallButton(
+          'options-outline',
+          active.length ? `Filter (${active.length})` : 'Filter',
+          openSheet,
+        )}
         {smallButton('swap-vertical-outline', sortSummary(sort, order), openSheet)}
         {smallButton('qr-code-outline', 'Scan QR', () => router.push('/(tabs)/scan'))}
       </View>
@@ -372,7 +392,9 @@ export default function AssetsScreen() {
                   backgroundColor: chosen ? c.brand : c.surface,
                 }}
               >
-                <Text style={{ color: chosen ? c.brandText : c.text, fontSize: 13, fontWeight: '600' }}>
+                <Text
+                  style={{ color: chosen ? c.brandText : c.text, fontSize: 13, fontWeight: '600' }}
+                >
                   {t.name}
                 </Text>
               </Pressable>
@@ -421,10 +443,14 @@ export default function AssetsScreen() {
         onEndReachedThreshold={0.4}
         ListHeaderComponent={header}
         ListFooterComponent={
-          loadingMore ? <ActivityIndicator style={{ marginVertical: spacing.lg }} color={c.brand} /> : null
+          loadingMore ? (
+            <ActivityIndicator style={{ marginVertical: spacing.lg }} color={c.brand} />
+          ) : null
         }
         ListEmptyComponent={
-          loading ? <ListSkeleton /> : failed ? (
+          loading ? (
+            <ListSkeleton />
+          ) : failed ? (
             <EmptyState
               icon="cloud-offline-outline"
               title="Could not load assets"
@@ -441,7 +467,12 @@ export default function AssetsScreen() {
           return (
             <Card
               onPress={() => router.push(`/asset/${item.id}`)}
-              style={{ marginBottom: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+              style={{
+                marginBottom: spacing.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.md,
+              }}
             >
               <IconBadge icon="hardware-chip-outline" />
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -456,14 +487,26 @@ export default function AssetsScreen() {
                   {kind || '—'}
                 </Text>
                 <View
-                  style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
+                  style={{
+                    marginTop: 8,
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
                 >
                   {assetPills(item, scheme).map((p) => (
                     <StatusPill key={p.label} label={p.label} bg={p.bg} fg={p.fg} />
                   ))}
                 </View>
                 <View
-                  style={{ marginTop: 6, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
+                  style={{
+                    marginTop: 6,
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
                 >
                   {condition ? (
                     <StatusPill
@@ -486,13 +529,23 @@ export default function AssetsScreen() {
                     {activityLine(item.osInfo)}
                   </Text>
                 ) : null}
-                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <View
+                  style={{
+                    marginTop: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: spacing.sm,
+                  }}
+                >
                   <Ionicons name="person-outline" size={13} color={c.muted} />
                   <Text style={{ flex: 1, color: c.muted, fontSize: 12 }} numberOfLines={1}>
                     {assetHolderName(item.assignedUser)}
                   </Text>
                   {canSeeCost && 'purchaseCost' in item ? (
-                    <Text style={{ color: c.text, fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                    <Text
+                      style={{ color: c.text, fontSize: 12, fontWeight: '700' }}
+                      numberOfLines={1}
+                    >
                       {formatMoney(item.purchaseCost, item.currency ?? 'INR')}
                     </Text>
                   ) : null}
@@ -531,7 +584,12 @@ export default function AssetsScreen() {
         </Pressable>
       ) : null}
 
-      <Modal visible={sheetOpen} animationType="slide" transparent onRequestClose={() => setSheetOpen(false)}>
+      <Modal
+        visible={sheetOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSheetOpen(false)}
+      >
         <View style={{ flex: 1, backgroundColor: 'rgba(2,6,23,0.45)', justifyContent: 'flex-end' }}>
           <View
             style={{
@@ -554,8 +612,14 @@ export default function AssetsScreen() {
                 borderBottomColor: c.border,
               }}
             >
-              <Text style={{ flex: 1, color: c.text, fontSize: 17, fontWeight: '800' }}>Filter and sort</Text>
-              <Pressable onPress={() => setSheetOpen(false)} accessibilityLabel="Close" hitSlop={10}>
+              <Text style={{ flex: 1, color: c.text, fontSize: 17, fontWeight: '800' }}>
+                Filter and sort
+              </Text>
+              <Pressable
+                onPress={() => setSheetOpen(false)}
+                accessibilityLabel="Close"
+                hitSlop={10}
+              >
                 <Ionicons name="close" size={24} color={c.muted} />
               </Pressable>
             </View>
