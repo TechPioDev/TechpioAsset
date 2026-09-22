@@ -348,6 +348,9 @@ export class DiscoveryService {
         tpmPresent: os.tpmPresent ?? null,
         localAdminCount: os.localAdminCount ?? null,
         missingCriticalPatches: os.missingCriticalPatches ?? null,
+        // v2.76 - only when the report carried the field: an older agent must
+        // neither clear a known user nor be read as "nobody signed in".
+        ...(os.activeUser !== undefined ? { activeUser: os.activeUser, activeUserAt: now } : {}),
         source,
         lastDiscoveredAt: now,
       };

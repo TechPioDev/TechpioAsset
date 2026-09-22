@@ -20,6 +20,8 @@ import {
   PERMISSIONS,
   assetHolderName,
   assetListEmptyState,
+  deviceActiveUser,
+  deviceUptime,
   assetListFilterParams,
   assetListSortFields,
   ASSET_LIST_SORT_LABELS,
@@ -65,6 +67,13 @@ interface AssetRow {
   condition: AssetCondition;
   // v2.1 Workstream A — nullable until backfilled / dual-written.
   lifecycleState: LifecycleState | null;
+  /** 0.3.33 - the agent's last report, for uptime and the signed-in user. */
+  osInfo?: {
+    lastBootAt: string | null;
+    lastDiscoveredAt: string;
+    activeUser: string | null;
+    activeUserAt: string | null;
+  } | null;
   availabilityState: AvailabilityState | null;
   ownershipType: OwnershipType | null;
   // Absent from the payload entirely without assets:cost:read.
@@ -95,6 +104,17 @@ function one(v: string | string[] | undefined): string {
  * hundred-row fetch searched on the phone, which hid everything past the
  * hundredth asset.
  */
+/** "Up 3d 4h · ravi", or what stands in when the agent has not reported. */
+function activityLine(os: NonNullable<AssetRow['osInfo']>): string {
+  const input = {
+    lastBootAt: os.lastBootAt,
+    reportedAt: os.lastDiscoveredAt,
+    activeUser: os.activeUser,
+    activeUserAt: os.activeUserAt,
+  };
+  return `${deviceUptime(input).label} · ${deviceActiveUser(input).label}`;
+}
+
 export default function AssetsScreen() {
   const { api, user } = useSession();
   const router = useRouter();
@@ -460,6 +480,12 @@ export default function AssetsScreen() {
                     />
                   ) : null}
                 </View>
+                {/* 0.3.33 - what the agent last said: how long up, and who was signed in. */}
+                {item.osInfo ? (
+                  <Text style={{ color: c.muted, fontSize: 12, marginTop: 6 }} numberOfLines={1}>
+                    {activityLine(item.osInfo)}
+                  </Text>
+                ) : null}
                 <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                   <Ionicons name="person-outline" size={13} color={c.muted} />
                   <Text style={{ flex: 1, color: c.muted, fontSize: 12 }} numberOfLines={1}>

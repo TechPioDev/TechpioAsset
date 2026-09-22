@@ -48,6 +48,8 @@
     reported as null rather than guessed.
 
     CHANGELOG
+    1.2.0  Reports who is signed in at the console, so the register can show
+           who is using each machine and how long it has been up.
     1.1.0  A laptop can no longer silently stop reporting.
            * State "missing" and state "unreadable" are now different things.
              An agent.json that exists but cannot be read (an unelevated run)
@@ -94,7 +96,7 @@ try {
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
 
-$script:AgentVersion = '1.1.0'
+$script:AgentVersion = '1.2.0'
 $script:TaskName     = 'TechpioAsset Inventory Agent'
 $script:LogMaxBytes  = 1MB
 $script:MutexName    = 'Global\TechpioAssetInventoryAgent'
@@ -519,6 +521,18 @@ function Get-OsInfo {
             [bool]($lic.LicenseStatus -eq 1)
         }
         lastBootAt             = Try-Get { $os.LastBootUpTime.ToString('o') }
+        # The console account. Running as SYSTEM, Win32_ComputerSystem.UserName
+        # is the interactive user; the owner of explorer.exe is the fallback.
+        # Sent as null when nobody is signed in, so the portal can tell that
+        # apart from an agent too old to report it.
+        activeUser             = Try-Get {
+            $u = (Get-CimInstance Win32_ComputerSystem).UserName
+            if ([string]::IsNullOrWhiteSpace($u)) {
+                $p = Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -First 1
+                $u = $p.UserName
+            }
+            if ([string]::IsNullOrWhiteSpace($u)) { $null } else { [string]$u }
+        }
         diskEncrypted          = $encrypted
         defenderEnabled        = Try-Get { [bool](Get-MpComputerStatus).RealTimeProtectionEnabled }
         firewallEnabled        = Try-Get { [bool](@(Get-NetFirewallProfile | Where-Object Enabled).Count -gt 0) }

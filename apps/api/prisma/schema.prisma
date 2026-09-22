@@ -3635,6 +3635,11 @@ model OperatingSystemInfo {
   osSupported Boolean?
   osActivated Boolean?
   lastBootAt  DateTime?
+  /// v2.76 - the console account at the last report, from agent 1.2.0; null
+  /// when nobody was signed in. `activeUserAt` is the time of the report that
+  /// carried the field at all, so an older agent reads as "not reported".
+  activeUser   String?
+  activeUserAt DateTime?
 
   diskEncrypted          Boolean?
   defenderEnabled        Boolean?

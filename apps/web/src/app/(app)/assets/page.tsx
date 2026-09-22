@@ -30,6 +30,8 @@ import {
   PERMISSIONS,
   assetHolderName,
   assetListEmptyState,
+  deviceActiveUser,
+  deviceUptime,
   assetListFilterParams,
   defaultAssetTypeFilter,
   type AssetListSortField,
@@ -77,6 +79,44 @@ interface AssetRow {
     email: string;
     profile: { firstName: string; lastName: string } | null;
   } | null;
+  /** v2.76 - the agent's last report, for uptime and the signed-in user. */
+  osInfo?: {
+    lastBootAt: string | null;
+    lastDiscoveredAt: string;
+    activeUser: string | null;
+    activeUserAt: string | null;
+  } | null;
+}
+
+const ACTIVITY_TONE: Record<string, string> = {
+  active: 'var(--tone-success-fg)',
+  ageing: 'var(--tone-warning-fg)',
+  stale: 'var(--tone-critical-fg)',
+  none: 'var(--color-content-subtle)',
+};
+
+/** Uptime or the signed-in user, with the age of the report it came from under it. */
+function ActivityCell({ value }: { value: { label: string; detail: string | null; tone: string } }) {
+  return (
+    <span className="block">
+      <span className="block text-sm" style={{ color: ACTIVITY_TONE[value.tone] }}>
+        {value.label}
+      </span>
+      {value.detail ? (
+        <span className="block text-xs text-[var(--color-content-subtle)]">{value.detail}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function activityOf(asset: AssetRow) {
+  const input = {
+    lastBootAt: asset.osInfo?.lastBootAt ?? null,
+    reportedAt: asset.osInfo?.lastDiscoveredAt ?? null,
+    activeUser: asset.osInfo?.activeUser ?? null,
+    activeUserAt: asset.osInfo?.activeUserAt ?? null,
+  };
+  return { uptime: deviceUptime(input), user: deviceActiveUser(input) };
 }
 
 function AssetsTable() {
@@ -283,6 +323,9 @@ function AssetsTable() {
 
   // How many filters are on, for the phone's Filters button.
   const activeFilters = [type, status, lifecycle, availability, ownership].filter(Boolean).length;
+  // v2.76 - the two agent columns appear when anything on the page has an
+  // agent report; a list of chairs does not carry an empty Uptime column.
+  const showActivity = Boolean(data?.data.some((a) => a.osInfo));
 
   return (
     <div className="grid gap-4">
@@ -661,6 +704,9 @@ function AssetsTable() {
                   <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-muted)]">
                     <span className="min-w-0 truncate">
                       {asset.assignedUser ? assetHolderName(asset.assignedUser) : 'Unassigned'}
+                      {asset.osInfo
+                        ? ` · ${activityOf(asset).uptime.label} · ${activityOf(asset).user.label}`
+                        : ''}
                     </span>
                     {showCost && asset.purchaseCost ? (
                       <span className="shrink-0 tabular-nums">
@@ -726,6 +772,16 @@ function AssetsTable() {
                     order={order}
                     onSort={toggleSort}
                   />
+                  {showActivity ? (
+                    <>
+                      <th scope="col" className="px-4 py-2.5 font-medium">
+                        Uptime
+                      </th>
+                      <th scope="col" className="px-4 py-2.5 font-medium">
+                        Active user
+                      </th>
+                    </>
+                  ) : null}
                   {/* Only offered to those who can read the figures. Ordering by
                       a hidden column would still reveal which kit is dearest. */}
                   {showCost ? (
@@ -811,6 +867,16 @@ function AssetsTable() {
                     <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
                       {assetHolderName(asset.assignedUser)}
                     </td>
+                    {showActivity ? (
+                      <>
+                        <td className="px-4 py-2.5">
+                          <ActivityCell value={activityOf(asset).uptime} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <ActivityCell value={activityOf(asset).user} />
+                        </td>
+                      </>
+                    ) : null}
                     {showCost ? (
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {asset.purchaseCost

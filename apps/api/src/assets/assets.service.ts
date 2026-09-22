@@ -192,6 +192,10 @@ export class AssetsService {
             select: { id: true, name: true, brand: true, model: true, warrantyMonths: true },
           } as const)
         : (false as const),
+      // v2.76 - uptime and the signed-in user, for the list's two new columns.
+      osInfo: {
+        select: { lastBootAt: true, lastDiscoveredAt: true, activeUser: true, activeUserAt: true },
+      },
       assignedUser: {
         select: {
           id: true,

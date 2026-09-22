@@ -37,6 +37,8 @@ export const discoveredOsSchema = z.object({
   tpmPresent: z.boolean().optional().nullable(),
   localAdminCount: z.number().int().min(0).max(1000).optional().nullable(),
   missingCriticalPatches: z.number().int().min(0).max(10_000).optional().nullable(),
+  /** v2.76 - the console account (agent 1.2.0); null when nobody is signed in. */
+  activeUser: z.string().trim().max(200).optional().nullable(),
 });
 
 export const discoveredDeviceSchema = z

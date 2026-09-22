@@ -136,6 +136,35 @@ describe('reconciliation', () => {
     expect(sw.map((x) => x.name).sort()).toEqual(['7-Zip', 'Google Chrome']);
   });
 
+  it('keeps who is signed in only from a report that says (v2.76)', async () => {
+    const send = (os: Record<string, unknown>) =>
+      api(app)
+        .post(`${base}/ingest`)
+        .set(auth(s.itAdmin))
+        .send({ devices: [{ externalId: `agent-${run}-exact`, serialNumber: SERIAL_EXACT, os }] });
+    const read = () =>
+      prisma.client.operatingSystemInfo.findUniqueOrThrow({
+        where: { assetId: assetExact },
+        select: { activeUser: true, activeUserAt: true },
+      });
+
+    // Agent 1.2.0: a name.
+    expect((await send({ osName: 'Windows 11 Pro', activeUser: 'TECHPIO\ravi' })).status).toBe(201);
+    const named = await read();
+    expect(named.activeUser).toBe('TECHPIO\ravi');
+    expect(named.activeUserAt).not.toBeNull();
+
+    // An older agent, which does not send the field: nothing about the user changes.
+    expect((await send({ osName: 'Windows 11 Pro' })).status).toBe(201);
+    expect(await read()).toEqual(named);
+
+    // Agent 1.2.0 with nobody at the console: null, and the time it said so.
+    expect((await send({ osName: 'Windows 11 Pro', activeUser: null })).status).toBe(201);
+    const nobody = await read();
+    expect(nobody.activeUser).toBeNull();
+    expect(nobody.activeUserAt!.getTime()).toBeGreaterThanOrEqual(named.activeUserAt!.getTime());
+  });
+
   it('re-ingest updates the same queue row and replaces the software snapshot', async () => {
     const res = await api(app)
       .post(`${base}/ingest`)

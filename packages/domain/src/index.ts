@@ -48,6 +48,7 @@ export * from './asset-slides';
 export * from './asset-photo-rules';
 export * from './asset-verification';
 export * from './global-search';
+export * from './device-activity';
 export * from './asset-receipt';
 export * from './expenses';
 export * from './device-agent';
