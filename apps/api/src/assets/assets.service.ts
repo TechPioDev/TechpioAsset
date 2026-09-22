@@ -30,6 +30,7 @@ import {
   sanitizeAssetSpecs,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
+import { ensureOpenAssignment } from './custody-record.js';
 import { buildOrderBy, paginate } from '../common/paginate.js';
 import { assetScopeFilter, canSeeCost, canSeeVendor, tenantFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -1219,10 +1220,7 @@ export class AssetsService {
   async return(actor: AuthUser, id: string, input: ReturnAssetInput) {
     const asset = await this.loadForWrite(actor, id);
 
-    const open = await this.prisma.client.assetAssignment.findFirst({
-      where: { assetId: id, returnedAt: null },
-      orderBy: { assignedAt: 'desc' },
-    });
+    const open = await this.openAssignmentFor(actor, asset);
     if (!open) {
       throw new AppError('VALIDATION_FAILED', 'This asset has no open assignment to return');
     }
@@ -1317,10 +1315,7 @@ export class AssetsService {
   async reassign(actor: AuthUser, id: string, input: ReassignAssetInput) {
     const asset = await this.loadForWrite(actor, id);
 
-    const open = await this.prisma.client.assetAssignment.findFirst({
-      where: { assetId: id, returnedAt: null },
-      orderBy: { assignedAt: 'desc' },
-    });
+    const open = await this.openAssignmentFor(actor, asset);
     if (!open) {
       throw new AppError(
         'VALIDATION_FAILED',
@@ -1720,6 +1715,42 @@ export class AssetsService {
    * already gated by a permission, and scoping it would let an employee's OWN
    * scope silently authorise editing their own asset.
    */
+  /**
+   * The handover a return closes or a hand-over moves (v2.74).
+   *
+   * An asset that names a holder but has no open assignment row - what both
+   * importers produced, see custody-record.ts - gets the missing row written
+   * here, at the moment somebody needs it, instead of refusing with "no open
+   * assignment" against a page that plainly says who holds the unit. An asset
+   * with no holder still answers null, and its callers refuse as before.
+   */
+  private async openAssignmentFor(actor: AuthUser, asset: Asset) {
+    const find = () =>
+      this.prisma.client.assetAssignment.findFirst({
+        where: { assetId: asset.id, returnedAt: null },
+        orderBy: { assignedAt: 'desc' },
+      });
+    const open = await find();
+    if (open || !asset.assignedUserId) return open;
+
+    const healed = await ensureOpenAssignment(this.prisma.client, {
+      assetId: asset.id,
+      userId: asset.assignedUserId,
+      condition: asset.condition,
+      assignedAt: asset.assignmentDate ?? asset.createdAt,
+      actorId: actor.id,
+    });
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.ASSET_UPDATED,
+      entityType: 'Asset',
+      entityId: asset.id,
+      newValues: { custodyRecordRestored: healed.id, asset: asset.assetTag },
+    });
+    return find();
+  }
+
   private async loadForWrite(actor: AuthUser, id: string): Promise<Asset> {
     const asset = await this.prisma.client.asset.findFirst({
       where: { id, ...tenantFilter(actor) },

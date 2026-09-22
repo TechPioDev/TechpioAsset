@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppError } from '../common/errors/app-error.js';
+import { ensureOpenAssignment } from './custody-record.js';
 import { parseSheet } from '../common/spreadsheet.js';
 import { canSeeCost } from '../common/scope.js';
 
@@ -526,7 +527,18 @@ export class AssetImportService {
           });
         }
 
-        if (assignedUserId) summary.assigned += 1;
+        // v2.74 - a holder without a handover record could not be returned or
+        // handed over afterwards (custody-record.ts). The import now writes it.
+        if (assignedUserId) {
+          await ensureOpenAssignment(this.prisma.client, {
+            assetId,
+            userId: assignedUserId,
+            condition,
+            assignedAt: assignmentDate ?? null,
+            actorId: actor.id,
+          });
+          summary.assigned += 1;
+        }
       } catch (err) {
         const message =
           err instanceof Prisma.PrismaClientKnownRequestError

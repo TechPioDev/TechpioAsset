@@ -15,6 +15,7 @@ import { LenovoWarrantyService } from '../assets/lenovo-warranty.service.js';
 import { MaintenanceService } from '../maintenance/maintenance.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { IMPORT_BACKFILL_METHOD } from '../assets/custody-record.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TokenService } from '../auth/token.service.js';
@@ -788,6 +789,14 @@ export class AlertSweepService implements OnModuleInit {
       where: {
         returnedAt: null,
         acknowledgedAt: null,
+        // v2.74 - rows restored from an imported register are not chased:
+        // nobody handed anything over in PioAssets, so there is no receipt
+        // to confirm, and repairing the register must not email ninety
+        // people about headsets they were given months ago.
+        OR: [
+          { acknowledgementMethod: null },
+          { acknowledgementMethod: { not: IMPORT_BACKFILL_METHOD } },
+        ],
         assignedAt: { lte: cutoff },
         asset: { deletedAt: null },
       },
