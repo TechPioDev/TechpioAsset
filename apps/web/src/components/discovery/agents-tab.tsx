@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Eye, EyeOff, Laptop, RefreshCw, ShieldOff, Trash2, X } from 'lucide-react';
 import type { EnrolmentTokenStatus } from '@techpioasset/contracts';
@@ -28,6 +29,20 @@ import { Button, Card, EmptyState, Field, NativeSelect, Skeleton } from '@/compo
  * can be shown again; replacing it is a deliberate act with a grace period;
  * and a refused agent says so, with the command that fixes it.
  */
+
+interface NotEnrolled {
+  total: number;
+  notEnrolled: number;
+  summary: string;
+  rows: {
+    id: string;
+    name: string;
+    assetTag: string;
+    serialNumber: string | null;
+    holder: string | null;
+    reason: 'no-agent' | 'no-serial';
+  }[];
+}
 
 interface AgentRow {
   id: string;
@@ -60,11 +75,11 @@ const STATUS_TONE: Record<AgentStatus, string> = {
 };
 
 const GRACE_OPTIONS = [
-  { days: 0, label: 'No grace — the old token stops working now' },
-  { days: 1, label: '1 day' },
-  { days: 7, label: '7 days (recommended)' },
-  { days: 14, label: '14 days' },
-  { days: 30, label: '30 days' },
+  { days: 0, label: 'No grace — the old token stops working now (only if it leaked)' },
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days (recommended)' },
+  { days: 60, label: '60 days' },
+  { days: 90, label: '90 days' },
 ];
 
 /** "3 hours ago" — a device list is read for recency, not timestamps. */
@@ -102,11 +117,17 @@ export function AgentsTab() {
   const canRevoke = can(PERMISSIONS.DISCOVERY_RECONCILE);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [replacing, setReplacing] = useState(false);
-  const [graceDays, setGraceDays] = useState(7);
+  const [graceDays, setGraceDays] = useState(30);
 
   const agents = useQuery({
     queryKey: ['discovery-agents'],
     queryFn: () => apiFetch<AgentRow[]>('/discovery/agents'),
+  });
+
+  // v2.77 - the rollout to-do list: register machines no agent has reported.
+  const notEnrolled = useQuery({
+    queryKey: ['discovery-agents-not-enrolled'],
+    queryFn: () => apiFetch<NotEnrolled>('/discovery/agents/not-enrolled'),
   });
 
   const token = useQuery({
@@ -137,7 +158,10 @@ export function AgentsTab() {
 
   const create = useMutation({
     mutationFn: () =>
-      apiFetch<{ token: string }>('/discovery/agents/enrolment-token', { method: 'POST', body: {} }),
+      apiFetch<{ token: string }>('/discovery/agents/enrolment-token', {
+        method: 'POST',
+        body: {},
+      }),
     onSuccess: async (res) => {
       setRevealed(res.token);
       await refreshToken();
@@ -191,12 +215,12 @@ export function AgentsTab() {
   });
 
   /** Show the fix command for one laptop: the same install line, revealed. */
-  const copyFixCommand = async () => {
+  const copyFixCommand = async (label = 'Fix command') => {
     try {
       const secret = revealed ?? (await reveal.mutateAsync()).token;
       await copy(
         buildAgentInstallCommand({ scriptUrl, portalUrl: apiBaseUrl, enrolmentToken: secret }),
-        'Fix command',
+        label,
       );
     } catch (e) {
       toast.error(errorText(e, 'Could not build the fix command'));
@@ -226,6 +250,11 @@ export function AgentsTab() {
                 credential — it cannot read or write anything on its own. It is kept, so you can
                 show it again whenever you need it.
               </p>
+              <p className="mt-1 text-xs font-medium text-[var(--color-content)]">
+                This one token enrols every laptop, today and next month. You do not need a new
+                token for more devices — press Show and copy the install command again. Replace it
+                only if it has leaked.
+              </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               {state && !state.exists ? (
@@ -235,12 +264,9 @@ export function AgentsTab() {
               ) : null}
               {state?.exists ? (
                 <>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setReplacing(true)}
-                  >
-                    <RefreshCw aria-hidden="true" className="size-3.5" /> Replace token…
+                  <Button size="sm" variant="secondary" onClick={() => setReplacing(true)}>
+                    <RefreshCw aria-hidden="true" className="size-3.5" /> Replace token (only if
+                    leaked)…
                   </Button>
                   <Button
                     size="sm"
@@ -362,6 +388,92 @@ export function AgentsTab() {
         </Card>
       ) : null}
 
+      {/* v2.77 - which machines still need the agent, so a rollout done in
+          batches does not mean comparing two lists by hand. */}
+      <Card className="p-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-5 py-3">
+          <h2 className="text-sm font-semibold">
+            Not yet enrolled
+            {notEnrolled.data ? (
+              <span className="ml-2 text-xs font-normal text-[var(--color-content-subtle)]">
+                {notEnrolled.data.summary}
+              </span>
+            ) : null}
+          </h2>
+          {canManage &&
+          token.data?.exists &&
+          token.data.revealable &&
+          (notEnrolled.data?.rows.length ?? 0) > 0 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void copyFixCommand('Install command')}
+            >
+              <Copy aria-hidden="true" className="size-3.5" /> Copy install command
+            </Button>
+          ) : null}
+        </div>
+        {notEnrolled.isPending ? (
+          <div className="grid gap-2 p-4">
+            {Array.from({ length: 2 }, (_, i) => (
+              <Skeleton key={i} className="h-10" />
+            ))}
+          </div>
+        ) : !notEnrolled.data || notEnrolled.data.rows.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-[var(--color-content-muted)]">
+            {notEnrolled.data?.total
+              ? 'Every laptop, desktop and server in the register has a live agent.'
+              : 'No laptops, desktops or servers in the register yet.'}
+          </p>
+        ) : (
+          <>
+            <p className="px-5 pt-3 text-xs text-[var(--color-content-subtle)]">
+              Run the same install command on each of these. A machine leaves this list within a
+              minute of its first report; one with no serial number on record cannot be matched
+              until the serial is filled in on the asset.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-content-subtle)]">
+                    <th className="px-5 py-2.5 font-medium">Machine</th>
+                    <th className="px-4 py-2.5 font-medium">Serial</th>
+                    <th className="px-4 py-2.5 font-medium">Held by</th>
+                    <th className="px-4 py-2.5 font-medium">Why</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notEnrolled.data.rows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-[var(--color-border)] last:border-0"
+                    >
+                      <td className="px-5 py-2.5">
+                        <Link href={`/assets/${row.id}`} className="font-medium hover:underline">
+                          {row.name}
+                        </Link>
+                        <span className="block text-xs text-[var(--color-content-subtle)]">
+                          {row.assetTag}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs">{row.serialNumber ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-xs text-[var(--color-content-muted)]">
+                        {row.holder ?? 'Unassigned'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-[var(--color-content-muted)]">
+                        {row.reason === 'no-serial'
+                          ? 'No serial number on the asset'
+                          : 'No agent has reported'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Card>
+
       <Card className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-5 py-3">
           <h2 className="text-sm font-semibold">
@@ -462,7 +574,7 @@ export function AgentsTab() {
                             {canManage && needsFix && !row.revokedAt && state?.revealable ? (
                               <button
                                 type="button"
-                                onClick={copyFixCommand}
+                                onClick={() => void copyFixCommand()}
                                 className="rounded px-2 py-1 text-[11px] font-medium text-[var(--color-content-muted)] hover:text-[var(--color-brand)]"
                               >
                                 Copy fix command

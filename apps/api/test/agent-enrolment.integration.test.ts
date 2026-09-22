@@ -8,6 +8,7 @@ import {
   sha256,
 } from '../src/discovery/agent-enrolment.service.js';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
+import { LATEST_AGENT_VERSION } from '@techpioasset/domain';
 
 /**
  * v2.13 — the laptop agent's credential model.
@@ -281,7 +282,12 @@ describe('persistent enrolment token', () => {
     const viaOld = await api(app)
       .post('/api/v1/discovery/agents/enrol')
       .set({ 'x-enrolment-token': token })
-      .send({ machineId: MACHINE_C, hostname: 'LAPTOP-C', platform: 'windows', agentVersion: '1.0.0' });
+      .send({
+        machineId: MACHINE_C,
+        hostname: 'LAPTOP-C',
+        platform: 'windows',
+        agentVersion: '1.0.0',
+      });
     expect(viaOld.status).toBe(200);
     await expect(enrolment.enrolAgent(newToken, { machineId: MACHINE_C })).resolves.toHaveProperty(
       'deviceToken',
@@ -297,6 +303,10 @@ describe('persistent enrolment token', () => {
       .set({ 'x-enrolment-token': token })
       .send({ machineId: MACHINE_C, platform: 'windows' });
     expect(expired.status).toBe(401);
+    // v2.77 - the installer prints this, so it must name the fix.
+    expect(expired.body.detail).toMatch(/out of date|replaced/);
+    expect(expired.body.detail).toMatch(/replaced/);
+    expect(expired.body.detail).toMatch(/Discovery -> Agents/);
     token = newToken;
   });
 
@@ -313,7 +323,7 @@ describe('persistent enrolment token', () => {
   });
 
   it('rejects out-of-range grace days', async () => {
-    const res = await api(app).post(`${base}/replace`).set(auth(s.itAdmin)).send({ graceDays: 31 });
+    const res = await api(app).post(`${base}/replace`).set(auth(s.itAdmin)).send({ graceDays: 91 });
     expect(res.status).toBe(422);
   });
 
@@ -379,7 +389,9 @@ describe('persistent enrolment token', () => {
         unrevealableReason: 'ENCRYPTION_NOT_CONFIGURED',
         unrevealableMessage: 'Show is unavailable — encryption key not configured',
       });
-      expect((await api(app).post(`${base}/reveal`).set(auth(s.itAdmin)).send({})).status).toBe(503);
+      expect((await api(app).post(`${base}/reveal`).set(auth(s.itAdmin)).send({})).status).toBe(
+        503,
+      );
     } finally {
       spy.mockRestore();
     }
@@ -503,7 +515,12 @@ describe('refused reports are recorded against their laptop', () => {
           lastSeenAt: stale,
         },
         // The same machineId in two tenants: ambiguous, so never recorded.
-        { companyId, machineId: MACHINE_DUP, tokenHash: sha256(`dup-a-${nonce}`), lastSeenAt: stale },
+        {
+          companyId,
+          machineId: MACHINE_DUP,
+          tokenHash: sha256(`dup-a-${nonce}`),
+          lastSeenAt: stale,
+        },
         {
           companyId: foreignCompanyId,
           machineId: MACHINE_DUP,
@@ -595,17 +612,98 @@ describe('refused reports are recorded against their laptop', () => {
       .set(auth(s.itAdmin))
       .send({});
     const device = (
-      await enrolment.enrolAgent(shown.body.data.token, { machineId: MACHINE_C, agentVersion: '1.1.0' })
+      await enrolment.enrolAgent(shown.body.data.token, {
+        machineId: MACHINE_C,
+        agentVersion: LATEST_AGENT_VERSION,
+      })
     ).deviceToken;
     const ok = await api(app)
       .post('/api/v1/discovery/agents/report')
       .set({ Authorization: `Bearer ${device}` })
-      .send({ hostname: 'LAPTOP-C', agentVersion: '1.1.0' });
+      .send({ hostname: 'LAPTOP-C', agentVersion: LATEST_AGENT_VERSION });
     expect(ok.status).toBe(200);
     const list = await api(app).get('/api/v1/discovery/agents').set(auth(s.itAdmin));
     const c = (list.body.data as Array<Record<string, unknown>>).find(
       (r) => r.machineId === MACHINE_C,
     );
     expect(c).toMatchObject({ status: 'ACTIVE', updateAvailable: false });
+  });
+});
+
+describe('which laptops still need the agent (v2.77)', () => {
+  const stamp = Date.now().toString(36).toUpperCase();
+  const created: string[] = [];
+  const MACHINE_COVER = 'test-machine-cover-7777';
+
+  afterAll(async () => {
+    await prisma?.client.deviceAgent.deleteMany({ where: { machineId: MACHINE_COVER } });
+    for (const id of created) {
+      await prisma?.client.$executeRawUnsafe(
+        'DELETE FROM asset_condition_logs WHERE "assetId" = $1',
+        id,
+      );
+      await prisma?.client.$executeRawUnsafe('DELETE FROM assets WHERE id = $1', id);
+    }
+  });
+
+  it('lists a laptop no agent reported, drops it once one does, and ignores monitors', async () => {
+    const cats = await api(app).get('/api/v1/categories').set(auth(s.itAdmin));
+    const itCat = cats.body.data.find((c: { key: string }) => c.key === 'it-assets');
+    const typeId = (key: string) =>
+      itCat.subcategories.find((x: { key: string }) => x.key === key).id;
+    const make = async (suffix: string, key: string, serial: string | undefined) => {
+      const res = await api(app)
+        .post('/api/v1/assets')
+        .set(auth(s.itAdmin))
+        .send({
+          assetTag: `COV-${stamp}-${suffix}`,
+          name: `Coverage ${suffix}`,
+          categoryId: itCat.id,
+          subcategoryId: typeId(key),
+          ...(serial ? { serialNumber: serial } : {}),
+        });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+      created.push(res.body.data.id);
+      return res.body.data.id as string;
+    };
+    const covered = await make('A', 'laptop', `COV${stamp}A`);
+    const pending = await make('B', 'laptop', `COV${stamp}B`);
+    const noSerial = await make('C', 'laptop', undefined);
+    const monitor = await make('M', 'monitor', `COV${stamp}M`);
+
+    // An agent on laptop A reports its serial - in lower case, as some BIOSes do.
+    const token = (
+      await api(app)
+        .post('/api/v1/discovery/agents/enrolment-token/reveal')
+        .set(auth(s.itAdmin))
+        .send({})
+    ).body.data.token as string;
+    const enrolled = await api(app)
+      .post('/api/v1/discovery/agents/enrol')
+      .set({ 'x-enrolment-token': token })
+      .send({
+        machineId: MACHINE_COVER,
+        hostname: 'LAPTOP-COV',
+        platform: 'windows',
+        serialNumber: `cov${stamp}a`,
+      });
+    expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+
+    const res = await api(app).get('/api/v1/discovery/agents/not-enrolled').set(auth(s.itAdmin));
+    expect(res.status).toBe(200);
+    const byId = new Map<string, { reason: string }>(
+      res.body.data.rows.map((r: { id: string; reason: string }) => [r.id, r]),
+    );
+    expect(byId.has(covered)).toBe(false);
+    expect(byId.get(pending)?.reason).toBe('no-agent');
+    expect(byId.get(noSerial)?.reason).toBe('no-serial');
+    expect(byId.has(monitor)).toBe(false);
+    expect(res.body.data.summary).toMatch(/have no agent yet/);
+
+    // An employee cannot read the rollout list.
+    const denied = await api(app)
+      .get('/api/v1/discovery/agents/not-enrolled')
+      .set(auth(s.employee));
+    expect(denied.status).toBe(403);
   });
 });

@@ -135,7 +135,9 @@ export class DiscoveryController {
 
   @Get('agents/enrolment-token')
   @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
-  @ApiOperation({ summary: 'Whether an enrolment token exists, and whether it can be shown (no secret)' })
+  @ApiOperation({
+    summary: 'Whether an enrolment token exists, and whether it can be shown (no secret)',
+  })
   enrolmentTokenStatus(@CurrentUser() actor: AuthUser) {
     return this.enrolment.getStatus(actor);
   }
@@ -180,6 +182,17 @@ export class DiscoveryController {
   @ApiOperation({ summary: 'Disable agent enrolment (revokes current and grace tokens)' })
   async revokeEnrolmentToken(@CurrentUser() actor: AuthUser): Promise<void> {
     await this.enrolment.revoke(actor);
+  }
+
+  @Get('agents/not-enrolled')
+  @RequirePermissions(PERMISSIONS.DISCOVERY_READ)
+  @ApiOperation({
+    summary: 'Register laptops, desktops and servers no live agent has reported',
+    description:
+      'The rollout to-do list, matched by serial number. A machine with no serial on record is listed with that reason.',
+  })
+  listNotEnrolled(@CurrentUser() actor: AuthUser) {
+    return this.enrolment.listNotEnrolled(actor);
   }
 
   @Get('agents')

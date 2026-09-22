@@ -48,6 +48,9 @@
     reported as null rather than guessed.
 
     CHANGELOG
+    1.2.1  A refused enrolment token now prints the portal's own reason -
+           usually "this install command is out of date" - instead of a bare
+           HTTP status, so a kept-from-last-time script is recognised at once.
     1.2.0  Reports who is signed in at the console, so the register can show
            who is using each machine and how long it has been up.
     1.1.0  A laptop can no longer silently stop reporting.
@@ -96,11 +99,12 @@ try {
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
 
-$script:AgentVersion = '1.2.0'
+$script:AgentVersion = '1.2.1'
 $script:TaskName     = 'TechpioAsset Inventory Agent'
 $script:LogMaxBytes  = 1MB
 $script:MutexName    = 'Global\TechpioAssetInventoryAgent'
 $script:MaxStoredEnrolmentTokens = 2
+$script:LastEnrolmentRefusal = $null
 # DPAPI entropy: not a secret, just keeps enrol.bin from being decrypted by a
 # generic "Unprotect anything" call on this machine.
 $script:EnrolEntropy = [Text.Encoding]::UTF8.GetBytes('TechpioAsset.Agent.EnrolmentToken.v1')
@@ -191,6 +195,34 @@ function Get-BaseError {
     terminating error - so the shape is probed rather than assumed. Without
     this the error handler itself became the error.
 #>
+<#
+    The portal's own explanation of a refusal (RFC 7807 `detail`, else
+    `title`), or $null when the response carried none or could not be read.
+#>
+function Get-HttpDetail {
+    param($ErrorRecord)
+    try {
+        $text = $null
+        $details = $ErrorRecord.ErrorDetails
+        if ($null -ne $details -and -not [string]::IsNullOrWhiteSpace($details.Message)) {
+            $text = $details.Message
+        } else {
+            $response = $ErrorRecord.Exception.PSObject.Properties['Response']
+            if ($null -eq $response -or $null -eq $response.Value) { return $null }
+            $stream = $response.Value.GetResponseStream()
+            if ($null -eq $stream) { return $null }
+            $reader = New-Object System.IO.StreamReader($stream)
+            $text = $reader.ReadToEnd()
+        }
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        $json = $text | ConvertFrom-Json -ErrorAction Stop
+        $detail = Get-Prop $json 'detail'
+        if ([string]::IsNullOrWhiteSpace($detail)) { $detail = Get-Prop $json 'title' }
+        if ([string]::IsNullOrWhiteSpace($detail)) { return $null }
+        return [string]$detail
+    } catch { return $null }
+}
+
 function Get-HttpStatus {
     param($ErrorRecord)
     try {
@@ -659,7 +691,13 @@ function Invoke-Enrolment {
         } catch {
             $status = Get-HttpStatus $_
             if ($status -eq 401 -or $status -eq 403) {
-                Write-Log ("Enrolment token {0} of {1} was refused by the portal (HTTP {2})." -f $i, $n, $status) 'WARN'
+                $why = Get-HttpDetail $_
+                $script:LastEnrolmentRefusal = $why
+                if ($why) {
+                    Write-Log ("Enrolment token {0} of {1} was refused by the portal: {2}" -f $i, $n, $why) 'WARN'
+                } else {
+                    Write-Log ("Enrolment token {0} of {1} was refused by the portal (HTTP {2})." -f $i, $n, $status) 'WARN'
+                }
                 $rejected += $candidate
                 continue
             }
@@ -695,7 +733,11 @@ function New-DeviceCredential {
     }
     $enrol = Invoke-Enrolment -MachineId $MachineId -EnrolmentTokens $EnrolmentTokens
     if (-not $enrol.DeviceToken) {
-        Write-Log 'The company enrolment token on this laptop is no longer valid - re-run the install command copied from Discovery -> Agents.' 'ERROR'
+        if ($script:LastEnrolmentRefusal) {
+            Write-Log ("Could not enrol this laptop. {0}" -f $script:LastEnrolmentRefusal) 'ERROR'
+        } else {
+            Write-Log 'The company enrolment token on this laptop is no longer valid - re-run the install command copied from Discovery -> Agents.' 'ERROR'
+        }
         return $null
     }
     if (-not (Save-AgentState -DeviceToken $enrol.DeviceToken -MachineId $MachineId)) {

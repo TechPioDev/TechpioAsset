@@ -142,13 +142,16 @@ export type AgentReportInput = z.infer<typeof agentReportSchema>;
  */
 export const enrolmentTokenReplaceSchema = z
   .object({
-    graceDays: z.coerce.number().int().min(0).max(30).default(7),
+    // v2.77 - a month by default and up to a quarter: a forgotten install
+    // command from the last batch must keep working through the next one.
+    graceDays: z.coerce.number().int().min(0).max(90).default(30),
   })
   .strict();
 export type EnrolmentTokenReplaceInput = z.infer<typeof enrolmentTokenReplaceSchema>;
 
 /** Why an existing enrolment token cannot be shown again. */
-export type EnrolmentTokenUnrevealableReason = 'LEGACY_HASH_ONLY' | 'ENCRYPTION_NOT_CONFIGURED' | 'KEY_CHANGED';
+export type EnrolmentTokenUnrevealableReason =
+  'LEGACY_HASH_ONLY' | 'ENCRYPTION_NOT_CONFIGURED' | 'KEY_CHANGED';
 
 export interface EnrolmentTokenStatus {
   exists: boolean;

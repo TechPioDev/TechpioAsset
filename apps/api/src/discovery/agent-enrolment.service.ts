@@ -9,8 +9,11 @@ import type {
   EnrolmentTokenUnrevealableReason,
 } from '@techpioasset/contracts';
 import {
+  AGENT_DEVICE_TYPES,
   LATEST_AGENT_VERSION,
   buildAgentInstallCommand,
+  coverageSummary,
+  notEnrolledDevices,
   deriveAgentStatus,
   isAgentOutdated,
 } from '@techpioasset/domain';
@@ -201,7 +204,22 @@ export class AgentEnrolmentService {
       },
       select: { companyId: true, id: true, tokenHash: true },
     });
-    if (!enrolment) throw new AppError('UNAUTHENTICATED', 'Invalid enrolment token');
+    if (!enrolment) {
+      // v2.77 - say WHY, in words the installer prints: an old install
+      // command someone kept from an earlier batch is the common case, and
+      // "invalid token" sent them looking for a network problem.
+      const replaced = await this.prisma.client.agentEnrolmentToken.findFirst({
+        where: { graceTokenHash: tokenHash },
+        select: { graceExpiresAt: true },
+      });
+      throw new AppError('UNAUTHENTICATED', 'This install command is out of date', {
+        detail: replaced
+          ? `Its enrolment token was replaced${replaced.graceExpiresAt ? ` and stopped working on ${replaced.graceExpiresAt.toISOString().slice(0, 10)}` : ''}. ` +
+            'Copy the current install command from Discovery -> Agents in PioAssets and run that instead.'
+          : 'Its enrolment token is not one PioAssets currently accepts. Copy the current install command ' +
+            'from Discovery -> Agents in PioAssets and run that instead.',
+      });
+    }
 
     const deviceToken = `tad_${randomBytes(32).toString('base64url')}`;
     const deviceHash = sha256(deviceToken);
@@ -230,7 +248,8 @@ export class AgentEnrolmentService {
       const pendingPrevious =
         existing.previousTokenHash &&
         existing.previousTokenRotatedAt &&
-        now.getTime() - existing.previousTokenRotatedAt.getTime() < PREVIOUS_DEVICE_TOKEN_MAX_AGE_MS;
+        now.getTime() - existing.previousTokenRotatedAt.getTime() <
+          PREVIOUS_DEVICE_TOKEN_MAX_AGE_MS;
       // Which credential to keep as "previous":
       // - revoked laptop: none - a revoked credential must not come back to life;
       // - a previous is still pending (the rotated-to credential was never
@@ -345,11 +364,7 @@ export class AgentEnrolmentService {
     try {
       const machineId = cleanIdentifier(identity.machineId, 8);
       const serialNumber = cleanIdentifier(identity.serialNumber, 4);
-      const where = machineId
-        ? { machineId }
-        : serialNumber
-          ? { serialNumber }
-          : null;
+      const where = machineId ? { machineId } : serialNumber ? { serialNumber } : null;
       if (!where) return;
 
       const matches = await this.prisma.client.deviceAgent.findMany({
@@ -400,6 +415,61 @@ export class AgentEnrolmentService {
       updateAvailable: isAgentOutdated(row.agentVersion),
       latestAgentVersion: LATEST_AGENT_VERSION,
     }));
+  }
+
+  /**
+   * Register laptops, desktops and servers that no live agent has reported
+   * (v2.77): the rollout's to-do list. Matching is by serial number, as the
+   * discovery matcher does; the rule is the domain's notEnrolledDevices.
+   */
+  async listNotEnrolled(actor: AuthUser) {
+    const [assets, agents] = await Promise.all([
+      this.prisma.client.asset.findMany({
+        where: {
+          companyId: actor.companyId,
+          deletedAt: null,
+          status: { notIn: ['DISPOSED', 'DONATED', 'RETIRED', 'LOST', 'STOLEN'] },
+          subcategory: { key: { in: [...AGENT_DEVICE_TYPES] } },
+        },
+        orderBy: [{ name: 'asc' }, { assetTag: 'asc' }],
+        take: 1000,
+        select: {
+          id: true,
+          name: true,
+          assetTag: true,
+          serialNumber: true,
+          subcategory: { select: { key: true } },
+          assignedUser: {
+            select: { email: true, profile: { select: { firstName: true, lastName: true } } },
+          },
+        },
+      }),
+      this.prisma.client.deviceAgent.findMany({
+        where: { companyId: actor.companyId },
+        select: { serialNumber: true, revokedAt: true },
+      }),
+    ]);
+    const rows = notEnrolledDevices(
+      assets.map((a) => ({
+        id: a.id,
+        name: a.name,
+        assetTag: a.assetTag,
+        serialNumber: a.serialNumber,
+        subcategoryKey: a.subcategory?.key ?? null,
+        holder: a.assignedUser
+          ? a.assignedUser.profile
+            ? `${a.assignedUser.profile.firstName} ${a.assignedUser.profile.lastName}`
+            : a.assignedUser.email
+          : null,
+      })),
+      agents,
+    );
+    return {
+      total: assets.length,
+      notEnrolled: rows.length,
+      summary: coverageSummary(rows.length, assets.length),
+      rows,
+    };
   }
 
   async revokeAgent(actor: AuthUser, id: string): Promise<void> {

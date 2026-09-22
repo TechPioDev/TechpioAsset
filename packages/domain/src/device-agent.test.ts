@@ -71,12 +71,13 @@ describe('agent versions', () => {
   });
 
   it('flags older and unknown versions as outdated', () => {
-    expect(LATEST_AGENT_VERSION).toBe('1.1.0');
+    expect(LATEST_AGENT_VERSION).toBe('1.2.1');
     expect(isAgentOutdated('1.0.0')).toBe(true);
     expect(isAgentOutdated(null)).toBe(true);
     expect(isAgentOutdated('')).toBe(true);
-    expect(isAgentOutdated('1.1.0')).toBe(false);
-    expect(isAgentOutdated('1.2.0')).toBe(false);
+    expect(isAgentOutdated('1.2.1')).toBe(false);
+    expect(isAgentOutdated('1.1.0')).toBe(true);
+    expect(isAgentOutdated('1.2.0')).toBe(true);
   });
 });
 
