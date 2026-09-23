@@ -141,7 +141,7 @@ export default function HowItWorksPage() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
                 href="/login"
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#eef3ff] hover:shadow-xl"
+                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#e8f0ff] hover:shadow-xl"
               >
                 Get Started <ArrowRight aria-hidden="true" className="size-4" />
               </Link>
@@ -251,7 +251,7 @@ export default function HowItWorksPage() {
       <section className="mx-auto max-w-6xl px-5 pb-20">
         <div
           className="grid grid-cols-1 items-center gap-6 overflow-hidden rounded-3xl px-8 py-12 shadow-xl sm:px-10 md:grid-cols-[1fr_auto]"
-          style={{ background: 'linear-gradient(130deg, #2563eb, #1d4ed8 55%, #1e3a8a)' }}
+          style={{ background: 'linear-gradient(130deg, #0052cc, #0040b0 55%, #001858)' }}
         >
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-balance text-white sm:text-3xl">
@@ -264,7 +264,7 @@ export default function HowItWorksPage() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/#demo"
-              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] transition-colors hover:bg-[#eef3ff]"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] transition-colors hover:bg-[#e8f0ff]"
             >
               Book a Demo <ArrowRight aria-hidden="true" className="size-4" />
             </Link>

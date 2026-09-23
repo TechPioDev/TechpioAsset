@@ -16,7 +16,7 @@ import {
  */
 
 const STATUS_SEGMENTS = [
-  { label: 'In use', pct: 62, cls: 'bg-[#1d4ed8]' },
+  { label: 'In use', pct: 62, cls: 'bg-[#0040b0]' },
   { label: 'In stock', pct: 17, cls: 'bg-[#60a5fa]' },
   { label: 'Maintenance', pct: 8, cls: 'bg-[#f59e0b]' },
   { label: 'In transit', pct: 7, cls: 'bg-[#93c5fd]' },
@@ -186,7 +186,7 @@ function AlertRow({ icon, text, pill, critical = false }: { icon: React.ReactNod
 const SPEND = [42, 58, 36, 71, 64, 89, 53, 77, 95, 68, 84, 110];
 const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const CATEGORIES = [
-  { label: 'Laptops', pct: 46, color: '#1d4ed8' },
+  { label: 'Laptops', pct: 46, color: '#0040b0' },
   { label: 'Monitors', pct: 22, color: '#60a5fa' },
   { label: 'Mobile', pct: 14, color: '#93c5fd' },
   { label: 'Servers & network', pct: 11, color: '#a5b4fc' },

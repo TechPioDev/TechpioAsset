@@ -24,7 +24,7 @@
  * whichever way the app is themed.
  */
 const TONES = [
-  '#1d4ed8',
+  '#0040b0',
   '#0e7490',
   '#0f766e',
   '#15803d',

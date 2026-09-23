@@ -161,7 +161,7 @@ export default function InvitationsPage() {
                       <span
                         className={
                           row.status === 'PENDING'
-                            ? 'inline-flex rounded-full bg-[var(--color-info-subtle,#dbeafe)] px-2 py-0.5 text-xs font-medium text-[var(--color-info,#1d4ed8)]'
+                            ? 'inline-flex rounded-full bg-[var(--color-info-subtle,#dbeafe)] px-2 py-0.5 text-xs font-medium text-[var(--color-info,#0040b0)]'
                             : 'inline-flex rounded-full bg-[var(--color-surface-sunken)] px-2 py-0.5 text-xs font-medium text-[var(--color-text-secondary)]'
                         }
                       >

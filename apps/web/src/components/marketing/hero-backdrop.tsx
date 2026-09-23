@@ -11,7 +11,7 @@ export function HeroBackdrop() {
         className="absolute inset-0"
         style={{
           background:
-            'linear-gradient(135deg, #0a1633 0%, #10265c 38%, #1d4ed8 78%, #2563eb 100%)',
+            'linear-gradient(135deg, #0a1633 0%, #10265c 38%, #0040b0 78%, #0052cc 100%)',
         }}
       />
       <div

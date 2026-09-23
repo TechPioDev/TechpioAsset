@@ -139,7 +139,7 @@ export default function FeedbackPage() {
       <section className="mx-auto max-w-6xl px-5 py-20">
         <div
           className="grid grid-cols-1 items-center gap-6 overflow-hidden rounded-3xl px-8 py-12 shadow-xl sm:px-10 md:grid-cols-[1fr_auto]"
-          style={{ background: 'linear-gradient(130deg, #2563eb, #1d4ed8 55%, #1e3a8a)' }}
+          style={{ background: 'linear-gradient(130deg, #0052cc, #0040b0 55%, #001858)' }}
         >
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-balance text-white sm:text-3xl">
@@ -152,7 +152,7 @@ export default function FeedbackPage() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/contact"
-              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] transition-colors hover:bg-[#eef3ff]"
+              className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] transition-colors hover:bg-[#e8f0ff]"
             >
               Share Feedback <ArrowRight aria-hidden="true" className="size-4" />
             </Link>

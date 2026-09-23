@@ -17,10 +17,17 @@
   --color-content: #0f172a;
   --color-content-muted: #475569;
   --color-content-subtle: #64748b;
-  --color-brand: #1d4ed8;
-  --color-brand-hover: #1e40af;
+  /* The brand blue, sampled from the PioAssets wordmark - the blue the word
+     "Assets" is actually set in. It replaces #1d4ed8, which was close to it
+     but not it. White on this is 8.9:1. The mobile app uses the same value.
+
+     The logo's orange (#F88808) is deliberately not a UI colour: it is 1.14
+     against the danger tone used for overdue and faulty equipment, so the eye
+     cannot separate them. It stays on the tick in the logo. */
+  --color-brand: #0040b0;
+  --color-brand-hover: #00318a;
   --color-brand-contrast: #ffffff;
-  --color-focus: #2563eb;
+  --color-focus: #0040b0;
 
   --radius-card: 0.75rem;
   --radius-control: 0.5rem;
@@ -33,7 +40,7 @@
   --color-card-foreground: #0f172a;
   --color-popover: #ffffff;
   --color-popover-foreground: #0f172a;
-  --color-primary: #1d4ed8;
+  --color-primary: #0040b0;
   --color-primary-foreground: #ffffff;
   --color-secondary: #f1f5f9;
   --color-secondary-foreground: #0f172a;
@@ -44,7 +51,7 @@
   --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
   --color-input: #cbd5e1;
-  --color-ring: #2563eb;
+  --color-ring: #0040b0;
 
   /* Chart series (Recharts). Distinct, AA-legible hues. */
   --color-chart-1: #2563eb;
@@ -56,7 +63,7 @@
   /* Soft tinted icon chips for the marketing pages (bg + foreground pairs).
      Dark overrides live in `.dark`. Each fg clears AA against its own bg. */
   --color-tint-blue: #e9f1ff;
-  --color-tint-blue-fg: #2563eb;
+  --color-tint-blue-fg: #0040b0;
   --color-tint-green: #e2f6ee;
   --color-tint-green-fg: #0a7f54;
   --color-tint-purple: #eeeaff;
@@ -99,10 +106,12 @@
   --color-content: #e2e8f0;
   --color-content-muted: #94a3b8;
   --color-content-subtle: #64748b;
-  --color-brand: #60a5fa;
-  --color-brand-hover: #93c5fd;
+  /* The wordmark blue lifted for a dark ground, matching the mobile app.
+     Dark ink on it, not white: white would be 2.5:1. */
+  --color-brand: #5aa9ff;
+  --color-brand-hover: #8cc3ff;
   --color-brand-contrast: #0b1120;
-  --color-focus: #60a5fa;
+  --color-focus: #5aa9ff;
 
   /* shadcn/ui semantic tokens — dark scheme. */
   --color-background: #0b1120;
@@ -111,7 +120,7 @@
   --color-card-foreground: #e2e8f0;
   --color-popover: #0f172a;
   --color-popover-foreground: #e2e8f0;
-  --color-primary: #60a5fa;
+  --color-primary: #5aa9ff;
   --color-primary-foreground: #0b1120;
   --color-secondary: #1e293b;
   --color-secondary-foreground: #e2e8f0;
@@ -122,7 +131,7 @@
   --color-destructive: #f87171;
   --color-destructive-foreground: #0b1120;
   --color-input: #334155;
-  --color-ring: #60a5fa;
+  --color-ring: #5aa9ff;
 
   --color-chart-1: #60a5fa;
   --color-chart-2: #4ade80;

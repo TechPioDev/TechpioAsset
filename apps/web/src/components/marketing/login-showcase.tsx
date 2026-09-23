@@ -127,7 +127,7 @@ function Backdrop() {
           corner it belongs to. */}
       <div
         className="absolute -bottom-24 -left-24 size-64 rounded-full opacity-90 [@media(min-height:760px)]:-bottom-40 [@media(min-height:760px)]:-left-40 [@media(min-height:760px)]:size-[34rem]"
-        style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb 60%, #3b82f6)' }}
+        style={{ background: 'linear-gradient(135deg, #0040b0, #0052cc 60%, #3b82f6)' }}
       />
     </div>
   );
@@ -167,7 +167,7 @@ function DashboardPreview() {
                 <Donut />
                 <ul className="min-w-0 flex-1 grid gap-1">
                   {[
-                    ['Laptops', '1,245', '#1d4ed8'],
+                    ['Laptops', '1,245', '#0040b0'],
                     ['Desktops', '862', '#3b82f6'],
                     ['Servers', '256', '#f59e0b'],
                     ['Mobile', '120', '#60a5fa'],
@@ -266,7 +266,7 @@ function MiniSidebar() {
             key={item}
             className={
               i === 0
-                ? 'rounded bg-[#2563eb] px-1.5 py-1 text-[9px] font-medium text-white'
+                ? 'rounded bg-[#0052cc] px-1.5 py-1 text-[9px] font-medium text-white'
                 : 'rounded px-1.5 py-1 text-[9px] text-white/60'
             }
           >
@@ -323,7 +323,7 @@ function Panel({
 /** Four arcs on one circle, drawn with stroke-dasharray rather than paths. */
 function Donut() {
   const segments = [
-    { value: 1245, colour: '#1d4ed8' },
+    { value: 1245, colour: '#0040b0' },
     { value: 862, colour: '#3b82f6' },
     { value: 256, colour: '#f59e0b' },
     { value: 185, colour: '#60a5fa' },

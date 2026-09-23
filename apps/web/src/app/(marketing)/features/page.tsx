@@ -85,7 +85,7 @@ export default function FeaturesPage() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
                 href="/login"
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#eef3ff] hover:shadow-xl"
+                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#e8f0ff] hover:shadow-xl"
               >
                 Get Started <ArrowRight aria-hidden="true" className="size-4" />
               </Link>
@@ -586,7 +586,7 @@ export default function FeaturesPage() {
 
       {/* ── 21 · FINAL CTA ───────────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-5 py-20">
-        <div className="rounded-3xl px-8 py-14 text-center shadow-xl sm:px-10" style={{ background: 'linear-gradient(130deg, #2563eb, #1d4ed8 55%, #1e3a8a)' }}>
+        <div className="rounded-3xl px-8 py-14 text-center shadow-xl sm:px-10" style={{ background: 'linear-gradient(130deg, #0052cc, #0040b0 55%, #001858)' }}>
           <h2 className="text-2xl font-bold tracking-tight text-balance text-white sm:text-3xl">
             See what PioAssets can do for your IT team.
           </h2>
@@ -595,7 +595,7 @@ export default function FeaturesPage() {
             accountability and less manual administration.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/#demo" className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] transition-colors hover:bg-[#eef3ff]">
+            <Link href="/#demo" className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] transition-colors hover:bg-[#e8f0ff]">
               Book a Demo <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
             <Link href="/login" className="inline-flex h-12 items-center gap-2 rounded-full border border-white/40 px-6 text-sm font-semibold text-white transition-colors hover:bg-white/10">

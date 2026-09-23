@@ -101,7 +101,7 @@ export default function AboutPage() {
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
                 href="/"
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#1d4ed8] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#eef3ff] hover:shadow-xl"
+                className="inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#0040b0] shadow-lg shadow-blue-950/30 transition-all hover:bg-[#e8f0ff] hover:shadow-xl"
               >
                 Meet the Product <ArrowRight aria-hidden="true" className="size-4" />
               </Link>
