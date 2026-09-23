@@ -92,6 +92,90 @@ export class LifecycleService {
   // Offboarding
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * What offboarding this person WOULD involve, without starting it (v2.85).
+   *
+   * Opening the screen used to start it: a row appeared, the person was told
+   * to hand everything back, and there was no way to undo it. Looking is not
+   * deciding, so the screen asks for this first and writes nothing.
+   */
+  async previewOffboarding(actor: AuthUser, subjectUserId: string) {
+    await this.requireSubject(actor, subjectUserId);
+    const open = await this.prisma.client.onboardingTask.findFirst({
+      where: {
+        companyId: actor.companyId,
+        subjectUserId,
+        direction: 'OFFBOARDING',
+        status: 'OPEN',
+      },
+      select: { id: true },
+    });
+    return {
+      task: open ? await this.getTask(actor, open.id) : null,
+      outstanding: await this.outstandingAssets(actor, subjectUserId),
+    };
+  }
+
+  /**
+   * Calls off an offboarding that should not have been started (v2.85).
+   *
+   * The person was asked to hand their equipment back, so they are told it is
+   * off again; nothing they returned in the meantime is undone, because those
+   * returns are facts of their own. The row is kept as CANCELLED rather than
+   * deleted - who started it, who called it off and why is the record.
+   */
+  async cancelOffboarding(actor: AuthUser, id: string, reason?: string) {
+    const task = await this.prisma.client.onboardingTask.findFirst({
+      where: { id, companyId: actor.companyId, direction: 'OFFBOARDING' },
+      select: { id: true, status: true, subjectUserId: true },
+    });
+    if (!task) throw AppError.notFound('Offboarding', id);
+    if (task.status !== 'OPEN') {
+      throw new AppError(
+        'ILLEGAL_STATE_TRANSITION',
+        `This offboarding is already ${task.status.toLowerCase()}`,
+        {
+          detail: 'Only an offboarding that is still in progress can be called off.',
+        },
+      );
+    }
+
+    await this.prisma.client.onboardingTask.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        completedAt: new Date(),
+        exceptionReason: reason?.trim() || null,
+      },
+    });
+
+    await this.notifications
+      .notify({
+        companyId: actor.companyId,
+        userId: task.subjectUserId,
+        type: 'RETURN_REQUIRED',
+        title: 'Your offboarding was called off',
+        body: reason?.trim()
+          ? `You do not need to hand your equipment back. Reason: ${reason.trim()}`
+          : 'You do not need to hand your equipment back.',
+        linkPath: '/my-assets',
+        entityType: 'OnboardingTask',
+        entityId: id,
+      })
+      .catch(() => undefined);
+
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.USER_UPDATED,
+      entityType: 'OnboardingTask',
+      entityId: id,
+      newValues: { status: 'CANCELLED', reason: reason?.trim() ?? null },
+    });
+
+    return { id, status: 'CANCELLED' as const };
+  }
+
   async startOffboarding(actor: AuthUser, subjectUserId: string) {
     await this.requireSubject(actor, subjectUserId);
 

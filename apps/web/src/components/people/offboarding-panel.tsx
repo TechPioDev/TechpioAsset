@@ -59,7 +59,13 @@ interface StockLocation {
 }
 
 const CONDITIONS: AssetCondition[] = ['NEW', 'GOOD', 'FAIR', 'POOR', 'DAMAGED'];
-const RETURN_STATUSES: AssetStatus[] = ['AVAILABLE', 'IN_STORAGE', 'UNDER_REPAIR', 'DAMAGED', 'RETIRED'];
+const RETURN_STATUSES: AssetStatus[] = [
+  'AVAILABLE',
+  'IN_STORAGE',
+  'UNDER_REPAIR',
+  'DAMAGED',
+  'RETIRED',
+];
 const title = (v: string) => v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, ' ');
 
 const problemText = (e: unknown, fallback: string) =>
@@ -82,26 +88,60 @@ export function OffboardingPanel({
   const qc = useQueryClient();
   const trapRef = useFocusTrap<HTMLDivElement>(true);
 
-  // Start once. The server hands back the open task if one already exists,
-  // so reopening the panel never creates a second checklist.
+  // v2.85 - opening this panel used to START the offboarding: a row appeared,
+  // the person was told to hand everything back, and nothing could undo it.
+  // Now it opens on a preview that writes nothing, and only the button below
+  // starts anything.
   const [taskId, setTaskId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+
+  const preview = useQuery({
+    queryKey: ['offboarding-preview', personId],
+    queryFn: () =>
+      apiFetch<{ task: Task | null; outstanding: OffboardingAssetRef[] }>(
+        `/lifecycle/offboarding/preview/${personId}`,
+      ),
+    refetchOnWindowFocus: false,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-    apiFetch<Task>('/lifecycle/offboarding', { method: 'POST', body: { subjectUserId: personId } })
-      .then((t) => {
-        if (cancelled) return;
-        setTaskId(t.id);
-        qc.setQueryData(['offboarding-task', t.id], t);
-        void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setStartError(problemText(e, 'Could not start offboarding'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [personId, qc]);
+    const open = preview.data?.task;
+    if (open && !taskId) {
+      setTaskId(open.id);
+      qc.setQueryData(['offboarding-task', open.id], open);
+    }
+  }, [preview.data, taskId, qc]);
+
+  const start = useMutation({
+    mutationFn: () =>
+      apiFetch<Task>('/lifecycle/offboarding', {
+        method: 'POST',
+        body: { subjectUserId: personId },
+      }),
+    onSuccess: (t) => {
+      setStartError(null);
+      setTaskId(t.id);
+      qc.setQueryData(['offboarding-task', t.id], t);
+      void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
+      void qc.invalidateQueries({ queryKey: ['offboarding-preview', personId] });
+      toast.success(`Offboarding started - ${personName} has been asked to return their equipment`);
+    },
+    onError: (e) => setStartError(problemText(e, 'Could not start offboarding')),
+  });
+
+  const cancel = useMutation({
+    mutationFn: (reason?: string) =>
+      apiFetch<{ status: string }>(`/lifecycle/offboarding/${taskId}/cancel`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
+    onSuccess: () => {
+      toast.success(`Offboarding called off - ${personName} keeps their equipment`);
+      void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
+      onCompleted();
+    },
+    onError: (e) => toast.error(problemText(e, 'Could not call off the offboarding')),
+  });
 
   const task = useQuery({
     queryKey: ['offboarding-task', taskId],
@@ -152,7 +192,10 @@ export function OffboardingPanel({
   });
 
   const progress = offboardingProgress(task.data?.checklist, task.data?.outstandingAssets);
-  const finish = offboardingFinishState({ taskStatus: task.data?.status, blocking: progress.blocking });
+  const finish = offboardingFinishState({
+    taskStatus: task.data?.status,
+    blocking: progress.blocking,
+  });
   const canAssign = can(PERMISSIONS.ASSETS_ASSIGN);
   const canReturn = can(PERMISSIONS.ASSETS_RETURN);
   const canReturnStock = can(PERMISSIONS.INVENTORY_ADJUST);
@@ -178,7 +221,9 @@ export function OffboardingPanel({
               Offboarding {personName}
             </h2>
             <p className="mt-0.5 text-sm text-[var(--color-content-muted)]">
-              Take back what they hold, then close the account. They have been told what has to come back.
+              {taskId
+                ? 'Take back what they hold, then close the account. They have been told what has to come back.'
+                : 'Nothing has started. This is what offboarding would involve.'}
             </p>
           </div>
           <button
@@ -197,6 +242,44 @@ export function OffboardingPanel({
               {startError}
             </p>
           ) : null}
+
+          {/* v2.85 - start it deliberately, or call off one started by mistake. */}
+          {taskId ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-sunken)] px-4 py-3">
+              <p className="text-sm text-[var(--color-content-muted)]">
+                Offboarding is in progress for {personName}.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const reason = window.prompt(
+                    `Call off the offboarding for ${personName}? They will be told they keep their equipment.\n\nReason (optional):`,
+                  );
+                  if (reason === null) return;
+                  cancel.mutate(reason.trim() || undefined);
+                }}
+                disabled={cancel.isPending}
+              >
+                Call it off
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--tone-warning-fg)] bg-[var(--tone-warning-bg)] px-4 py-3">
+              <p className="text-sm">
+                {preview.isPending
+                  ? 'Checking what they hold…'
+                  : `${preview.data?.outstanding.length ?? 0} item(s) are still with ${personName}. Starting will ask them to return everything.`}
+              </p>
+              <Button
+                size="sm"
+                onClick={() => start.mutate()}
+                disabled={start.isPending || preview.isPending}
+              >
+                {start.isPending ? 'Starting…' : 'Start offboarding'}
+              </Button>
+            </div>
+          )}
 
           {/* Step 1 */}
           <section aria-labelledby="offboarding-step-1">
@@ -243,8 +326,8 @@ export function OffboardingPanel({
               // HR may run the offboarding but not touch custody; say who can,
               // rather than showing rows with nothing on them.
               <p className="mt-2 text-xs text-[var(--color-content-muted)]">
-                Recording a return needs the assets:return permission - ask IT or an office admin. This list
-                updates as they record each one.
+                Recording a return needs the assets:return permission - ask IT or an office admin.
+                This list updates as they record each one.
               </p>
             ) : null}
 
@@ -289,7 +372,10 @@ export function OffboardingPanel({
             </h3>
 
             {finish === 'completed' ? (
-              <p className="mt-2 flex items-center gap-2 text-sm" style={{ color: 'var(--tone-success-fg)' }}>
+              <p
+                className="mt-2 flex items-center gap-2 text-sm"
+                style={{ color: 'var(--tone-success-fg)' }}
+              >
                 <CheckCircle2 aria-hidden="true" className="size-4" />
                 Offboarding completed. {personName}&apos;s account is deactivated.
               </p>
@@ -327,12 +413,16 @@ export function OffboardingPanel({
                       if (!exceptionProblem) complete.mutate(exceptionReason.trim());
                     }}
                   >
-                    <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--tone-warning-fg)' }}>
+                    <p
+                      className="flex items-start gap-2 text-sm"
+                      style={{ color: 'var(--tone-warning-fg)' }}
+                    >
                       <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 flex-none" />
                       <span>
-                        The {progress.blocking} outstanding {progress.blocking === 1 ? 'asset stays' : 'assets stay'}{' '}
-                        recorded against {personName} after their account is closed. Your name is recorded
-                        as having approved this.
+                        The {progress.blocking} outstanding{' '}
+                        {progress.blocking === 1 ? 'asset stays' : 'assets stay'} recorded against{' '}
+                        {personName} after their account is closed. Your name is recorded as having
+                        approved this.
                       </span>
                     </p>
                     <label className="grid gap-1 text-xs text-[var(--color-content-subtle)]">
@@ -504,7 +594,9 @@ function AssetRow({
               <label className="grid gap-1 text-xs text-[var(--color-content-subtle)]">
                 Hand over to
                 <NativeSelect value={userId} onChange={(e) => setUserId(e.target.value)} required>
-                  <option value="">{people.isPending ? 'Loading people…' : 'Choose a person…'}</option>
+                  <option value="">
+                    {people.isPending ? 'Loading people…' : 'Choose a person…'}
+                  </option>
                   {colleagues.map((p) => (
                     <option key={p.id} value={p.id}>
                       {colleagueName(p)}
@@ -551,10 +643,21 @@ function AssetRow({
             />
           </label>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" loading={act.isPending} disabled={mode === 'reassign' && !userId}>
+            <Button
+              type="submit"
+              size="sm"
+              loading={act.isPending}
+              disabled={mode === 'reassign' && !userId}
+            >
               {mode === 'return' ? 'Record return' : 'Hand over'}
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => setMode(null)} disabled={act.isPending}>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setMode(null)}
+              disabled={act.isPending}
+            >
               Cancel
             </Button>
           </div>
@@ -640,8 +743,14 @@ function ConsumableRow({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-xs text-[var(--color-content-subtle)]">
               Back to
-              <NativeSelect value={locationId} onChange={(e) => setLocationId(e.target.value)} required>
-                <option value="">{locations.isPending ? 'Loading locations…' : 'Choose a location…'}</option>
+              <NativeSelect
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                required
+              >
+                <option value="">
+                  {locations.isPending ? 'Loading locations…' : 'Choose a location…'}
+                </option>
                 {(locations.data ?? []).map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.code} · {l.name}
@@ -661,10 +770,21 @@ function ConsumableRow({
             </label>
           </div>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" loading={act.isPending} disabled={!locationId || !qtyOk}>
+            <Button
+              type="submit"
+              size="sm"
+              loading={act.isPending}
+              disabled={!locationId || !qtyOk}
+            >
               Return to stock
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)} disabled={act.isPending}>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setOpen(false)}
+              disabled={act.isPending}
+            >
               Cancel
             </Button>
           </div>

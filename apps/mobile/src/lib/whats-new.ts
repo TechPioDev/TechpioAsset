@@ -17,6 +17,16 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.40',
+    items: [
+      {
+        icon: 'log-out-outline',
+        title: 'Offboarding asks first',
+        body: 'Opening offboarding now shows what it would involve. It only starts when you press Start, and one started by mistake can be called off.',
+      },
+    ],
+  },
+  {
     version: '0.3.39',
     items: [
       {

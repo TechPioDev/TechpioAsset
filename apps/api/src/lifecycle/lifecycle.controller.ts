@@ -12,6 +12,11 @@ const startSchema = z.object({
   templateKey: z.string().optional(),
 });
 
+/** v2.85 - why an offboarding was called off, for the record. */
+const cancelSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
 const completeSchema = z.object({
   /**
    * Required only when assets are still outstanding. Minimum length is enforced
@@ -54,6 +59,35 @@ export class LifecycleController {
     @Body(zodBody(startSchema)) body: { subjectUserId: string; templateKey?: string },
   ) {
     return this.lifecycle.startOnboarding(actor, body.subjectUserId, body.templateKey);
+  }
+
+  @Get('offboarding/preview/:subjectUserId')
+  @RequirePermissions(PERMISSIONS.OFFBOARDING_MANAGE)
+  @ApiOperation({
+    summary: 'What offboarding this person would involve',
+    description:
+      'Writes nothing and notifies nobody (v2.85): the screen opens on this, and only the ' +
+      'Start button creates the offboarding. Returns the open one if there already is one.',
+  })
+  previewOffboarding(
+    @CurrentUser() actor: AuthUser,
+    @Param('subjectUserId') subjectUserId: string,
+  ) {
+    return this.lifecycle.previewOffboarding(actor, subjectUserId);
+  }
+
+  @Post('offboarding/:id/cancel')
+  @RequirePermissions(PERMISSIONS.OFFBOARDING_MANAGE)
+  @ApiOperation({
+    summary: 'Call off an offboarding started by mistake',
+    description: 'The employee is told it is off; returns already recorded stay recorded.',
+  })
+  cancel(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(cancelSchema)) body: { reason?: string },
+  ) {
+    return this.lifecycle.cancelOffboarding(actor, id, body.reason);
   }
 
   @Post('offboarding')

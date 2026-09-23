@@ -72,33 +72,69 @@ export default function OffboardScreen() {
   const [exceptionReason, setExceptionReason] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Start once. The server hands back the open task if one exists, so
-  // reopening this screen never creates a second checklist.
+  // v2.85 - opening this screen used to START the offboarding, which told the
+  // person to hand everything back and could not be undone. It now opens on a
+  // preview that writes nothing; only the button starts it.
+  const [outstandingPreview, setOutstandingPreview] = useState<OffboardingRow[] | null>(null);
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
       try {
-        const [p, t, s] = await Promise.all([
+        const [p, preview, s] = await Promise.all([
           api.request<Person>(`/users/${id}`),
-          api.request<Task>('/lifecycle/offboarding', {
-            method: 'POST',
-            body: { subjectUserId: id },
-          }),
+          api.request<{ task: Task | null; outstanding: OffboardingRow[] }>(
+            `/lifecycle/offboarding/preview/${id}`,
+          ),
           api.request<HeldConsumable[]>(`/stock/held-by/${id}`).catch(() => []),
         ]);
         if (cancelled) return;
         setPerson(p);
-        setTask(t);
+        setTask(preview.task);
+        setOutstandingPreview(preview.outstanding);
         setConsumables(s ?? []);
       } catch (e) {
-        if (!cancelled) setStartError(errorText(e, 'Could not start offboarding.'));
+        if (!cancelled) setStartError(errorText(e, 'Could not open offboarding.'));
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [api, id]);
+
+  /** Starts it deliberately: from here on the person is asked to return things. */
+  const startOffboarding = async () => {
+    if (!id) return;
+    setBusy(true);
+    try {
+      setTask(
+        await api.request<Task>('/lifecycle/offboarding', {
+          method: 'POST',
+          body: { subjectUserId: id },
+        }),
+      );
+      showFlash('success', `${name} has been asked to return their equipment.`);
+    } catch (e) {
+      showFlash('error', errorText(e, 'Could not start offboarding.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Calls off one started by mistake. The person is told they keep their kit. */
+  const cancelOffboarding = async () => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      await api.request(`/lifecycle/offboarding/${task.id}/cancel`, { method: 'POST', body: {} });
+      setTask(null);
+      showFlash('success', `Offboarding called off - ${name} keeps their equipment.`);
+    } catch (e) {
+      showFlash('error', errorText(e, 'Could not call off the offboarding.'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const reloadTask = useCallback(async () => {
     if (!task) return;
@@ -151,11 +187,66 @@ export default function OffboardScreen() {
     );
   }
 
-  if (!person || !task) {
+  if (!person) {
     return (
       <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
         <ActivityIndicator color={c.brand} />
       </View>
+    );
+  }
+
+  // v2.85 - nothing has started: show what it would involve, and ask.
+  if (!task) {
+    const rows = outstandingPreview ?? [];
+    return (
+      <Screen scroll>
+        <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>Offboarding {name}</Text>
+        <Text style={{ color: c.muted, fontSize: 13, marginTop: 4, marginBottom: spacing.lg }}>
+          Nothing has started. This is what offboarding {name} would involve.
+        </Text>
+
+        <FlashBanner flash={flash} />
+
+        <Card style={{ marginBottom: spacing.lg }}>
+          <Text
+            style={{ color: c.text, fontWeight: '700', fontSize: 15, marginBottom: spacing.sm }}
+          >
+            {rows.length === 0
+              ? 'No equipment is assigned to them'
+              : `${rows.length} item(s) still with them`}
+          </Text>
+          {rows.slice(0, 8).map((row) => (
+            <Text
+              key={row.assetId}
+              style={{ color: c.muted, fontSize: 13, marginTop: 2 }}
+              numberOfLines={1}
+            >
+              {row.name} · {row.assetTag}
+            </Text>
+          ))}
+          {rows.length > 8 ? (
+            <Text style={{ color: c.subtle, fontSize: 12, marginTop: 4 }}>
+              and {rows.length - 8} more
+            </Text>
+          ) : null}
+          {consumables.length > 0 ? (
+            <Text style={{ color: c.muted, fontSize: 13, marginTop: 6 }}>
+              Plus {consumables.length} item(s) issued from stock.
+            </Text>
+          ) : null}
+        </Card>
+
+        <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.md }}>
+          Starting asks {name} to return everything. You can call it off afterwards if it was a
+          mistake.
+        </Text>
+        <Button
+          label="Start offboarding"
+          icon="log-out-outline"
+          onPress={() => void startOffboarding()}
+          loading={busy}
+        />
+      </Screen>
     );
   }
 
@@ -183,6 +274,18 @@ export default function OffboardScreen() {
       </Text>
 
       <FlashBanner flash={flash} />
+
+      {/* v2.85 - started by mistake? Call it off; they keep their equipment. */}
+      {task.status === 'OPEN' ? (
+        <Button
+          label="Call off this offboarding"
+          icon="close-circle-outline"
+          variant="secondary"
+          onPress={() => void cancelOffboarding()}
+          disabled={busy}
+          style={{ marginBottom: spacing.lg }}
+        />
+      ) : null}
 
       {/* Step 1 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
