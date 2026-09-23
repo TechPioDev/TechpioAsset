@@ -20,15 +20,24 @@ export const colors = {
     text: '#0f172a',
     muted: '#64748b',
     subtle: '#94a3b8',
-    brand: '#2563eb',
+    // The brand blue, sampled from the wordmark (U1). It used to be
+    // `#2563eb` - Tailwind's default blue, which appears nowhere in the
+    // PioAssets artwork. This is the blue the word "Assets" is actually set
+    // in, so the app and the logo finally agree. White on it is 8.9:1.
+    //
+    // The logo's orange (#F88808) is deliberately NOT here. It is 1.14
+    // against the danger tone already used for overdue and faulty equipment -
+    // the eye cannot separate them - so it stays on the logo's tick and
+    // nowhere else in the interface.
+    brand: '#0040b0',
     brandText: '#ffffff',
-    brandSoft: '#eff6ff',
-    // U1 - the three roles the brand colour was doing with one value.
+    brandSoft: '#e8f0ff',
+    // The three roles the brand colour was doing with one value.
     // `brandStrong` is the pressed state of a brand surface; `brandSoftFg`
     // is what goes ON a soft tile, which is not the same colour as the fill
     // behind a white label.
-    brandStrong: '#1d4ed8',
-    brandSoftFg: '#1e40af',
+    brandStrong: '#00318a',
+    brandSoftFg: '#0040b0',
     /** A surface one step above `card` - a sheet over a screen, a raised row. */
     surfaceRaised: '#ffffff',
     /** What a pressable turns while the finger is down. */
@@ -39,7 +48,7 @@ export const colors = {
     warning: '#d97706',
     headerBg: '#ffffff',
     tabBar: '#ffffff',
-    tabActive: '#2563eb',
+    tabActive: '#0040b0',
     tabInactive: '#94a3b8',
   },
   dark: {
@@ -50,19 +59,22 @@ export const colors = {
     text: '#e2e8f0',
     muted: '#94a3b8',
     subtle: '#64748b',
-    brand: '#3b82f6',
-    // U1 - white on this blue is 3.68:1, under the 4.5 AA floor for normal
-    // text: the label on every primary button in the dark theme was failing,
-    // and had been since the theme was written. A light brand colour takes
-    // dark ink, which is what the platforms' own dark themes do. 5.12:1.
+    // The wordmark blue lifted for a dark ground: the deep #0040b0 is very
+    // nearly black against #0b1120 (U1).
+    brand: '#5aa9ff',
+    // White on this is 2.46:1, far under the 4.5 AA floor - and white on the
+    // OLD dark blue was 3.68, so the label on every primary button in the
+    // dark theme had been failing since the theme was written. A light brand
+    // colour takes dark ink, which is what the platforms' own dark themes do
+    // and what the web app already did. 7.67:1.
     brandText: '#0b1120',
-    // U1 - `#172554` on a `#111a2e` card is a 1.18 contrast ratio: every icon
+    // `#172554` on a `#111a2e` card was a 1.18 contrast ratio: every icon
     // tile, avatar and stat tile on the dark theme was a colour you had to be
-    // told was there. Lifted to 1.37, with its own foreground so the icon
-    // inside reads at 7.6 instead of the brand blue's 3.
-    brandSoft: '#1c3160',
-    brandStrong: '#60a5fa',
-    brandSoftFg: '#a8cbff',
+    // told was there. Lifted, with its own foreground so the icon inside
+    // reads at 8.3 instead of the brand blue's 3.
+    brandSoft: '#12294f',
+    brandStrong: '#8cc3ff',
+    brandSoftFg: '#9cc8ff',
     surfaceRaised: '#1a2640',
     pressed: '#1e293b',
     danger: '#f87171',
@@ -71,7 +83,7 @@ export const colors = {
     warning: '#fbbf24',
     headerBg: '#0f172a',
     tabBar: '#0f172a',
-    tabActive: '#60a5fa',
+    tabActive: '#5aa9ff',
     tabInactive: '#64748b',
   },
 };

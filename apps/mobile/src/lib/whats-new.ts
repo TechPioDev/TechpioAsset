@@ -20,6 +20,11 @@ export const WHATS_NEW: readonly ReleaseNotes[] = [
     version: '0.3.41',
     items: [
       {
+        icon: 'color-palette-outline',
+        title: 'The right blue',
+        body: 'The app now uses the blue from the PioAssets logo instead of a stand-in.',
+      },
+      {
         icon: 'sparkles-outline',
         title: 'A tidier app',
         body: 'Text is one consistent size throughout, buttons answer to your touch, and the dark theme finally has depth.',
