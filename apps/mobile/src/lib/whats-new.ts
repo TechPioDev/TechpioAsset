@@ -17,6 +17,16 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.39',
+    items: [
+      {
+        icon: 'language-outline',
+        title: 'हिन्दी ਅਤੇ ਪੰਜਾਬੀ',
+        body: 'Menu → Language: use the app in Hindi or Punjabi. Amounts stay in rupees.',
+      },
+    ],
+  },
+  {
     version: '0.3.38',
     items: [
       {

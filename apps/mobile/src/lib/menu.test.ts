@@ -56,7 +56,13 @@ describe('the phone menu', () => {
 
   it('trims a category to what the user may open', () => {
     const settings = findMenuGroup('settings', [])!;
-    expect(settings.items.map((i) => i.label)).toEqual(['Profile', 'Security', 'Appearance', 'Help']);
+    expect(settings.items.map((i) => i.label)).toEqual([
+      'Profile',
+      'Language',
+      'Security',
+      'Appearance',
+      'Help',
+    ]);
   });
 
   it('shows an item when the user holds any one of its permissions', () => {

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { WaitingReceipt } from '@techpioasset/domain';
 import { useSession } from '../../providers/session';
+import { useT } from '../../providers/language';
 import { useTheme } from '../../theme';
 import { Button, Card, IconBadge } from '../ui';
 
@@ -26,6 +27,7 @@ export function ReceiptCard({
   onConfirmed: () => void;
 }) {
   const { api } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, spacing } = useTheme();
   const [busy, setBusy] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function ReceiptCard({
       await api.request(`/assets/assignments/${row.assignmentId}/acknowledge`, { method: 'POST' });
       onConfirmed();
     } catch {
-      setFailed('Could not confirm. Check your connection and try again.');
+      setFailed(t('receipt.failed'));
     } finally {
       setBusy(null);
     }
@@ -62,11 +64,12 @@ export function ReceiptCard({
             style={{ color: c.text, fontWeight: '800', fontSize: 15 }}
             accessibilityRole="header"
           >
-            Confirm what you received
+            {t('receipt.title')}
           </Text>
           <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }}>
-            {waiting.length === 1 ? 'One item was' : `${waiting.length} items were`} handed to you.
-            Only confirm what is with you now.
+            {waiting.length === 1
+              ? t('receipt.oneItem')
+              : t('receipt.manyItems', { count: waiting.length })}
           </Text>
         </View>
       </View>
@@ -92,7 +95,7 @@ export function ReceiptCard({
             <Text style={{ color: c.muted, fontSize: 12 }}>{row.assetTag}</Text>
           </Pressable>
           <Button
-            label="Confirm"
+            label={t('receipt.confirm')}
             icon="checkmark"
             onPress={() => void confirm(row)}
             loading={busy === row.assignmentId}
@@ -104,7 +107,7 @@ export function ReceiptCard({
       {waiting.length > SHOWN ? (
         <Pressable onPress={() => router.push('/my-equipment')} hitSlop={8}>
           <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700', marginTop: spacing.sm }}>
-            and {waiting.length - SHOWN} more in My equipment
+            {t('receipt.more', { count: waiting.length - SHOWN })}
           </Text>
         </Pressable>
       ) : null}

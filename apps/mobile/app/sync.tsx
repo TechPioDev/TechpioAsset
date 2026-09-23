@@ -12,6 +12,7 @@ import {
 } from '../src/lib/sync-service';
 import { savedLabel } from '../src/lib/offline-cache';
 import { useSession } from '../src/providers/session';
+import { useT } from '../src/providers/language';
 import { useTheme } from '../src/theme';
 import { Button, Card, EmptyState, Screen, SectionTitle } from '../src/components/ui';
 
@@ -34,6 +35,7 @@ const KIND: Record<string, string> = {
  */
 export default function SyncScreen() {
   const { api } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, spacing } = useTheme();
   const { sending } = useSyncStatus();
@@ -85,7 +87,7 @@ export default function SyncScreen() {
   return (
     <Screen scroll>
       <Button
-        label={sending ? 'Sending…' : 'Send now'}
+        label={sending ? t('sync.sending') : t('sync.sendNow')}
         icon="cloud-upload-outline"
         onPress={() => void send()}
         loading={sending}
@@ -98,15 +100,15 @@ export default function SyncScreen() {
         <Card style={{ marginTop: spacing.lg }}>
           <EmptyState
             icon="checkmark-done-outline"
-            title="All sent"
-            message="Nothing recorded offline is waiting."
+            title={t('sync.allSent')}
+            message={t('sync.allSentBody')}
           />
         </Card>
       ) : null}
 
       {needsYou.length > 0 ? (
         <>
-          <SectionTitle style={{ marginTop: spacing.xl }}>Needs you</SectionTitle>
+          <SectionTitle style={{ marginTop: spacing.xl }}>{t('sync.needsYou')}</SectionTitle>
           {needsYou.map(({ op, held }) => (
             <Card
               key={op.clientGeneratedId}
@@ -120,14 +122,18 @@ export default function SyncScreen() {
               <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.md }}>
                 {op.entityId ? (
                   <Button
-                    label="Open asset"
+                    label={t('sync.openAsset')}
                     variant="secondary"
                     onPress={() => router.push(`/asset/${op.entityId}`)}
                     style={{ flex: 1 }}
                   />
                 ) : null}
                 <Button
-                  label={confirming === op.clientGeneratedId ? 'Tap again to discard' : 'Discard'}
+                  label={
+                    confirming === op.clientGeneratedId
+                      ? t('sync.discardConfirm')
+                      : t('sync.discard')
+                  }
                   variant="danger"
                   onPress={() => void discard(op.clientGeneratedId)}
                   style={{ flex: 1 }}
@@ -140,7 +146,7 @@ export default function SyncScreen() {
 
       {waiting.length > 0 ? (
         <>
-          <SectionTitle style={{ marginTop: spacing.xl }}>Waiting to send</SectionTitle>
+          <SectionTitle style={{ marginTop: spacing.xl }}>{t('sync.waiting')}</SectionTitle>
           {waiting.map(({ op }) => (
             <Card key={op.clientGeneratedId} style={{ marginBottom: spacing.md }}>
               <Row op={op} />

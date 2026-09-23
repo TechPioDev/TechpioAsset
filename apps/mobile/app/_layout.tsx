@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppearanceProvider } from '../src/providers/appearance';
 import { SessionProvider, useSession } from '../src/providers/session';
+import { LanguageProvider, useT } from '../src/providers/language';
 import { gateRedirect } from '../src/lib/session-gate';
 import { rememberDestination } from '../src/lib/pending-route';
 import { NotificationTaps } from '../src/components/notification-taps';
@@ -23,7 +24,10 @@ export default function RootLayout() {
   // file - so the shell is a separate component inside it.
   return (
     <AppearanceProvider>
-      <RootShell />
+      {/* v2.84 - above every screen, so one choice changes the whole app. */}
+      <LanguageProvider>
+        <RootShell />
+      </LanguageProvider>
     </AppearanceProvider>
   );
 }
@@ -49,6 +53,9 @@ function useOrientationPolicy() {
 function RootShell() {
   useOrientationPolicy();
   const { c } = useTheme();
+  // v2.84 - the header bar speaks the chosen language on the screens that
+  // are translated; the rest keep their English titles.
+  const t = useT();
   return (
     <SafeAreaProvider>
       <SessionProvider>
@@ -96,15 +103,19 @@ function RootShell() {
           />
           <Stack.Screen
             name="my-equipment"
-            options={{ headerShown: true, title: 'My equipment' }}
+            options={{ headerShown: true, title: t('equipment.title') }}
           />
           <Stack.Screen name="help" options={{ headerShown: true, title: 'Help' }} />
           <Stack.Screen name="request/[id]" options={{ headerShown: true, title: 'Request' }} />
           <Stack.Screen
             name="report-problem"
-            options={{ headerShown: true, title: 'Report a problem' }}
+            options={{ headerShown: true, title: t('problem.title') }}
           />
-          <Stack.Screen name="sync" options={{ headerShown: true, title: 'Waiting to sync' }} />
+          <Stack.Screen name="sync" options={{ headerShown: true, title: t('sync.title') }} />
+          <Stack.Screen
+            name="settings/language"
+            options={{ headerShown: true, title: t('language.title') }}
+          />
           <Stack.Screen
             name="whats-new"
             options={{ headerShown: true, title: 'What’s new', presentation: 'modal' }}

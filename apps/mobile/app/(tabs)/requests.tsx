@@ -16,6 +16,7 @@ import {
   wordsWithoutMarkers,
 } from '../../src/lib/comment-images';
 import { useSession } from '../../src/providers/session';
+import { useT } from '../../src/providers/language';
 import { useTheme } from '../../src/theme';
 import {
   Button,
@@ -52,6 +53,7 @@ interface RequestRow {
 /** Employee requests: raise a new one and track your own. */
 export default function RequestsScreen() {
   const { api } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, scheme, spacing } = useTheme();
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
@@ -192,7 +194,7 @@ export default function RequestsScreen() {
             <Text
               style={{ color: c.text, fontWeight: '700', fontSize: 16, marginBottom: spacing.md }}
             >
-              {raiseBlockedReason ? 'Raising requests' : 'New request'}
+              {raiseBlockedReason ? 'Raising requests' : t('requests.new')}
             </Text>
             {raiseBlockedReason ? (
               <Text style={{ color: c.muted, fontSize: 14, lineHeight: 20 }}>
@@ -201,14 +203,14 @@ export default function RequestsScreen() {
             ) : (
               <>
                 <Field
-                  label="What do you need?"
-                  placeholder="e.g. Laptop docking station"
+                  label={t('requests.what')}
+                  placeholder={t('requests.whatHint')}
                   value={item}
                   onChangeText={setItem}
                 />
                 <Field
-                  label="Business reason"
-                  placeholder="Why do you need it? (at least 10 characters)"
+                  label={t('requests.reason')}
+                  placeholder={t('requests.reasonHint')}
                   value={reason}
                   onChangeText={(t) => {
                     pictures.onChangeText(t);
@@ -241,7 +243,7 @@ export default function RequestsScreen() {
                 ) : null}
                 <FlashBanner flash={flash} />
                 <Button
-                  label="Submit request"
+                  label={t('requests.submit')}
                   icon="send"
                   onPress={() => void submit()}
                   loading={submitting}
@@ -250,7 +252,7 @@ export default function RequestsScreen() {
             )}
           </Card>
           <View style={{ height: spacing.xl }} />
-          <SectionTitle>Your requests</SectionTitle>
+          <SectionTitle>{t('requests.yours')}</SectionTitle>
         </View>
       }
       ListEmptyComponent={
@@ -260,8 +262,8 @@ export default function RequestsScreen() {
           <Card>
             <EmptyState
               icon="document-text-outline"
-              title="No requests yet"
-              message="Requests you raise will appear here."
+              title={t('requests.none')}
+              message={t('requests.noneBody')}
             />
           </Card>
         )

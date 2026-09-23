@@ -5,6 +5,7 @@ import { Image, KeyboardAvoidingView, Platform, Pressable, Text, View } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { takeDestination } from '../src/lib/pending-route';
 import { useSession } from '../src/providers/session';
+import { useT } from '../src/providers/language';
 import { useTheme } from '../src/theme';
 import { Button, Card, Field } from '../src/components/ui';
 
@@ -26,6 +27,7 @@ import { Button, Card, Field } from '../src/components/ui';
 export default function LoginScreen() {
   const router = useRouter();
   const { login, unlockWithBiometrics, status } = useSession();
+  const t = useT();
   const { c, spacing, scheme } = useTheme();
 
   const [email, setEmail] = useState('');
@@ -89,18 +91,16 @@ export default function LoginScreen() {
                 marginTop: spacing.lg,
               }}
             >
-              {needsMfa ? 'One more step' : 'Welcome back'}
+              {needsMfa ? 'One more step' : t('login.welcome')}
             </Text>
             <Text style={{ color: c.muted, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
-              {needsMfa
-                ? 'Confirm the code from your authenticator app.'
-                : 'Sign in to your PioAssets account to continue.'}
+              {needsMfa ? 'Confirm the code from your authenticator app.' : t('login.subtitle')}
             </Text>
           </View>
 
           {status === 'locked' ? (
             <Button
-              label="Unlock with biometrics"
+              label={t('login.unlock')}
               icon="finger-print"
               onPress={onBiometric}
               loading={busy}
@@ -111,7 +111,7 @@ export default function LoginScreen() {
           {!needsMfa ? (
             <>
               <Field
-                label="Work email"
+                label={t('login.email')}
                 placeholder="you@company.com"
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -120,12 +120,12 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
               />
               <Field
-                label="Password"
+                label={t('login.password')}
                 labelRight={
                   <Link href="/forgot-password" asChild>
                     <Pressable hitSlop={8}>
                       <Text style={{ color: c.brand, fontSize: 13, fontWeight: '600' }}>
-                        Forgot password?
+                        {t('login.forgot')}
                       </Text>
                     </Pressable>
                   </Link>
@@ -151,7 +151,11 @@ export default function LoginScreen() {
             <Text style={{ color: c.danger, marginBottom: spacing.md, fontSize: 13 }}>{error}</Text>
           ) : null}
 
-          <Button label={needsMfa ? 'Verify' : 'Sign in'} onPress={onSubmit} loading={busy} />
+          <Button
+            label={needsMfa ? 'Verify' : t('login.signIn')}
+            onPress={onSubmit}
+            loading={busy}
+          />
         </Card>
 
         <View
@@ -164,9 +168,7 @@ export default function LoginScreen() {
           }}
         >
           <Ionicons name="shield-checkmark-outline" size={14} color={c.subtle} />
-          <Text style={{ color: c.subtle, fontSize: 12 }}>
-            Sessions expire automatically and every action is audited.
-          </Text>
+          <Text style={{ color: c.subtle, fontSize: 12 }}>{t('login.audited')}</Text>
         </View>
 
         <Link href="/help" asChild>

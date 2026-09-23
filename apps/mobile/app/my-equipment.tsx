@@ -4,6 +4,7 @@ import { Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetStatus } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
+import { useT } from '../src/providers/language';
 import { statusColor, statusLabel, useTheme } from '../src/theme';
 import {
   Card,
@@ -53,6 +54,7 @@ interface HeldConsumable {
 }
 
 export default function MyEquipmentScreen() {
+  const t = useT();
   const { api, user } = useSession();
   const { c, scheme, spacing } = useTheme();
   const router = useRouter();
@@ -102,7 +104,7 @@ export default function MyEquipmentScreen() {
       ) : null}
 
       <SectionTitle>
-        {`Equipment${assets.length ? ` (${assets.length}${assets.length === MAX_PAGE_SIZE ? '+' : ''})` : ''}`}
+        {`${t('equipment.section')}${assets.length ? ` (${assets.length}${assets.length === MAX_PAGE_SIZE ? '+' : ''})` : ''}`}
       </SectionTitle>
       {/* 0.3.29 - placeholder rows for the first load, in place of a blank. */}
       {assets.length === 0 && loading ? <ListSkeleton rows={3} /> : null}
@@ -110,8 +112,8 @@ export default function MyEquipmentScreen() {
         <Card style={{ marginBottom: spacing.xl }}>
           <EmptyState
             icon="cube-outline"
-            title="Nothing issued to you"
-            message="Equipment assigned to you will appear here."
+            title={t('equipment.none')}
+            message={t('equipment.noneBody')}
           />
         </Card>
       ) : (
@@ -134,7 +136,10 @@ export default function MyEquipmentScreen() {
               >
                 <IconBadge icon="hardware-chip-outline" />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
+                  <Text
+                    style={{ color: c.text, fontWeight: '700', fontSize: 15 }}
+                    numberOfLines={1}
+                  >
                     {a.name}
                   </Text>
                   <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
@@ -160,7 +165,7 @@ export default function MyEquipmentScreen() {
         </View>
       )}
 
-      <SectionTitle>Consumables</SectionTitle>
+      <SectionTitle>{t('equipment.consumables')}</SectionTitle>
       {consumables.length === 0 ? (
         <Card style={{ marginBottom: spacing.xl }}>
           <Text style={{ color: c.muted, fontSize: 14 }}>

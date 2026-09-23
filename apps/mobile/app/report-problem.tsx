@@ -16,6 +16,7 @@ import {
   type ProblemAsset,
 } from '../src/lib/report-problem';
 import { useSession } from '../src/providers/session';
+import { useT } from '../src/providers/language';
 import { useTheme } from '../src/theme';
 import {
   Button,
@@ -57,6 +58,7 @@ const ICONS: Record<string, IconName> = {
 export default function ReportProblemScreen() {
   const { assetId } = useLocalSearchParams<{ assetId?: string }>();
   const { api, user } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, spacing, radius } = useTheme();
 
@@ -87,7 +89,7 @@ export default function ReportProblemScreen() {
 
   async function send() {
     if (!category) {
-      setError('Pick what is wrong first.');
+      setError(t('problem.pickFirst'));
       return;
     }
     const body = problemRequest(category, asset, wordsWithoutMarkers(text));
@@ -128,10 +130,7 @@ export default function ReportProblemScreen() {
         }
       }
       await api.request(`/requests/${created.id}/submit`, { method: 'POST' });
-      Alert.alert(
-        'Problem reported',
-        'IT has it now. You can follow it, and reply, from the request.',
-      );
+      Alert.alert(t('problem.sent'), t('problem.sentBody'));
       router.replace(`/request/${created.id}`);
     } catch (caught) {
       setError(
@@ -158,10 +157,10 @@ export default function ReportProblemScreen() {
     <Screen scroll>
       <FlashBanner flash={flash} />
 
-      <SectionTitle>Which item?</SectionTitle>
+      <SectionTitle>{t('problem.whichItem')}</SectionTitle>
       {assets.length === 0 ? (
         <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.lg }}>
-          Nothing is issued to you, so this goes to IT as a general report.
+          {t('problem.noItems')}
         </Text>
       ) : (
         <View
@@ -202,7 +201,7 @@ export default function ReportProblemScreen() {
         </View>
       )}
 
-      <SectionTitle>What is wrong?</SectionTitle>
+      <SectionTitle>{t('problem.whatIsWrong')}</SectionTitle>
       <View
         style={{
           flexDirection: 'row',
@@ -247,10 +246,10 @@ export default function ReportProblemScreen() {
       {category ? (
         <Card style={{ marginBottom: spacing.xl }}>
           <Text style={{ color: c.text, fontWeight: '700', fontSize: 15, marginBottom: 4 }}>
-            {photoHelps(category) ? 'A photo shows IT the fault' : 'Anything IT should know?'}
+            {photoHelps(category) ? t('problem.photoHelps') : t('problem.anythingElse')}
           </Text>
           <Text style={{ color: c.muted, fontSize: 12, marginBottom: spacing.md }}>
-            Optional. You can send it as it is.
+            {t('problem.optional')}
           </Text>
           <PhotoPickButtons
             onLibrary={pictures.addFromLibrary}
@@ -260,7 +259,7 @@ export default function ReportProblemScreen() {
           />
           <PhotoMarkerStrip photos={photos} onRemove={pictures.remove} disabled={sending} />
           <Field
-            placeholder="What happened? (optional)"
+            placeholder={t('problem.whatHappened')}
             value={text}
             onChangeText={pictures.onChangeText}
             onSelectionChange={pictures.onSelectionChange}
@@ -275,7 +274,7 @@ export default function ReportProblemScreen() {
             </Text>
           ) : null}
           <Button
-            label="Send to IT"
+            label={t('problem.send')}
             icon="send-outline"
             onPress={() => void send()}
             loading={sending}

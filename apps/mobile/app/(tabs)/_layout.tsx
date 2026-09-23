@@ -9,6 +9,8 @@ import { NotificationBadge } from '../../src/components/notification-badge';
 import { homePlan, tabOrder, type TabKey } from '../../src/lib/home-plan';
 import { HeaderSearchButton } from '../../src/components/header-search-button';
 import { rememberDestination } from '../../src/lib/pending-route';
+import { useT } from '../../src/providers/language';
+import type { StringKey } from '../../src/i18n/strings';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 const icon =
@@ -18,13 +20,21 @@ const icon =
   );
 
 /** Every screen that can take one of the role's places on the bar. */
-const ROLE_TABS: Record<TabKey, { title: string; label?: string; icon: IconName }> = {
-  assets: { title: 'Assets', icon: 'cube-outline' },
-  requests: { title: 'Requests', icon: 'document-text-outline' },
-  approvals: { title: 'Awaiting me', icon: 'checkmark-done-outline' },
+const ROLE_TABS: Record<
+  TabKey,
+  { title: string; label?: string; icon: IconName; key?: StringKey }
+> = {
+  assets: { title: 'Assets', icon: 'cube-outline', key: 'tab.assets' },
+  requests: { title: 'Requests', icon: 'document-text-outline', key: 'tab.requests' },
+  approvals: { title: 'Awaiting me', icon: 'checkmark-done-outline', key: 'tab.approvals' },
   catalogue: { title: 'Catalogue', icon: 'pricetags-outline' },
-  scan: { title: 'Scan', icon: 'qr-code-outline' },
-  inventory: { title: 'Inventory', label: 'Count', icon: 'clipboard-outline' },
+  scan: { title: 'Scan', icon: 'qr-code-outline', key: 'tab.scan' },
+  inventory: {
+    title: 'Inventory',
+    label: 'Count',
+    icon: 'clipboard-outline',
+    key: 'tab.inventory',
+  },
   capture: { title: 'Capture bill', label: 'Bills', icon: 'camera-outline' },
 };
 
@@ -36,6 +46,7 @@ const ROLE_TABS: Record<TabKey, { title: string; label?: string; icon: IconName 
 export default function TabsLayout() {
   const { status, user } = useSession();
   const { c } = useTheme();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
@@ -85,7 +96,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t('tab.home'),
           tabBarIcon: icon('home-outline'),
           // The web's bell, on the phone: count of unread, opens the inbox.
           headerRight: () => (
@@ -112,13 +123,20 @@ export default function TabsLayout() {
           key={tab}
           name={tab}
           options={{
-            title: ROLE_TABS[tab].title,
-            tabBarLabel: ROLE_TABS[tab].label ?? ROLE_TABS[tab].title,
+            // v2.84 - the bar speaks the chosen language; a tab with no
+            // translation yet keeps its English name rather than a blank.
+            title: ROLE_TABS[tab].key ? t(ROLE_TABS[tab].key) : ROLE_TABS[tab].title,
+            tabBarLabel: ROLE_TABS[tab].key
+              ? t(ROLE_TABS[tab].key)
+              : (ROLE_TABS[tab].label ?? ROLE_TABS[tab].title),
             tabBarIcon: icon(ROLE_TABS[tab].icon),
           }}
         />
       ))}
-      <Tabs.Screen name="more" options={{ title: 'Menu', tabBarIcon: icon('grid-outline') }} />
+      <Tabs.Screen
+        name="more"
+        options={{ title: t('tab.menu'), tabBarIcon: icon('grid-outline') }}
+      />
 
       {/* Off the bar for this account, and still reached from Menu. */}
       {hiddenTabs.map((tab) => (

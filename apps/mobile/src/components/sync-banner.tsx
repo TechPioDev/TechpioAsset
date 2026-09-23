@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, Pressable, Text, View } from 'react-native';
 import { useSession } from '../providers/session';
+import { useT } from '../providers/language';
 import { refreshSyncStatus, sendNow, setSyncUser, useSyncStatus } from '../lib/sync-service';
 import { useTheme } from '../theme';
 
@@ -52,6 +53,7 @@ export function SyncRunner() {
  */
 export function SyncBanner() {
   const { api } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, spacing, radius } = useTheme();
   const { pending, attention, sending } = useSyncStatus();
@@ -64,13 +66,15 @@ export function SyncBanner() {
   const needsYou = attention > 0;
   const tint = needsYou ? c.danger : c.warning;
   const text = needsYou
-    ? `${attention} ${attention === 1 ? 'change needs' : 'changes need'} you`
+    ? attention === 1
+      ? t('sync.bannerNeedsOne')
+      : t('sync.bannerNeedsMany', { count: attention })
     : sending
-      ? 'Sending…'
-      : `${pending} ${pending === 1 ? 'change' : 'changes'} waiting to send`;
-  const sub = needsYou
-    ? 'Someone else changed it first. Review.'
-    : 'Recorded with no signal. Sent automatically when you are back online.';
+      ? t('sync.sending')
+      : pending === 1
+        ? t('sync.bannerOne')
+        : t('sync.bannerMany', { count: pending });
+  const sub = needsYou ? t('sync.bannerNeedsHint') : t('sync.bannerHint');
 
   return (
     <Pressable
@@ -101,7 +105,7 @@ export function SyncBanner() {
       </View>
       <Pressable onPress={() => router.push('/sync')} hitSlop={8} accessibilityRole="link">
         <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>
-          {needsYou ? 'Review' : 'Details'}
+          {needsYou ? t('sync.review') : t('sync.details')}
         </Text>
       </Pressable>
     </Pressable>

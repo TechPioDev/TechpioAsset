@@ -307,6 +307,13 @@ export const MENU_GROUPS: readonly MenuGroup[] = [
         description: 'Your details',
         href: '/(tabs)/profile',
       },
+      // v2.84 - Hindi and Punjabi.
+      {
+        icon: 'language-outline',
+        label: 'Language',
+        description: 'English, हिन्दी, ਪੰਜਾਬੀ',
+        href: '/settings/language',
+      },
       {
         icon: 'shield-checkmark-outline',
         label: 'Security',

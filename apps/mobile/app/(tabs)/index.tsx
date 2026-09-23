@@ -27,6 +27,7 @@ import { HomeQueue, QuickActions } from '../../src/components/home/home-sections
 import { ReceiptCard } from '../../src/components/home/receipt-card';
 import { SyncBanner } from '../../src/components/sync-banner';
 import { useTabletLayout } from '../../src/lib/tablet-layout';
+import { useT } from '../../src/providers/language';
 import { homePlan } from '../../src/lib/home-plan';
 
 interface AssetRow {
@@ -105,6 +106,7 @@ const TILE_ROUTE: Record<string, string> = {
 /** Home: role-aware KPI tiles plus the equipment issued to the signed-in user. */
 export default function HomeScreen() {
   const { api, user } = useSession();
+  const t = useT();
   const router = useRouter();
   const { c, scheme, spacing } = useTheme();
 
@@ -174,12 +176,18 @@ export default function HomeScreen() {
           that is about the app rather than in it. Renders nothing unless the
           server has a newer build than this phone, and nothing after "Later". */}
       <UpdateBanner />
-      <Text style={{ color: c.muted, fontSize: 14 }}>Welcome back,</Text>
+      <Text style={{ color: c.muted, fontSize: 14 }}>{t('home.welcome')}</Text>
       <Text style={{ color: c.text, fontSize: 24, fontWeight: '800' }}>{firstName}</Text>
       {/* 0.3.30 - one line saying what this screen is arranged around, so the
           difference between two roles' Homes reads as intended, not as a bug. */}
       <Text style={{ color: c.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.lg }}>
-        {plan.focus}
+        {/* v2.84 - translated for the two personas most people are; the rest
+            keep the English line until they are translated too. */}
+        {plan.persona === 'employee'
+          ? t('home.focus.employee')
+          : plan.persona === 'approver'
+            ? t('home.focus.approver')
+            : plan.focus}
       </Text>
 
       {/* v2.80 - a handover waiting on this person comes before everything
@@ -231,12 +239,14 @@ export default function HomeScreen() {
         <View
           style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
         >
-          <SectionTitle>{isVendor ? 'Your offers' : 'My assets'}</SectionTitle>
+          <SectionTitle>{isVendor ? 'Your offers' : t('home.myAssets')}</SectionTitle>
           <Pressable
             onPress={() => router.push(isVendor ? '/(tabs)/catalogue' : '/my-equipment')}
             hitSlop={8}
           >
-            <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>See all</Text>
+            <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>
+              {t('common.seeAll')}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -288,8 +298,8 @@ export default function HomeScreen() {
         <Card>
           <EmptyState
             icon="cube-outline"
-            title="No assets yet"
-            message="Equipment issued to you will appear here."
+            title={t('home.noAssets')}
+            message={t('home.noAssetsBody')}
           />
         </Card>
       ) : (

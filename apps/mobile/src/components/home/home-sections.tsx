@@ -6,6 +6,8 @@ import type { QueueKey, QuickAction } from '../../lib/home-plan';
 import { QUEUES, type QueueRow } from '../../lib/home-queues';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
+import { useT } from '../../providers/language';
+import type { StringKey } from '../../i18n/strings';
 import { Card, Chevron, SectionTitle } from '../ui';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -16,8 +18,17 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
  * decided by lib/home-plan.ts; this only draws them, as a row of equal tiles so
  * a thumb can find them without reading.
  */
+/** v2.84 - the four buttons an employee uses most, in their language. */
+const ACTION_KEY: Partial<Record<string, StringKey>> = {
+  request: 'home.action.request',
+  problem: 'home.action.problem',
+  equipment: 'home.action.equipment',
+  scan: 'home.action.scan',
+};
+
 export function QuickActions({ actions }: { actions: readonly QuickAction[] }) {
   const router = useRouter();
+  const t = useT();
   const { c, radius, spacing } = useTheme();
   if (actions.length === 0) return null;
   return (
@@ -27,7 +38,7 @@ export function QuickActions({ actions }: { actions: readonly QuickAction[] }) {
           key={action.key}
           onPress={() => router.push(action.href as never)}
           accessibilityRole="button"
-          accessibilityLabel={action.label}
+          accessibilityLabel={ACTION_KEY[action.key] ? t(ACTION_KEY[action.key]!) : action.label}
           style={({ pressed }) => ({
             flex: 1,
             minHeight: 76,
@@ -45,9 +56,15 @@ export function QuickActions({ actions }: { actions: readonly QuickAction[] }) {
           <Ionicons name={action.icon as IconName} size={22} color={c.brand} />
           <Text
             numberOfLines={2}
-            style={{ color: c.text, fontSize: 11.5, fontWeight: '700', textAlign: 'center', lineHeight: 14 }}
+            style={{
+              color: c.text,
+              fontSize: 11.5,
+              fontWeight: '700',
+              textAlign: 'center',
+              lineHeight: 14,
+            }}
           >
-            {action.label}
+            {ACTION_KEY[action.key] ? t(ACTION_KEY[action.key]!) : action.label}
           </Text>
         </Pressable>
       ))}
@@ -104,7 +121,12 @@ export function HomeQueue({ queue, refreshKey }: { queue: QueueKey; refreshKey: 
         <Card
           key={row.id}
           onPress={() => router.push(row.href as never)}
-          style={{ marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}
+          style={{
+            marginBottom: spacing.sm,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.md,
+          }}
         >
           <Ionicons name={spec.icon as IconName} size={20} color={toneColor(row.tone)} />
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -117,7 +139,15 @@ export function HomeQueue({ queue, refreshKey }: { queue: QueueKey; refreshKey: 
               </Text>
             ) : null}
             {row.badge ? (
-              <Text style={{ color: toneColor(row.tone), fontSize: 12, fontWeight: '700', marginTop: 4 }} numberOfLines={1}>
+              <Text
+                style={{
+                  color: toneColor(row.tone),
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginTop: 4,
+                }}
+                numberOfLines={1}
+              >
                 {row.badge}
               </Text>
             ) : null}
