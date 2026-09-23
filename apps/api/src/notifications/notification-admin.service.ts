@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, type NotificationType, Prisma } from '@prisma/client';
+import { PUSH_CATEGORY } from '@techpioasset/domain';
 import type { AuthUser } from '@techpioasset/contracts';
 import { AppError } from '../common/errors/app-error.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -40,6 +41,14 @@ const SAMPLE_VARS: Record<string, string> = {
   'invitation.accept_url': 'https://pioassets.com/accept-invite',
 };
 
+/** v2.86 - which test alerts show buttons on the phone. */
+const TEST_PUSH_CATEGORY: Partial<Record<NotificationType, string>> = {
+  APPROVAL_REQUIRED: PUSH_CATEGORY.approval,
+  APPROVAL_ESCALATED: PUSH_CATEGORY.approval,
+  ASSET_ASSIGNED: PUSH_CATEGORY.receipt,
+  RECEIPT_CONFIRMATION: PUSH_CATEGORY.receipt,
+};
+
 @Injectable()
 export class NotificationAdminService {
   constructor(
@@ -71,7 +80,9 @@ export class NotificationAdminService {
         recipientRoleKeys: row?.recipientRoleKeys ?? [],
         ccRoleKeys: row?.ccRoleKeys ?? [],
         escalationRoleKeys: row?.escalationRoleKeys ?? [],
-        thresholds: row?.thresholds ?? (definition.type === 'WARRANTY_EXPIRATION' ? [90, 60, 30, 15, 7, 1, 0] : []),
+        thresholds:
+          row?.thresholds ??
+          (definition.type === 'WARRANTY_EXPIRATION' ? [90, 60, 30, 15, 7, 1, 0] : []),
         stored: Boolean(row),
         updatedAt: row?.updatedAt ?? null,
       };
@@ -94,7 +105,10 @@ export class NotificationAdminService {
     if (!NOTIFICATION_CATALOGUE[type]) throw AppError.notFound('Notification event', type);
     const definition = NOTIFICATION_CATALOGUE[type];
     if (definition.mandatory && !input.enabled) {
-      throw new AppError('VALIDATION_FAILED', `${definition.title} is mandatory and cannot be disabled`);
+      throw new AppError(
+        'VALIDATION_FAILED',
+        `${definition.title} is mandatory and cannot be disabled`,
+      );
     }
     const rule = await this.prisma.client.notificationRule.upsert({
       where: { companyId_type: { companyId: actor.companyId, type } },
@@ -141,7 +155,13 @@ export class NotificationAdminService {
   async upsertTemplate(
     actor: AuthUser,
     type: NotificationType,
-    input: { subject: string; heading?: string | null; body: string; ctaLabel?: string | null; enabled: boolean },
+    input: {
+      subject: string;
+      heading?: string | null;
+      body: string;
+      ctaLabel?: string | null;
+      enabled: boolean;
+    },
   ) {
     if (!NOTIFICATION_CATALOGUE[type]) throw AppError.notFound('Notification event', type);
     const template = await this.prisma.client.emailTemplate.upsert({
@@ -216,6 +236,11 @@ export class NotificationAdminService {
       title: `[Test] ${NOTIFICATION_CATALOGUE[type]?.title ?? type}`,
       body: 'This is a test of the email template with sample data.',
       linkPath: '/dashboard',
+      // v2.86 - a test of an alert that carries buttons shows those buttons on
+      // the phone, so push and the buttons can be proved without waiting for a
+      // real approval to land. The buttons act on nothing: with no request or
+      // asset id, tapping one simply opens the app.
+      ...(TEST_PUSH_CATEGORY[type] ? { push: { categoryId: TEST_PUSH_CATEGORY[type] } } : {}),
       vars: SAMPLE_VARS,
       emailRows: [
         ['Asset', 'Dell Latitude 7450'],
@@ -261,13 +286,21 @@ export class NotificationAdminService {
     dayStart.setHours(0, 0, 0, 0);
     const [sentToday, failedToday, warrantyToday] = await Promise.all([
       this.prisma.client.emailLog.count({
-        where: { companyId: actor.companyId, createdAt: { gte: dayStart }, status: { in: ['SENT', 'SIMULATED'] } },
+        where: {
+          companyId: actor.companyId,
+          createdAt: { gte: dayStart },
+          status: { in: ['SENT', 'SIMULATED'] },
+        },
       }),
       this.prisma.client.emailLog.count({
         where: { companyId: actor.companyId, createdAt: { gte: dayStart }, status: 'FAILED' },
       }),
       this.prisma.client.emailLog.count({
-        where: { companyId: actor.companyId, createdAt: { gte: dayStart }, type: 'WARRANTY_EXPIRATION' },
+        where: {
+          companyId: actor.companyId,
+          createdAt: { gte: dayStart },
+          type: 'WARRANTY_EXPIRATION',
+        },
       }),
     ]);
     return { sentToday, failedToday, warrantyToday };

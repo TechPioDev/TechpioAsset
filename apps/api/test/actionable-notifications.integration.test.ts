@@ -267,3 +267,31 @@ describe('the Monday summary', () => {
     expect(after, 'a second look the same Monday sends nothing').toBe(before);
   });
 });
+
+describe('proving push works, without waiting for a real approval (v2.86)', () => {
+  it('the test alert carries the Approve / Reject buttons to the phone', async () => {
+    const phone = await phoneFor(s.superAdmin.user.id);
+    const from = push.recorded().length;
+    const res = await api(app)
+      .post('/api/v1/notifications/admin/templates/APPROVAL_REQUIRED/test')
+      .set(auth(s.superAdmin))
+      .send({});
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(202);
+
+    const sent = await pushesTo(phone, from);
+    const test = sent.find((m) => m.title.startsWith('[Test]'));
+    expect(test, 'the test alert reached the phone').toBeTruthy();
+    expect(test!.categoryId).toBe('approval');
+  });
+
+  it('a handover test alert carries Confirm receipt', async () => {
+    const phone = await phoneFor(s.superAdmin.user.id);
+    const from = push.recorded().length;
+    await api(app)
+      .post('/api/v1/notifications/admin/templates/ASSET_ASSIGNED/test')
+      .set(auth(s.superAdmin))
+      .send({});
+    const sent = await pushesTo(phone, from);
+    expect(sent.find((m) => m.title.startsWith('[Test]'))?.categoryId).toBe('receipt');
+  });
+});
