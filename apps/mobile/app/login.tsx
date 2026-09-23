@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { takeDestination } from '../src/lib/pending-route';
 import { useSession } from '../src/providers/session';
 import { useT } from '../src/providers/language';
 import { useTheme } from '../src/theme';
-import { Button, Card, Field } from '../src/components/ui';
+import { Button, Card, Field, Text } from '../src/components/ui';
 
 /**
  * Sign in (v2.24 - matched to the web redesign).
@@ -83,17 +83,10 @@ export default function LoginScreen() {
               resizeMode="contain"
               accessibilityLabel="PioAssets"
             />
-            <Text
-              style={{
-                color: c.text,
-                fontSize: 20,
-                fontWeight: '700',
-                marginTop: spacing.lg,
-              }}
-            >
+            <Text variant="title" style={{ marginTop: spacing.lg }}>
               {needsMfa ? 'One more step' : t('login.welcome')}
             </Text>
-            <Text style={{ color: c.muted, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
+            <Text variant="label" tone="muted" style={{ marginTop: 4, textAlign: 'center' }}>
               {needsMfa ? 'Confirm the code from your authenticator app.' : t('login.subtitle')}
             </Text>
           </View>
@@ -124,7 +117,7 @@ export default function LoginScreen() {
                 labelRight={
                   <Link href="/forgot-password" asChild>
                     <Pressable hitSlop={8}>
-                      <Text style={{ color: c.brand, fontSize: 13, fontWeight: '600' }}>
+                      <Text variant="label" tone="brand">
                         {t('login.forgot')}
                       </Text>
                     </Pressable>
@@ -148,7 +141,9 @@ export default function LoginScreen() {
           )}
 
           {error ? (
-            <Text style={{ color: c.danger, marginBottom: spacing.md, fontSize: 13 }}>{error}</Text>
+            <Text variant="label" tone="danger" style={{ marginBottom: spacing.md }}>
+              {error}
+            </Text>
           ) : null}
 
           <Button
@@ -168,12 +163,16 @@ export default function LoginScreen() {
           }}
         >
           <Ionicons name="shield-checkmark-outline" size={14} color={c.subtle} />
-          <Text style={{ color: c.subtle, fontSize: 12 }}>{t('login.audited')}</Text>
+          <Text variant="caption" tone="subtle">
+            {t('login.audited')}
+          </Text>
         </View>
 
         <Link href="/help" asChild>
           <Pressable style={{ marginTop: spacing.md, alignSelf: 'center' }} hitSlop={8}>
-            <Text style={{ color: c.muted, fontSize: 12, fontWeight: '600' }}>Need help?</Text>
+            <Text variant="caption" tone="muted" weight="600">
+              Need help?
+            </Text>
           </Pressable>
         </Link>
       </KeyboardAvoidingView>

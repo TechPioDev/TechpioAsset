@@ -2,6 +2,7 @@ import { Stack, usePathname, useRootNavigationState, useRouter, useSegments } fr
 import { useEffect } from 'react';
 import { Dimensions, Platform } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as SplashScreen from 'expo-splash-screen';
 import { isPhoneSized } from '../src/lib/tablet-layout-rules';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,6 +15,18 @@ import { NotificationTaps } from '../src/components/notification-taps';
 import { WhatsNewGate } from '../src/components/whats-new-gate';
 import { SyncRunner } from '../src/components/sync-banner';
 import { useTheme } from '../src/theme';
+
+/**
+ * U1 - the splash stays up until the session has decided where we are going,
+ * instead of the OS tearing it down the moment JavaScript starts. Without
+ * this the app showed its navy mark, then a blank frame, then Home or the
+ * login screen: the flash that made a two-second launch feel broken.
+ *
+ * Called at module scope so it runs before the first render, and its failure
+ * is swallowed - a splash that will not stay is not a reason to refuse to
+ * start.
+ */
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 /**
  * Root layout. Wraps the whole app in the safe-area + session providers, and
@@ -186,6 +199,11 @@ function SessionGate() {
   const segments = useSegments();
   const pathname = usePathname();
   const router = useRouter();
+  // U1 - drop the splash once the session knows the answer, so the first
+  // screen anyone sees is the one they belong on.
+  useEffect(() => {
+    if (status !== 'loading') void SplashScreen.hideAsync().catch(() => undefined);
+  }, [status]);
   // Navigating before the root navigator has mounted throws ("Attempted to
   // navigate before mounting the Root Layout") - seen on a cold load straight
   // onto a record. Wait until the navigator has a state to navigate within.

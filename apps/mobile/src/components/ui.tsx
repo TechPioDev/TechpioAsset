@@ -7,15 +7,79 @@ import {
   RefreshControl,
   type RefreshControlProps,
   ScrollView,
-  Text,
+  Text as RNText,
+  type TextProps as RNTextProps,
+  type TextStyle,
   TextInput,
   type TextInputProps,
   View,
   type ViewStyle,
 } from 'react-native';
-import { useTheme, type ThemeColors } from '../theme';
+import { useTheme, type ThemeColors, type TypeRole } from '../theme';
+import { tapped } from '../lib/haptics';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * Every piece of text in the app (U1).
+ *
+ * There was no such component, so each screen set `fontSize` and `color` by
+ * hand: 700-odd inline declarations, fifteen sizes, five weights, and no two
+ * screens agreeing. `variant` picks a role from the scale and `tone` picks an
+ * ink; neither is a number, which is the point - a screen can no longer
+ * invent a size, and changing the scale changes the app.
+ *
+ * `style` still wins where something genuinely is a one-off (a number tuned
+ * to its tile). That escape hatch is deliberate: a component nobody can
+ * override gets copied instead of used.
+ */
+export function Text({
+  variant = 'body',
+  tone = 'default',
+  weight,
+  style,
+  ...props
+}: {
+  variant?: TypeRole;
+  /** Which ink: the main one, the quieter one, a state, or on a brand fill. */
+  tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'danger' | 'success' | 'onBrand';
+  /** Overrides the role's own weight, for a row's first line or a total. */
+  weight?: TextStyle['fontWeight'];
+} & RNTextProps) {
+  const { c, type } = useTheme();
+  const ink: Record<NonNullable<typeof tone>, string> = {
+    default: c.text,
+    muted: c.muted,
+    subtle: c.subtle,
+    brand: c.brand,
+    danger: c.danger,
+    success: c.success,
+    onBrand: c.brandText,
+  };
+  return (
+    <RNText
+      {...props}
+      style={[
+        type[variant] as TextStyle,
+        { color: ink[tone] },
+        weight ? { fontWeight: weight } : null,
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * The feedback a pressable gives while the finger is on it (U1).
+ *
+ * Everything used to fade its whole self to `opacity: 0.85`, which is the
+ * cheapest possible answer and reads as the screen dimming rather than the
+ * control being pushed. A tinted ground plus a shade of scale reads as
+ * physical. Pair it with `tapped()` on press.
+ */
+export function pressedStyle(pressed: boolean, tint: string): ViewStyle {
+  return pressed ? { backgroundColor: tint, transform: [{ scale: 0.985 }] } : {};
+}
 
 /** Screen wrapper: themed background + consistent horizontal padding. */
 export function Screen({
@@ -162,8 +226,11 @@ export function Card({
   if (onPress) {
     return (
       <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [base, style, pressed && { opacity: 0.85 }]}
+        onPress={() => {
+          tapped();
+          onPress();
+        }}
+        style={({ pressed }) => [base, style, pressedStyle(pressed, c.pressed)]}
       >
         {children}
       </Pressable>
@@ -173,20 +240,13 @@ export function Card({
 }
 
 export function SectionTitle({ children, style }: { children: ReactNode; style?: ViewStyle }) {
-  const { c, spacing } = useTheme();
+  const { spacing } = useTheme();
   return (
     <Text
-      style={[
-        {
-          color: c.muted,
-          fontSize: 12,
-          fontWeight: '700',
-          letterSpacing: 0.6,
-          textTransform: 'uppercase',
-          marginBottom: spacing.sm,
-        },
-        style,
-      ]}
+      variant="micro"
+      tone="muted"
+      weight="700"
+      style={[{ letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: spacing.sm }, style]}
     >
       {children}
     </Text>
@@ -205,7 +265,7 @@ export function StatusPill({ label, bg, fg }: { label: string; bg: string; fg: s
         alignSelf: 'flex-start',
       }}
     >
-      <Text numberOfLines={1} style={{ color: fg, fontSize: 11, fontWeight: '700' }}>
+      <Text variant="micro" weight="700" numberOfLines={1} style={{ color: fg }}>
         {label}
       </Text>
     </View>
@@ -230,33 +290,46 @@ export function Button({
   style?: ViewStyle;
 }) {
   const { c, radius } = useTheme();
-  const map: Record<'primary' | 'secondary' | 'danger' | 'ghost', { bg: string; fg: string; border?: string }> = {
-    primary: { bg: c.brand, fg: c.brandText },
-    secondary: { bg: c.surface, fg: c.text, border: c.border },
-    danger: { bg: 'transparent', fg: c.danger, border: c.danger },
-    ghost: { bg: 'transparent', fg: c.brand },
+  // U1 - each variant now names the colour it turns while held, instead of
+  // every button dimming itself to 0.9 opacity.
+  const map: Record<
+    'primary' | 'secondary' | 'danger' | 'ghost',
+    { bg: string; fg: string; border?: string; held: string }
+  > = {
+    primary: { bg: c.brand, fg: c.brandText, held: c.brandStrong },
+    secondary: { bg: c.surface, fg: c.text, border: c.border, held: c.pressed },
+    danger: { bg: 'transparent', fg: c.danger, border: c.danger, held: c.dangerSoft },
+    ghost: { bg: 'transparent', fg: c.brand, held: c.brandSoft },
   };
   const v = map[variant];
   const isOff = disabled || loading;
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        tapped();
+        onPress();
+      }}
       disabled={isOff}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isOff, busy: loading }}
       style={({ pressed }) => [
         {
           backgroundColor: v.bg,
           borderRadius: radius.md,
           paddingVertical: 14,
           paddingHorizontal: 16,
+          // 48 clears the 44pt minimum even when the label wraps to nothing.
+          minHeight: 48,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
           borderWidth: v.border ? 1 : 0,
           borderColor: v.border,
-          opacity: isOff ? 0.5 : pressed ? 0.9 : 1,
+          opacity: isOff ? 0.5 : 1,
         },
         style,
+        pressed && !isOff ? pressedStyle(true, v.held) : null,
       ]}
     >
       {loading ? (
@@ -264,7 +337,9 @@ export function Button({
       ) : (
         <>
           {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
-          <Text style={{ color: v.fg, fontWeight: '700', fontSize: 15 }}>{label}</Text>
+          <Text variant="body" weight="700" style={{ color: v.fg }}>
+            {label}
+          </Text>
         </>
       )}
     </Pressable>
@@ -291,7 +366,7 @@ export function Field({
             marginBottom: 6,
           }}
         >
-          <Text style={{ color: c.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+          <Text variant="label">{label}</Text>
           {labelRight}
         </View>
       ) : null}
@@ -328,7 +403,9 @@ export function StatCard({
   onPress?: () => void;
 }) {
   const { c, radius, elevation } = useTheme();
-  const accent = tint ?? c.brand;
+  // U1 - the icon sits ON the soft tile, so its default is the tile's own
+  // foreground. `c.brand` was a 3:1 smudge on the dark theme's tint.
+  const accent = tint ?? c.brandSoftFg;
   // Icon beside the number rather than stacked above it. Eight of these open
   // the Home screen, and at 130px each they filled the phone before a single
   // asset was visible; this reads the same and takes about a third less height.
@@ -347,11 +424,16 @@ export function StatCard({
         >
           <Ionicons name={icon} size={18} color={accent} />
         </View>
-        <Text style={{ color: c.text, fontSize: 22, fontWeight: '800', flexShrink: 1 }} numberOfLines={1}>
+        {/* Tabular figures so a column of tiles does not jitter as counts change. */}
+        <Text
+          variant="title"
+          style={{ flexShrink: 1, fontVariant: ['tabular-nums'] }}
+          numberOfLines={1}
+        >
           {value}
         </Text>
       </View>
-      <Text style={{ color: c.muted, fontSize: 12, marginTop: 8 }} numberOfLines={2}>
+      <Text variant="caption" tone="muted" style={{ marginTop: 8 }} numberOfLines={2}>
         {label}
       </Text>
     </>
@@ -366,7 +448,13 @@ export function StatCard({
     ...elevation(1),
   };
   return onPress ? (
-    <Pressable onPress={onPress} style={({ pressed }) => [base, pressed && { opacity: 0.85 }]}>
+    <Pressable
+      onPress={() => {
+        tapped();
+        onPress();
+      }}
+      style={({ pressed }) => [base, pressedStyle(pressed, c.pressed)]}
+    >
       {body}
     </Pressable>
   ) : (
@@ -394,7 +482,10 @@ export function Avatar({ name, size = 44 }: { name: string; size?: number }) {
         justifyContent: 'center',
       }}
     >
-      <Text style={{ color: c.brand, fontWeight: '800', fontSize: size * 0.36 }}>{initials}</Text>
+      {/* Sized off the circle, so this one stays a number rather than a role. */}
+      <Text style={{ color: c.brandSoftFg, fontWeight: '800', fontSize: size * 0.36 }}>
+        {initials}
+      </Text>
     </View>
   );
 }
@@ -426,19 +517,14 @@ export function EmptyState({
       >
         <Ionicons name={icon} size={30} color={c.subtle} />
       </View>
-      <Text style={{ color: c.text, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
+      <Text variant="heading" style={{ textAlign: 'center' }}>
         {title}
       </Text>
       {message ? (
         <Text
-          style={{
-            color: c.muted,
-            fontSize: 14,
-            textAlign: 'center',
-            marginTop: 6,
-            lineHeight: 20,
-            maxWidth: 280,
-          }}
+          variant="body"
+          tone="muted"
+          style={{ textAlign: 'center', marginTop: 6, maxWidth: 280 }}
         >
           {message}
         </Text>
@@ -461,7 +547,7 @@ export function IconBadge({ icon, tint }: { icon: IconName; tint?: string }) {
         justifyContent: 'center',
       }}
     >
-      <Ionicons name={icon} size={20} color={tint ?? c.brand} />
+      <Ionicons name={icon} size={20} color={tint ?? c.brandSoftFg} />
     </View>
   );
 }
@@ -471,4 +557,4 @@ export function Chevron() {
   return <Ionicons name="chevron-forward" size={18} color={c.subtle} />;
 }
 
-export type { ThemeColors, IconName };
+export type { ThemeColors, IconName, TypeRole };

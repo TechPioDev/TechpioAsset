@@ -17,6 +17,21 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.41',
+    items: [
+      {
+        icon: 'sparkles-outline',
+        title: 'A tidier app',
+        body: 'Text is one consistent size throughout, buttons answer to your touch, and the dark theme finally has depth.',
+      },
+      {
+        icon: 'phone-portrait-outline',
+        title: 'It opens properly now',
+        body: 'The app shows its mark while it starts instead of a blank white screen.',
+      },
+    ],
+  },
+  {
     version: '0.3.40',
     items: [
       {

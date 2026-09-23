@@ -6,6 +6,7 @@ import { useSession } from '../../providers/session';
 import { useT } from '../../providers/language';
 import { useTheme } from '../../theme';
 import { Button, Card, IconBadge } from '../ui';
+import { committed, refused } from '../../lib/haptics';
 
 /** Rows shown before "and N more": the card is a prompt, not the list. */
 const SHOWN = 3;
@@ -40,8 +41,10 @@ export function ReceiptCard({
     setFailed(null);
     try {
       await api.request(`/assets/assignments/${row.assignmentId}/acknowledge`, { method: 'POST' });
+      committed();
       onConfirmed();
     } catch {
+      refused();
       setFailed(t('receipt.failed'));
     } finally {
       setBusy(null);

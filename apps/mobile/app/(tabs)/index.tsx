@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import {
   formatInr,
   receiptsWaiting,
@@ -20,6 +20,7 @@ import {
   SectionTitle,
   StatCard,
   StatusPill,
+  Text,
   type IconName,
 } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/update-banner';
@@ -176,11 +177,13 @@ export default function HomeScreen() {
           that is about the app rather than in it. Renders nothing unless the
           server has a newer build than this phone, and nothing after "Later". */}
       <UpdateBanner />
-      <Text style={{ color: c.muted, fontSize: 14 }}>{t('home.welcome')}</Text>
-      <Text style={{ color: c.text, fontSize: 24, fontWeight: '800' }}>{firstName}</Text>
+      <Text variant="body" tone="muted">
+        {t('home.welcome')}
+      </Text>
+      <Text variant="display">{firstName}</Text>
       {/* 0.3.30 - one line saying what this screen is arranged around, so the
           difference between two roles' Homes reads as intended, not as a bug. */}
-      <Text style={{ color: c.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.lg }}>
+      <Text variant="label" tone="muted" style={{ marginTop: 2, marginBottom: spacing.lg }}>
         {/* v2.84 - translated for the two personas most people are; the rest
             keep the English line until they are translated too. */}
         {plan.persona === 'employee'
@@ -244,7 +247,7 @@ export default function HomeScreen() {
             onPress={() => router.push(isVendor ? '/(tabs)/catalogue' : '/my-equipment')}
             hitSlop={8}
           >
-            <Text style={{ color: c.brand, fontSize: 13, fontWeight: '700' }}>
+            <Text variant="label" tone="brand" weight="700">
               {t('common.seeAll')}
             </Text>
           </Pressable>
@@ -281,10 +284,10 @@ export default function HomeScreen() {
             >
               <IconBadge icon="pricetag-outline" />
               <View style={{ flex: 1 }}>
-                <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
+                <Text variant="body" weight="700" numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                <Text variant="caption" tone="muted" style={{ marginTop: 2 }} numberOfLines={1}>
                   {formatInr(Number(item.landedCost))} · {item.availableQuantity} available
                 </Text>
               </View>
@@ -322,13 +325,16 @@ export default function HomeScreen() {
               >
                 <IconBadge icon="hardware-chip-outline" />
                 <View style={{ flex: 1 }}>
-                  <Text
-                    style={{ color: c.text, fontWeight: '700', fontSize: 15 }}
-                    numberOfLines={1}
-                  >
+                  <Text variant="body" weight="700" numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                  {/* Tag and serial are codes people read character by character. */}
+                  <Text
+                    variant="caption"
+                    tone="muted"
+                    style={{ marginTop: 2, fontVariant: ['tabular-nums'] }}
+                    numberOfLines={1}
+                  >
                     {item.assetTag}
                     {item.serialNumber ? ` · ${item.serialNumber}` : ''}
                   </Text>

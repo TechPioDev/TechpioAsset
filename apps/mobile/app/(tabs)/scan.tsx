@@ -26,6 +26,7 @@ import {
   type SavedScan,
 } from '../../src/lib/offline-scans';
 import { qrTokenFrom } from '../../src/lib/qr';
+import { refused, scanned } from '../../src/lib/haptics';
 import { PICKER_UNAVAILABLE_MESSAGE, pickImageFromLibrary } from '../../src/lib/pick-image';
 import {
   LIVE_BARCODE_TYPES,
@@ -227,12 +228,16 @@ export default function ScanScreen() {
     try {
       const asset = await lookUp(token);
       setSavedNotice(null);
+      // U1 - the phone is usually at arm's length pointed at a label, where
+      // nobody is watching the screen. The buzz is how you know it landed.
+      scanned();
       return await handleFound(asset);
     } catch (failure) {
       if (!isNetworkFailure(failure)) {
         // The server answered. Whatever it said, a connection will not change it.
         setSavedNotice(null);
         setError(lookupFailureMessage(failure));
+        refused();
         return false;
       }
       try {

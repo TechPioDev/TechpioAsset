@@ -8,6 +8,7 @@ import { cachePeople, cachedPeople, savedLabel } from '../lib/offline-cache';
 import { isNoConnection, recordOffline } from '../lib/sync-service';
 import { useTheme } from '../theme';
 import { Avatar, Button, Field } from './ui';
+import { committed, refused } from '../lib/haptics';
 
 /**
  * Handing equipment over, from the phone.
@@ -161,6 +162,9 @@ export function HandoverSheet({
           body: { userId: personId, conditionIn: condition, notes: trimmed },
         });
       }
+      // U1 - the one moment in the app that is a real-world commitment:
+        // equipment has changed hands. It should be felt, not just seen.
+      committed();
       onDone();
       onClose();
     } catch (e) {
@@ -169,6 +173,7 @@ export function HandoverSheet({
         setError('No connection. Save it here and it will be sent when you are back online.');
         return;
       }
+      refused();
       setError(
         e instanceof Error && e.message
           ? e.message
