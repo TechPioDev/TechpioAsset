@@ -18,6 +18,8 @@ import {
   assertTransition,
   IllegalTransitionError,
   assetStatusMachine,
+  reconcileConditionAndStatus,
+  type AssetCondition,
   ASSET_STATUSES_ASSIGNABLE,
   ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
   ASSET_STATUSES_WITHOUT_HOLDER,
@@ -860,6 +862,29 @@ export class AssetsService {
       await this.assertCustodyMatchesStatus(id, input.status);
     }
 
+    /**
+     * v2.90 - the edit form has condition and status as two plain dropdowns,
+     * so "Damaged / Good" was one save away. The same rule that governs a
+     * damage report governs this: grading something broken takes it out of
+     * service, and grading a damaged asset serviceable again is refused
+     * rather than guessed at, because "Good" does not name a status.
+     */
+    const pair = reconcileConditionAndStatus({
+      status: before.status as AssetStatus,
+      condition: before.condition as AssetCondition,
+      nextStatus: input.status ?? null,
+      nextCondition: input.condition ?? null,
+    });
+    if (!pair.ok) throw new AppError('VALIDATION_FAILED', pair.reason);
+    // A status the rule supplies still has to be a legal move on the machine.
+    if (pair.status && pair.status !== before.status) {
+      assertTransition(
+        assetStatusMachine,
+        await this.effectiveStatusForTransition(id, before.status as AssetStatus),
+        pair.status,
+      );
+    }
+
     // Price changes never ride along a general edit — they go through setPrice,
     // which enforces the write-once rule. This closes the back door where a role
     // with assets:update but no cost visibility could alter a price blind.
@@ -885,6 +910,8 @@ export class AssetsService {
       where: { id },
       data: {
         ...rest,
+        ...(pair.status ? { status: pair.status } : {}),
+        ...(pair.condition ? { condition: pair.condition } : {}),
         ...(purchaseCost !== undefined
           ? { purchaseCost: purchaseCost ? new Prisma.Decimal(purchaseCost) : null }
           : {}),
@@ -1021,22 +1048,20 @@ export class AssetsService {
     await this.assertCustodyMatchesStatus(id, status);
 
     /**
-     * v2.89 - reporting damage also grades the condition.
+     * v2.90 - the grade follows, through the one shared rule.
      *
-     * Condition is graded at a handover and then left alone, so an asset
-     * reported damaged kept whatever it was graded when it was handed out.
-     * The page then showed "Damaged" and "Condition: Good" side by side and
-     * asked the reader to work out which one to believe. The report IS a
-     * statement about the condition, so it says so; the previous grade is on
-     * the audit record below, and the next handover re-grades it as always.
-     *
-     * Only downwards, and only from a grade that is now obviously wrong: an
-     * asset already graded Poor or Unusable is not talked UP to "Damaged".
+     * v2.89 did this here with its own copy of the logic, which left the
+     * edit form free to save the contradiction the other way round. Both
+     * paths now ask `reconcileConditionAndStatus`, so there is one answer to
+     * "can these two disagree?" and it is no.
      */
-    const regrade =
-      status === 'DAMAGED' && ['NEW', 'GOOD', 'FAIR'].includes(before.condition as string)
-        ? ('DAMAGED' as const)
-        : null;
+    const outcome = reconcileConditionAndStatus({
+      status: before.status as AssetStatus,
+      condition: before.condition as AssetCondition,
+      nextStatus: status,
+    });
+    if (!outcome.ok) throw new AppError('VALIDATION_FAILED', outcome.reason);
+    const regrade = outcome.condition ?? null;
 
     const after = await this.prisma.client.asset.update({
       where: { id },

@@ -3,6 +3,7 @@ export * from './asset-rollup';
 export * from './asset-list';
 export * from './asset-health';
 export * from './asset-state';
+export * from './asset-condition-status';
 export * from './asset-status';
 export * from './asset-dimensions';
 export * from './request-status';
