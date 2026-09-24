@@ -8,6 +8,10 @@ import {
   assetListSortFields,
   defaultAssetTypeFilter,
   toQueryString,
+  assetListFiltersFromLink,
+  assetListArrivedFiltered,
+  assetListFilterParams,
+  toQueryString,
 } from './asset-list';
 
 describe('the asset list query', () => {
@@ -128,5 +132,77 @@ describe('an empty asset list, for somebody who sees the whole register (v2.69)'
     expect(assetListEmptyState({ ownScope: true }).description).toBe(
       'Nothing has been assigned to you yet.',
     );
+  });
+});
+
+describe('filters carried on a link into the asset list', () => {
+  const link = (query: Record<string, string>) =>
+    assetListFiltersFromLink((k) => query[k]);
+
+  it('reads the status a dashboard tile names', () => {
+    // The bug this exists for: every status tile opened the whole fleet.
+    expect(link({ status: 'AVAILABLE' }).status).toBe('AVAILABLE');
+    expect(link({ status: 'ASSIGNED' }).status).toBe('ASSIGNED');
+    expect(link({ status: 'UNDER_REPAIR' }).status).toBe('UNDER_REPAIR');
+    expect(link({ status: 'DAMAGED' }).status).toBe('DAMAGED');
+  });
+
+  it('reads every other filter the list can hold', () => {
+    const f = link({
+      q: 'dell',
+      lifecycleState: 'IN_SERVICE',
+      availabilityState: 'AVAILABLE',
+      ownershipType: 'OWNED',
+      warrantyWithinDays: '30',
+      vendorProductId: 'vp1',
+    });
+    expect(f).toMatchObject({
+      q: 'dell',
+      lifecycle: 'IN_SERVICE',
+      availability: 'AVAILABLE',
+      ownership: 'OWNED',
+      warrantyWithinDays: '30',
+      vendorProductId: 'vp1',
+    });
+  });
+
+  it('turns a type or a category into the one control that carries both', () => {
+    expect(link({ subcategoryId: 'sub1' }).type).toBe('sub:sub1');
+    expect(link({ categoryId: 'cat1' }).type).toBe('cat:cat1');
+    // Both named: the narrower one wins.
+    expect(link({ subcategoryId: 'sub1', categoryId: 'cat1' }).type).toBe('sub:sub1');
+  });
+
+  it('ignores blank and missing values rather than filtering on nothing', () => {
+    // The API rejects an empty enum, so '' must never become a filter.
+    const f = link({ status: '  ', lifecycleState: '' });
+    expect(f.status).toBe('');
+    expect(assetListFilterParams(f)).toEqual([]);
+  });
+
+  it('survives a round trip back out to a query string', () => {
+    const f = link({ status: 'DAMAGED', subcategoryId: 'sub1' });
+    expect(toQueryString(assetListFilterParams(f))).toBe('status=DAMAGED&subcategoryId=sub1');
+  });
+});
+
+describe('whether a link named any filter', () => {
+  it('is true for each one on its own', () => {
+    const cases = [
+      { status: 'AVAILABLE' },
+      { q: 'dell' },
+      { lifecycle: 'IN_SERVICE' },
+      { availability: 'AVAILABLE' },
+      { ownership: 'OWNED' },
+      { type: 'sub:1' },
+      { warrantyWithinDays: '30' },
+      { vendorProductId: 'vp1' },
+    ];
+    for (const c of cases) expect(assetListArrivedFiltered(c), JSON.stringify(c)).toBe(true);
+  });
+
+  it('is false for a bare link', () => {
+    expect(assetListArrivedFiltered({})).toBe(false);
+    expect(assetListArrivedFiltered({ status: '', q: '' })).toBe(false);
   });
 });

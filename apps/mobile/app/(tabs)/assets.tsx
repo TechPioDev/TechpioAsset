@@ -22,6 +22,8 @@ import {
   deviceActiveUser,
   deviceUptime,
   assetListFilterParams,
+  assetListFiltersFromLink,
+  assetListArrivedFiltered,
   assetListSortFields,
   ASSET_LIST_SORT_LABELS,
   defaultAssetTypeFilter,
@@ -132,7 +134,24 @@ function activityLine(os: NonNullable<AssetRow['osInfo']>): string {
 export default function AssetsScreen() {
   const { api, user } = useSession();
   const router = useRouter();
-  const params = useLocalSearchParams<{ vendorProductId?: string; warrantyWithinDays?: string }>();
+  const params = useLocalSearchParams<{
+    vendorProductId?: string;
+    warrantyWithinDays?: string;
+    status?: string;
+    lifecycleState?: string;
+    availabilityState?: string;
+    ownershipType?: string;
+    subcategoryId?: string;
+    categoryId?: string;
+  }>();
+  /**
+   * v2.87 - what the link asked for, read the same way the web reads it.
+   *
+   * Only vendorProductId and warrantyWithinDays used to be read, so a link
+   * naming a status opened the whole list - and Home's "Warranty expiring"
+   * tile did not even carry its own filter across.
+   */
+  const arriving = assetListFiltersFromLink((k) => (params as Record<string, unknown>)[k] as string);
   const { c, scheme, spacing, radius } = useTheme();
   const palette = scheme === 'dark' ? TONE_PALETTE_DARK : TONE_PALETTE_LIGHT;
 
@@ -151,7 +170,14 @@ export default function AssetsScreen() {
 
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
-  const [filters, setFilters] = useState<SheetFilters>(NO_FILTERS);
+  const [filters, setFilters] = useState<SheetFilters>({
+    ...NO_FILTERS,
+    status: arriving.status ?? '',
+    lifecycle: arriving.lifecycle ?? '',
+    availability: arriving.availability ?? '',
+    ownership: arriving.ownership ?? '',
+    type: arriving.type ?? '',
+  });
   const [sort, setSort] = useState<AssetListSortField | null>(null);
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -165,7 +191,9 @@ export default function AssetsScreen() {
    * type that is. Arriving by link counts as a choice: a link names a set of
    * assets, and a laptop filter on top would show a subset of it.
    */
-  const typeChosen = useRef(Boolean(one(params.vendorProductId) || one(params.warrantyWithinDays)));
+  // ANY filter on the link counts, not just those two: the laptop default on
+  // top of a link would quietly show a subset of what was clicked.
+  const typeChosen = useRef(assetListArrivedFiltered(arriving));
   const [typeReady, setTypeReady] = useState(false);
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -178,14 +206,29 @@ export default function AssetsScreen() {
 
   // A link followed while the tab is already open replaces what it names.
   useEffect(() => {
-    const vp = one(params.vendorProductId);
-    const wd = one(params.warrantyWithinDays);
-    if (!vp && !wd) return;
+    if (!assetListArrivedFiltered(arriving)) return;
     typeChosen.current = true;
-    setVendorProductId(vp);
-    setWarrantyWithinDays(wd);
-    setFilters((f) => ({ ...f, type: '' }));
-  }, [params.vendorProductId, params.warrantyWithinDays]);
+    setVendorProductId(arriving.vendorProductId ?? '');
+    setWarrantyWithinDays(arriving.warrantyWithinDays ?? '');
+    setFilters((f) => ({
+      ...f,
+      status: arriving.status ?? '',
+      lifecycle: arriving.lifecycle ?? '',
+      availability: arriving.availability ?? '',
+      ownership: arriving.ownership ?? '',
+      type: arriving.type ?? '',
+    }));
+    // The link's own values are the dependency; `arriving` is rebuilt each render.
+  }, [
+    params.status,
+    params.lifecycleState,
+    params.availabilityState,
+    params.ownershipType,
+    params.subcategoryId,
+    params.categoryId,
+    params.vendorProductId,
+    params.warrantyWithinDays,
+  ]);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(search.trim()), 300);

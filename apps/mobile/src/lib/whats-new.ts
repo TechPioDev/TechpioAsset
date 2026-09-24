@@ -17,6 +17,16 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.45',
+    items: [
+      {
+        icon: 'funnel-outline',
+        title: 'Links go where they say',
+        body: 'Tapping a figure on Home now opens exactly the assets it counted, instead of the full list of everything.',
+      },
+    ],
+  },
+  {
     version: '0.3.44',
     items: [
       {

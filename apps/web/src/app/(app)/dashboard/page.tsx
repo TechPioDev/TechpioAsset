@@ -583,14 +583,14 @@ export default function DashboardPage() {
       tone: 'info',
       title: 'Idle inventory',
       body: `${available} available asset${available === 1 ? '' : 's'} unassigned. Reallocate to clear open requests.`,
-      href: '/assets',
+      href: '/assets?status=AVAILABLE',
       cta: 'View available',
     },
     critical > 0 && {
       tone: 'critical',
       title: 'Critical assets',
       body: `${critical} asset${critical === 1 ? '' : 's'} damaged, lost or stolen. Investigate and update status.`,
-      href: '/assets',
+      href: '/assets?status=DAMAGED,LOST,STOLEN',
       cta: 'Review assets',
     },
   ]
@@ -761,7 +761,7 @@ export default function DashboardPage() {
               value={underRepair}
               label="Under repair"
               sub="in service"
-              href="/maintenance"
+              href="/assets?status=UNDER_REPAIR"
             />
             <Kpi
               icon={<ShieldAlert className="size-[18px]" />}
@@ -777,7 +777,7 @@ export default function DashboardPage() {
               value={critical}
               label="Critical"
               sub="damaged / lost / stolen"
-              href="/assets"
+              href="/assets?status=DAMAGED,LOST,STOLEN"
             />
           </section>
 

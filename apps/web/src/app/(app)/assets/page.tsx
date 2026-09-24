@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -33,6 +33,8 @@ import {
   deviceActiveUser,
   deviceUptime,
   assetListFilterParams,
+  assetListFiltersFromLink,
+  assetListArrivedFiltered,
   defaultAssetTypeFilter,
   type AssetListSortField,
   type AssetCondition,
@@ -121,6 +123,16 @@ function activityOf(asset: AssetRow) {
 
 function AssetsTable() {
   const params = useSearchParams();
+  /**
+   * v2.87 - what the link asked for.
+   *
+   * Only `warrantyWithinDays` and `vendorProductId` used to be read off the
+   * URL. Everything else started empty, so the dashboard's Available,
+   * Assigned, Under repair and Damaged tiles all opened the same unfiltered
+   * list of every asset - the link said one thing and the page showed another.
+   * The rules are shared with the phone so a link behaves the same in both.
+   */
+  const arriving = useMemo(() => assetListFiltersFromLink((k) => params.get(k)), [params]);
   const [warrantyWithinDays, setWarrantyWithinDays] = useState(
     params.get('warrantyWithinDays') ?? '',
   );
@@ -131,11 +143,11 @@ function AssetsTable() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirm = useConfirm();
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>(arriving.status ?? '');
   // v2.1 Workstream A — the four-dimension filters.
-  const [lifecycle, setLifecycle] = useState<string>('');
-  const [availability, setAvailability] = useState<string>('');
-  const [ownership, setOwnership] = useState<string>('');
+  const [lifecycle, setLifecycle] = useState<string>(arriving.lifecycle ?? '');
+  const [availability, setAvailability] = useState<string>(arriving.availability ?? '');
+  const [ownership, setOwnership] = useState<string>(arriving.ownership ?? '');
   // v2.70 - phone only: the filters and the occasional actions start folded away.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -146,7 +158,7 @@ function AssetsTable() {
    * prefixed so one <select> can mean either: `sub:<id>` for a type, `cat:<id>`
    * for a whole category.
    */
-  const [type, setType] = useState<string>('');
+  const [type, setType] = useState<string>(arriving.type ?? '');
   /**
    * The page opens on laptops, which is what people come here for; everything
    * else is one change of this dropdown away. The type's id is per company, so
@@ -159,9 +171,10 @@ function AssetsTable() {
   // on top would show a subset of the number that was clicked. The same goes
   // for a catalogue listing's units - a monitor offer filtered to laptops
   // showed "No assets found".
-  const [typeChosen, setTypeChosen] = useState(
-    Boolean(params.get('warrantyWithinDays') || params.get('vendorProductId')),
-  );
+  // v2.87 - ANY filter on the link counts, not just those two. Clicking
+  // "Available: 166" and landing on 41 available laptops is the same broken
+  // promise as landing on everything, only harder to notice.
+  const [typeChosen, setTypeChosen] = useState(assetListArrivedFiltered(arriving));
   /**
    * Columns the API can order by, named as the API names them so a heading
    * cannot ask for a sort the server will quietly ignore.

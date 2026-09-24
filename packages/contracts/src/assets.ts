@@ -132,7 +132,33 @@ export const assetListQuerySchema = z.object({
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
   q: z.string().trim().min(1).max(200).optional(),
-  status: assetStatusEnum.optional(),
+  /**
+   * One status, or several separated by commas (v2.87).
+   *
+   * The dashboard's "Critical" tile counts damaged, lost and stolen together,
+   * so a single-valued filter could never open the set it was counting - the
+   * number said one thing and the list showed another. A plain single value
+   * still works exactly as before; this only adds the list form.
+   */
+  status: z
+    .union([assetStatusEnum, z.string()])
+    .optional()
+    .transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      const parts = String(v)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const bad = parts.filter((s) => !assetStatusEnum.safeParse(s).success);
+      if (parts.length === 0 || bad.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Unknown asset status: ${bad.join(', ') || '(empty)'}`,
+        });
+        return z.NEVER;
+      }
+      return parts as [string, ...string[]];
+    }),
   categoryId: z.string().optional(),
   /**
    * v2.23 - the asset TYPE (laptop, monitor, mouse). Category alone is too

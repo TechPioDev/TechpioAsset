@@ -136,3 +136,60 @@ export function assetListEmptyState(f: {
           : 'Nothing has been assigned to you yet.';
   return { title: 'No assets found', description };
 }
+
+/**
+ * The filters carried on a link into the asset list (v2.87).
+ *
+ * The list built its filter state from empty strings and read only
+ * `warrantyWithinDays` and `vendorProductId` off the URL. Every other filter -
+ * status above all - was dropped on arrival, so the dashboard's "Available",
+ * "Assigned", "Under repair" and "Damaged" tiles all opened the same
+ * unfiltered list of every asset in the company. The link said one thing and
+ * the page showed another, which is worse than not linking at all.
+ *
+ * `read` is the app's own way of reading one parameter: `params.get` on the
+ * web, `useLocalSearchParams` on the phone. Kept here so both apps accept the
+ * same set - a link that works in an email has to work in both.
+ */
+export function assetListFiltersFromLink(
+  read: (key: string) => string | null | undefined,
+): AssetListFilters {
+  const value = (key: string) => (read(key) ?? '').trim();
+  // One control, two parameters: a type wins over a whole category, because a
+  // link naming both means the narrower of the two.
+  const subcategoryId = value('subcategoryId');
+  const categoryId = value('categoryId');
+  const type = subcategoryId ? `sub:${subcategoryId}` : categoryId ? `cat:${categoryId}` : '';
+  return {
+    q: value('q'),
+    status: value('status'),
+    lifecycle: value('lifecycleState'),
+    availability: value('availabilityState'),
+    ownership: value('ownershipType'),
+    type,
+    warrantyWithinDays: value('warrantyWithinDays'),
+    vendorProductId: value('vendorProductId'),
+  };
+}
+
+/**
+ * Whether a link named any filter at all.
+ *
+ * This decides one thing: the list opens on laptops by default, and a link
+ * that names a set of assets must not have that default applied on top of it.
+ * Clicking "Available: 166" and landing on 41 available laptops is the same
+ * broken promise as landing on all assets, just harder to notice - so arriving
+ * with any filter counts as a choice, and the default stands down.
+ */
+export function assetListArrivedFiltered(f: AssetListFilters): boolean {
+  return Boolean(
+    f.q ||
+      f.status ||
+      f.lifecycle ||
+      f.availability ||
+      f.ownership ||
+      f.type ||
+      f.warrantyWithinDays ||
+      f.vendorProductId,
+  );
+}

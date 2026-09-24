@@ -92,7 +92,10 @@ const TILE_ROUTE: Record<string, string> = {
   'my-open-requests': '/(tabs)/requests',
   'awaiting-approval': '/(tabs)/approvals',
   'assets-total': '/(tabs)/assets',
-  'warranty-expiring': '/(tabs)/assets',
+  // v2.87 - this counted warranties ending within 30 days and then opened
+  // every asset in the company. The web link always carried the window; the
+  // phone dropped it.
+  'warranty-expiring': '/(tabs)/assets?warrantyWithinDays=30',
   'licenses-expiring': '/licenses',
   'licenses-at-capacity': '/licenses',
   'open-maintenance': '/maintenance',

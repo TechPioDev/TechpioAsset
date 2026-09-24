@@ -241,7 +241,10 @@ export class AssetsService {
    */
   private listWhere(actor: AuthUser, query: AssetListQuery): Prisma.AssetWhereInput {
     const filters: Prisma.AssetWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
+      // v2.87 - one status or several: the contract always hands back a
+      // list, so "damaged, lost or stolen" is one filter rather than three
+      // links, and the dashboard tile can open the set it counted.
+      ...(query.status?.length ? { status: { in: query.status as AssetStatus[] } } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.subcategoryId
         ? query.subcategoryId === 'none'
@@ -263,7 +266,7 @@ export class AssetsService {
             // Only when the caller has not chosen a status themselves: a second
             // `status` key here would silently overwrite theirs, and a filter
             // accepted and dropped is worse than one refused.
-            ...(query.status
+            ...(query.status?.length
               ? {}
               : { status: { notIn: ['DISPOSED', 'DONATED', 'RETIRED'] as const } }),
           }
@@ -363,7 +366,7 @@ export class AssetsService {
       entityId: 'export',
       newValues: {
         rows: rows.length,
-        filters: { q: query.q ?? null, status: query.status ?? null },
+        filters: { q: query.q ?? null, status: query.status?.join(',') ?? null },
       },
     });
 
