@@ -11,6 +11,7 @@ import type {
   LifecycleState,
   OwnershipType,
 } from '@techpioasset/domain';
+import { assetStateToShow } from '@techpioasset/domain';
 import { statusColor, statusLabel, type Scheme } from './theme';
 
 /**
@@ -55,14 +56,22 @@ export function assetPills(
     pills.push({ label, bg: tone.bg, fg: tone.fg });
   };
 
-  push(statusLabel(asset.status), statusColor(asset.status, scheme));
+  // v2.89 - the dedupe below compares LABELS, so it only caught two
+  // dimensions producing the same word. A damaged laptop in the shop produced
+  // three DIFFERENT words for one situation - "Damaged", "In maintenance",
+  // "In repair" - which reads as three separate problems. `assetStateToShow`
+  // groups them by meaning and keeps the others only when they say something
+  // the status does not.
+  const shown = assetStateToShow(asset);
 
-  if (asset.lifecycleState) {
-    const token = LIFECYCLE_STATE_TOKENS[asset.lifecycleState];
+  push(statusLabel(shown.status), statusColor(shown.status, scheme));
+
+  if (shown.lifecycleState) {
+    const token = LIFECYCLE_STATE_TOKENS[shown.lifecycleState];
     push(token.label, palette[token.tone]);
   }
-  if (asset.availabilityState) {
-    const token = AVAILABILITY_STATE_TOKENS[asset.availabilityState];
+  if (shown.availabilityState) {
+    const token = AVAILABILITY_STATE_TOKENS[shown.availabilityState];
     push(token.label, palette[token.tone]);
   }
   if (includeOwnership && asset.ownershipType) {

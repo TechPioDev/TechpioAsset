@@ -39,6 +39,7 @@ import {
   type HealthTile,
   type LifecycleState,
   type OwnershipType,
+  assetHealth,
 } from '@techpioasset/domain';
 import { CONDITION_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { assetPills } from '../../src/asset-pills';
@@ -96,6 +97,7 @@ import { useTheme } from '../../src/theme';
 import { Button, Card, DetailSkeleton, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { toast } from '../../src/components/toast';
 import { confirm } from '../../src/components/confirm';
+import { HealthStars } from '../../src/components/health-stars';
 
 interface Person {
   id?: string;
@@ -119,6 +121,8 @@ interface AssetDetail {
   qrToken?: string | null;
   status: AssetStatus;
   condition: AssetCondition;
+  /** v2.89 - open requests raised against this asset, by kind. */
+  openComplaints?: Partial<Record<'DAMAGE' | 'REPAIR' | 'UPGRADE' | 'REPLACEMENT', number>>;
   // v2.1 Workstream A — nullable until backfilled / dual-written.
   lifecycleState: LifecycleState | null;
   availabilityState: AvailabilityState | null;
@@ -457,6 +461,12 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
     asset.name,
   );
   const conditionToken = CONDITION_TOKENS[asset.condition];
+  // v2.89 - derived, never stored: close the fault and it rises by itself.
+  const health = assetHealth({
+    condition: asset.condition,
+    status: asset.status,
+    openComplaints: asset.openComplaints,
+  });
   const identifier = assetIdentifier(asset);
   const meta = headerMeta({
     brand: asset.brand,
@@ -671,6 +681,7 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
             bg={palette[conditionToken.tone].bg}
             fg={palette[conditionToken.tone].fg}
           />
+          <HealthStars health={health} />
           {/* Agent freshness, never "online": the agent reports on a schedule,
               so the honest claim is how recently it did. */}
           {agent ? (

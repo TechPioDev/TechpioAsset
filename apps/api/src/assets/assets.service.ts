@@ -532,6 +532,27 @@ export class AssetsService {
       where: { assetId: id },
     });
 
+    /**
+     * v2.89 - what people have said about this asset and nobody has closed.
+     *
+     * Feeds the health score (`assetHealth` in @techpioasset/domain), which
+     * is derived rather than stored: close the request and the score rises
+     * again on its own. Grouped rather than counted four times - one query,
+     * and a kind with nothing open simply does not appear.
+     */
+    const complaints = await this.prisma.client.assetRequest.groupBy({
+      by: ['type'],
+      where: {
+        replacesAssetId: id,
+        type: { in: ['DAMAGE', 'REPAIR', 'UPGRADE', 'REPLACEMENT'] },
+        status: { notIn: ['COMPLETED', 'CANCELLED', 'REJECTED', 'DRAFT'] },
+      },
+      _count: { _all: true },
+    });
+    const openComplaints = Object.fromEntries(
+      complaints.map((row) => [row.type, row._count._all]),
+    ) as Record<string, number>;
+
     // OWN-scope viewers (employees looking at their own device) get the
     // device's history without their colleagues' identities: their own
     // assignment rows stay named, everyone else's collapse to "assigned
@@ -543,6 +564,7 @@ export class AssetsService {
         ...asset,
         ...vendorProduct,
         photos,
+        openComplaints,
         // Notes stay visible to the device's holder (owner decision,
         // 2026-08-12): they carry the device's specs and known problems, and
         // an OWN-scope viewer can only ever fetch their own asset. The flip
@@ -563,7 +585,7 @@ export class AssetsService {
         ),
       };
     }
-    return { ...asset, ...vendorProduct, photos, assignmentCount };
+    return { ...asset, ...vendorProduct, photos, assignmentCount, openComplaints };
   }
 
   /** v2.5 H4 — the discovered software inventory, paginated (Software tab). */
@@ -998,9 +1020,32 @@ export class AssetsService {
     );
     await this.assertCustodyMatchesStatus(id, status);
 
+    /**
+     * v2.89 - reporting damage also grades the condition.
+     *
+     * Condition is graded at a handover and then left alone, so an asset
+     * reported damaged kept whatever it was graded when it was handed out.
+     * The page then showed "Damaged" and "Condition: Good" side by side and
+     * asked the reader to work out which one to believe. The report IS a
+     * statement about the condition, so it says so; the previous grade is on
+     * the audit record below, and the next handover re-grades it as always.
+     *
+     * Only downwards, and only from a grade that is now obviously wrong: an
+     * asset already graded Poor or Unusable is not talked UP to "Damaged".
+     */
+    const regrade =
+      status === 'DAMAGED' && ['NEW', 'GOOD', 'FAIR'].includes(before.condition as string)
+        ? ('DAMAGED' as const)
+        : null;
+
     const after = await this.prisma.client.asset.update({
       where: { id },
-      data: { status, updatedById: actor.id, version: { increment: 1 } },
+      data: {
+        status,
+        ...(regrade ? { condition: regrade } : {}),
+        updatedById: actor.id,
+        version: { increment: 1 },
+      },
     });
 
     await this.audit.record({
@@ -1009,8 +1054,8 @@ export class AssetsService {
       action: AuditAction.ASSET_STATUS_CHANGED,
       entityType: 'Asset',
       entityId: id,
-      previousValues: { status: before.status },
-      newValues: { status },
+      previousValues: { status: before.status, ...(regrade ? { condition: before.condition } : {}) },
+      newValues: { status, ...(regrade ? { condition: regrade } : {}) },
       reason,
     });
 

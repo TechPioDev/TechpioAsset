@@ -17,6 +17,21 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.46',
+    items: [
+      {
+        icon: 'star-outline',
+        title: 'A condition score',
+        body: 'Each asset now shows how usable it is out of five, with the reasons. A damaged one is zero.',
+      },
+      {
+        icon: 'pricetags-outline',
+        title: 'One label, not three',
+        body: 'An asset in the repair shop used to say Damaged, In maintenance and In repair all at once. It now says it once.',
+      },
+    ],
+  },
+  {
     version: '0.3.45',
     items: [
       {

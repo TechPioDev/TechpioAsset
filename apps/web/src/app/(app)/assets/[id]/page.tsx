@@ -44,6 +44,8 @@ import {
   type StatusToken,
 } from '@techpioasset/ui-tokens';
 import {
+  assetHealth,
+  assetStateToShow,
   assetIdentifier,
   assetSpecRows,
   custodyHistory,
@@ -81,6 +83,7 @@ import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, NativeSelect, Skeleton } from '@/components/ui';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/status-badge';
+import { HealthStars } from '@/components/health-stars';
 import { CustodyPanel } from '@/components/assets/custody-panel';
 import { EquipmentKit } from '@/components/assets/equipment-kit';
 import { ConditionPhotos } from '@/components/assets/condition-photos';
@@ -133,6 +136,8 @@ interface AssetDetail {
   specs: Record<string, string> | null;
   status: AssetStatus;
   condition: AssetCondition;
+  /** v2.89 - open requests raised against this asset, by kind. */
+  openComplaints?: Partial<Record<'DAMAGE' | 'REPAIR' | 'UPGRADE' | 'REPLACEMENT', number>>;
   lifecycleState: LifecycleState | null;
   availabilityState: AvailabilityState | null;
   ownershipType: OwnershipType | null;
@@ -462,6 +467,14 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
     return <ErrorState title="Could not load the asset" detail={(error as Error).message} />;
   }
 
+  // v2.89 - derived here, never stored: close a fault and it rises again by
+  // itself. The reasons travel with it so the number is never a bare verdict.
+  const health = assetHealth({
+    condition: data.condition,
+    status: data.status,
+    openComplaints: data.openComplaints,
+  });
+
   const holder = data.assignedUser;
   const holderName = holder?.profile
     ? `${holder.profile.firstName} ${holder.profile.lastName}`
@@ -666,18 +679,27 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
                   often agree - ASSIGNED derives availability "Assigned", so
                   printing all three verbatim reads "Assigned · Deployed ·
                   Assigned". Same dedupe the mobile app applies. */}
-              {dedupeBadges([
-                ASSET_STATUS_TOKENS[data.status],
-                data.lifecycleState ? LIFECYCLE_STATE_TOKENS[data.lifecycleState] : null,
-                data.availabilityState ? AVAILABILITY_STATE_TOKENS[data.availabilityState] : null,
-              ]).map((token) => (
+              {/* v2.89 - the dedupe above compared LABELS, so a damaged
+                  laptop in the shop printed "Damaged", "In maintenance" and
+                  "In repair" side by side: three words for one situation,
+                  which reads as three problems. `assetStateToShow` groups the
+                  dimensions by meaning and keeps the others only when they
+                  say something the status does not. */}
+              {dedupeBadges(
+                (() => {
+                  const shown = assetStateToShow(data);
+                  return [
+                    ASSET_STATUS_TOKENS[shown.status],
+                    shown.lifecycleState ? LIFECYCLE_STATE_TOKENS[shown.lifecycleState] : null,
+                    shown.availabilityState
+                      ? AVAILABILITY_STATE_TOKENS[shown.availabilityState]
+                      : null,
+                  ];
+                })(),
+              ).map((token) => (
                 <StatusBadge key={token.label} token={token} size="sm" />
               ))}
-              <StatusBadge
-                token={CONDITION_TOKENS[data.condition]}
-                size="sm"
-                label={`Condition: ${CONDITION_TOKENS[data.condition].label}`}
-              />
+              <HealthStars health={health} />
               {data.ownershipType ? (
                 <StatusBadge
                   token={OWNERSHIP_TYPE_TOKENS[data.ownershipType]}
@@ -1038,6 +1060,14 @@ function OverviewTab({
   custodyAsk: { mode: 'assign' | 'reassign' | 'return'; nonce: number } | null;
   setTab: (tab: AssetTab) => void;
 }) {
+  // v2.89 - derived here, never stored: close a fault and it rises again by
+  // itself. The reasons travel with it so the number is never a bare verdict.
+  const health = assetHealth({
+    condition: data.condition,
+    status: data.status,
+    openComplaints: data.openComplaints,
+  });
+
   const holder = data.assignedUser;
   const imageSource = resolveAssetImageSource(data);
   const tiles = deviceHealthTiles(data.hardwareProfile, data.osInfo);
@@ -1297,15 +1327,33 @@ function OverviewTab({
             />
           </div>
 
-          <Card className="p-5">
+          {/* v2.89 - the card itself takes the colour of what it says, so
+              "this machine is fine" and "this machine is broken" are told
+              apart before either is read. */}
+          <div
+            className="min-w-0 rounded-[var(--radius-card)] border p-5"
+            style={{
+              borderColor: `var(--tone-${CONDITION_TOKENS[data.condition].tone}-border)`,
+              background: `var(--tone-${CONDITION_TOKENS[data.condition].tone}-bg)`,
+              color: `var(--tone-${CONDITION_TOKENS[data.condition].tone}-fg)`,
+            }}
+          >
             <SectionTitle>Condition</SectionTitle>
             <div className="mt-3 flex items-center gap-3">
               <StatusBadge token={CONDITION_TOKENS[data.condition]} />
-              <p className="text-sm text-[var(--color-content-muted)]">
-                {conditionSentence(data.condition)}
-              </p>
+              <p className="text-sm">{conditionSentence(data.condition)}</p>
             </div>
-          </Card>
+            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+              <HealthStars health={health} size="lg" />
+              <ul className="mt-2 space-y-0.5">
+                {health.reasons.map((reason) => (
+                  <li key={reason} className="text-xs text-[var(--color-content-muted)]">
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
 
           <Card className="p-5">
             <SectionTitle
