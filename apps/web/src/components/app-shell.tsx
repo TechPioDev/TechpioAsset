@@ -46,6 +46,7 @@ import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import { RouteGuard, canViewRoute } from './route-guard';
 import { BrandLockup, BrandMark } from '@/components/brand';
+import { loginHref } from '@/lib/next-path';
 
 interface NavItem {
   href: string;
@@ -306,9 +307,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
+  // v2.88 - remember where they were going. An expired session used to land
+  // on the dashboard after signing in, losing the page that was asked for -
+  // the same broken promise as a filtered link opening the unfiltered list.
   useEffect(() => {
-    if (status === 'anonymous') router.replace('/login');
-  }, [status, router]);
+    if (status !== 'anonymous') return;
+    const search = typeof window === 'undefined' ? '' : window.location.search;
+    router.replace(loginHref(pathname ?? '', search));
+  }, [status, router, pathname]);
 
   // Navigating on mobile should dismiss the drawer, otherwise it covers the page
   // the user just asked for.

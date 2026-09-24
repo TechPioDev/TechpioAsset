@@ -25,6 +25,7 @@ import { BrandLockup } from '@/components/brand';
 import { LoginShowcase } from '@/components/marketing/login-showcase';
 import { AndroidAppVersion } from '@/components/android-app-version';
 import { leaveForApp } from '@/components/support-chat';
+import { safeNextPath } from '@/lib/next-path';
 
 /**
  * Sign in (v2.24 redesign).
@@ -53,8 +54,18 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '', mfaCode: '', remember: true },
   });
 
+  // v2.88 - back to whatever was asked for, when it is a page of ours; the
+  // dashboard otherwise. `safeNextPath` is what keeps this from being an open
+  // redirect - see lib/next-path.
   useEffect(() => {
-    if (status === 'authenticated') leaveForApp();
+    if (status !== 'authenticated') return;
+    // Read off the address bar rather than through useSearchParams: that hook
+    // needs a Suspense boundary during prerender, and React keeps the
+    // pre-suspense tree in the DOM hidden - which left a second, invisible
+    // copy of this very form for a password manager to fill. This runs in an
+    // effect, so the browser is always there to ask.
+    const next = new URLSearchParams(window.location.search).get('next');
+    leaveForApp(safeNextPath(next) ?? '/dashboard');
   }, [status]);
 
   // Only show the SSO button when the server reports Entra ID is configured.
