@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   canSubmitPasswordChange,
   PASSWORD_RULES_HINT,
@@ -13,6 +13,7 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card } from '../ui';
 import { PasswordField } from './password-field';
+import { toast } from '../toast';
 
 /**
  * Change password - POST /auth/change-password { currentPassword, newPassword },
@@ -42,14 +43,13 @@ export function ChangePasswordCard() {
       setCurrent('');
       setNext('');
       setAgain('');
-      Alert.alert(
+      toast.success(
         'Password changed',
-        'For your security every device has been signed out, including this one. Sign in again with your new password.',
-        [{ text: 'OK', onPress: () => void logout() }],
-        { cancelable: false },
+        'Every device has been signed out, including this one. Sign in again with your new password.',
       );
+      await logout();
     } catch (error) {
-      Alert.alert('Could not change password', problemMessage(error, 'Could not change password'));
+      toast.say('Could not change password', problemMessage(error, 'Could not change password'));
     } finally {
       setSaving(false);
     }

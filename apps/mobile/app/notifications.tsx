@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, SectionList, Text, View } from 'react-native';
+import { Pressable, SectionList, Text, View } from 'react-native';
 import { EmptyState, ListSkeleton, PullRefresh } from '../src/components/ui';
 import {
   groupByDay,
@@ -13,6 +13,7 @@ import {
 import { notificationRoute } from '../src/lib/notification-route';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
+import { toast } from '../src/components/toast';
 
 /**
  * In-app notification inbox (mobile).
@@ -65,7 +66,7 @@ export default function NotificationsScreen() {
       await api.request('/notifications/read-all', { method: 'POST' });
       setRows((prev) => markAllReadLocally(prev, new Date().toISOString()));
     } catch {
-      Alert.alert('Could not mark them read', 'Check your connection and try again.');
+      toast.say('Could not mark them read', 'Check your connection and try again.');
     } finally {
       setMarkingAll(false);
     }

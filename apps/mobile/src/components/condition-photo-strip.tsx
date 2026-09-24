@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { conditionPhotosEmptyMessage, conditionSlides } from '@techpioasset/domain';
 import { usePrimaryPhoto } from '../lib/use-primary-photo';
 import { useSession } from '../providers/session';
@@ -7,6 +7,8 @@ import { useTheme } from '../theme';
 import { AuthImage } from './auth-image';
 import { PhotoViewer } from './photo-viewer';
 import { Button, Card, SectionTitle } from './ui';
+import { toast } from './toast';
+import { confirm } from './confirm';
 
 /**
  * Condition photos for one asset, on a phone (v2.33).
@@ -173,25 +175,24 @@ export function ConditionPhotoStrip({
   if (withPhotos.length === 0 && !canCapture) return null;
 
   function remove(photoId: string) {
-    Alert.alert('Remove this photo?', 'It can only be removed while the handover is still open.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          void (async () => {
-            setRemovingId(photoId);
-            try {
-              await api.request(`/assets/${assetId}/photos/${photoId}`, { method: 'DELETE' });
-              await onReload();
-            } catch (e) {
-              Alert.alert('Could not remove that photo', e instanceof Error ? e.message : '');
-            } finally {
-              setRemovingId(null);
-            }
-          })(),
-      },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Remove this photo?',
+        message: 'It can only be removed while the handover is still open.',
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
+      if (!ok) return;
+      setRemovingId(photoId);
+      try {
+        await api.request(`/assets/${assetId}/photos/${photoId}`, { method: 'DELETE' });
+        await onReload();
+      } catch (e) {
+        toast.error('Could not remove that photo', e instanceof Error ? e.message : undefined);
+      } finally {
+        setRemovingId(null);
+      }
+    })();
   }
 
   const thumb = (photo: Photo, label: string, removable: boolean) => {

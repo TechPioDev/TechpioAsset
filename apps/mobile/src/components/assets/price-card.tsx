@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { priceError, problemMessage } from '../../lib/asset-admin';
 import { formatMoney } from '../../lib/format';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, Field, SectionTitle } from '../ui';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * Purchase price (web: the asset page's Financials tab).
@@ -44,10 +46,14 @@ export function PriceCard({
       return;
     }
     setError(null);
-    Alert.alert('Record this price?', 'It locks after saving and cannot be edited.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Record price', onPress: () => void record(amount) },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Record this price?',
+        message: 'It locks after saving and cannot be edited.',
+        confirmLabel: 'Record price',
+      });
+      if (ok) await record(amount);
+    })();
   }
 
   async function record(amount: string) {
@@ -56,7 +62,7 @@ export function PriceCard({
       await api.request(`/assets/${assetId}/price`, { method: 'PATCH', body: { purchaseCost: amount } });
       setPrice('');
       onRecorded();
-      Alert.alert('Price recorded and locked');
+      toast.say('Price recorded and locked');
     } catch (e) {
       setError(problemMessage(e, 'Could not record the price.'));
     } finally {

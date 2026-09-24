@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, Text, useColorScheme, View } from 'react-native';
+import { Platform, Pressable, Text, useColorScheme, View } from 'react-native';
 import { ulid } from '../../src/lib/ulid';
 import { SqliteStore } from '../../src/lib/sqlite-store';
 import { refreshSyncStatus, sendNow, syncQueue } from '../../src/lib/sync-service';
@@ -8,6 +8,7 @@ import { NativeOnlyNotice } from '../../src/components/native-only-notice';
 import { useSession } from '../../src/providers/session';
 import { colors } from '../../src/theme';
 import type { QueueStatus } from '@techpioasset/domain';
+import { toast } from '../../src/components/toast';
 
 /**
  * Offline physical inventory (spec section 16).
@@ -70,7 +71,7 @@ export default function InventoryScreen() {
         body: { name: `Stocktake ${new Date().toLocaleDateString()}` },
       });
     } catch {
-      Alert.alert(
+      toast.say(
         'Needs a connection to start',
         'Start the stock-take where there is signal. After that, scanning works with none.',
       );
@@ -113,7 +114,7 @@ export default function InventoryScreen() {
     setStatus(result);
     await refreshPending();
     if (result.conflict > 0 || result.rejected > 0) {
-      Alert.alert(
+      toast.say(
         'Sync finished with issues',
         `${result.conflict} conflict(s), ${result.rejected} rejected.`,
       );

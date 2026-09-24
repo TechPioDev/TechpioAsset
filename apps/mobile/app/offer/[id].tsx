@@ -26,6 +26,8 @@ import { useOfferPolicy } from '../../src/lib/use-offer-policy';
 import { useTheme } from '../../src/theme';
 import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { offerExpiry } from '../(tabs)/catalogue';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 /**
  * One offer, on a phone (v2.42).
@@ -200,11 +202,11 @@ export default function OfferScreen() {
     try {
       await api.request(path, { method: 'POST', ...(body ? { body } : {}) });
       await load();
-      Alert.alert(done);
+      toast.say(done);
     } catch (error) {
       // The server names the actual rule - no picture yet, a required
       // specification still blank - better than anything generic here.
-      Alert.alert(failed, error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say(failed, error instanceof ApiError ? error.message : 'Please try again.');
     } finally {
       setActing(false);
     }
@@ -225,9 +227,9 @@ export default function OfferScreen() {
         body: { availableUntil: new Date(Date.now() + 90 * 86_400_000).toISOString() },
       });
       await load();
-      Alert.alert('On sale for another 90 days');
+      toast.say('On sale for another 90 days');
     } catch (error) {
-      Alert.alert(
+      toast.say(
         'Could not extend the offer',
         error instanceof ApiError ? error.message : 'Please try again.',
       );
@@ -245,7 +247,7 @@ export default function OfferScreen() {
       });
       router.push(`/offer/edit?id=${copy.id}`);
     } catch (error) {
-      Alert.alert(
+      toast.say(
         'Could not copy the offer',
         error instanceof ApiError ? error.message : 'Please try again.',
       );
@@ -261,7 +263,7 @@ export default function OfferScreen() {
         method: 'POST',
         body: { quantity: qty },
       });
-      Alert.alert(
+      toast.say(
         'Offer chosen',
         'The price and specification have been recorded as they stand today, so a later change by the supplier cannot rewrite the decision.',
       );
@@ -269,7 +271,7 @@ export default function OfferScreen() {
     } catch (error) {
       // The server's message names the actual reason - expired, out of stock,
       // under the minimum order - and is more use than anything generic here.
-      Alert.alert(
+      toast.say(
         'Could not choose this offer',
         error instanceof ApiError ? error.message : 'Please try again.',
       );
@@ -492,33 +494,28 @@ export default function OfferScreen() {
               icon="close-outline"
               loading={acting}
               onPress={() =>
-                Alert.alert(
-                  'Withdraw this offer?',
-                  'It stays readable, so past purchases still make sense.',
-                  [
-                    { text: 'Keep it', style: 'cancel' },
-                    {
-                      text: 'Withdraw',
-                      style: 'destructive',
-                      onPress: () => {
-                        void (async () => {
-                          setActing(true);
-                          try {
-                            await api.request(`/vendor-products/${offer.id}`, { method: 'DELETE' });
-                            router.replace('/catalogue');
-                          } catch (error) {
-                            Alert.alert(
-                              'Could not withdraw it',
-                              error instanceof ApiError ? error.message : 'Please try again.',
-                            );
-                          } finally {
-                            setActing(false);
-                          }
-                        })();
-                      },
-                    },
-                  ],
-                )
+                void (async () => {
+                  const ok = await confirm({
+                    title: 'Withdraw this offer?',
+                    message: 'It stays readable, so past purchases still make sense.',
+                    confirmLabel: 'Withdraw',
+                    cancelLabel: 'Keep it',
+                    destructive: true,
+                  });
+                  if (!ok) return;
+                  setActing(true);
+                  try {
+                    await api.request(`/vendor-products/${offer.id}`, { method: 'DELETE' });
+                    router.replace('/catalogue');
+                  } catch (error) {
+                    toast.error(
+                      'Could not withdraw it',
+                      error instanceof ApiError ? error.message : 'Please try again.',
+                    );
+                  } finally {
+                    setActing(false);
+                  }
+                })()
               }
               style={{ marginTop: 6 }}
             />

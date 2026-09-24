@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import { REQUEST_OVERRIDE_LABELS, deactivateWithAssetsWarning } from '@techpioasset/domain';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import {
   colleagueName,
   fallbackRoles,
@@ -27,6 +27,8 @@ import { useTheme } from '../../theme';
 import { ChipPicker } from '../chip-picker';
 import { Button, Field } from '../ui';
 import { errorText, InviteLink, PeopleSheet, SheetLabel, ToggleChips } from './sheet';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * Manage one person - the web People page's Manage panel, on the phone.
@@ -135,10 +137,16 @@ export function ManageSheet({
 
   const closeGuarded = () => {
     if (!dirty) return onClose();
-    Alert.alert('Discard your changes?', `Your edits to ${name} have not been saved yet. Closing now loses them.`, [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: onClose },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Discard your changes?',
+        message: `Your edits to ${name} have not been saved yet. Closing now loses them.`,
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        destructive: true,
+      });
+      if (ok) onClose();
+    })();
   };
 
   async function act<T>(kind: NonNullable<typeof busy>, fn: () => Promise<T>, fallback: string): Promise<T | undefined> {
@@ -171,7 +179,7 @@ export function ManageSheet({
     if (ok) {
       onChanged();
       onClose();
-      Alert.alert('Saved', `${name}'s changes saved`);
+      toast.say('Saved', `${name}'s changes saved`);
     }
   };
 
@@ -195,19 +203,17 @@ export function ManageSheet({
       .then((rows) => rows?.length ?? 0)
       .catch(() => 0);
     const warning = deactivateWithAssetsWarning(assetsOut);
-    Alert.alert(
-      `Deactivate ${name}?`,
-      (warning ? `${warning}\n\n` : '') +
-        'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: warning ? 'Deactivate anyway' : 'Deactivate',
-          style: 'destructive',
-          onPress: () => void setStatus('DEACTIVATED'),
-        },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: `Deactivate ${name}?`,
+        message:
+          (warning ? `${warning}\n\n` : '') +
+          'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
+        confirmLabel: warning ? 'Deactivate anyway' : 'Deactivate',
+        destructive: true,
+      });
+      if (ok) await setStatus('DEACTIVATED');
+    })();
   };
 
   // A fresh 7-day link; the old one dies. Shown inline once.
@@ -225,29 +231,26 @@ export function ManageSheet({
   };
 
   const remove = () =>
-    Alert.alert(
-      `Delete ${name}?`,
-      'They disappear from People and can never sign in again. Their asset assignment history and audit trail are kept, so past laptop custody stays answerable. Refused if equipment is still assigned to them.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            const ok = await act(
-              'delete',
-              () => api.request(`/users/${user.id}`, { method: 'DELETE' }).then(() => true),
-              'Could not delete this person.',
-            );
-            if (ok) {
-              onClose();
-              onChanged();
-              onDeleted?.();
-            }
-          },
-        },
-      ],
-    );
+    void (async () => {
+      const confirmed = await confirm({
+        title: `Delete ${name}?`,
+        message:
+          'They disappear from People and can never sign in again. Their asset assignment history and audit trail are kept, so past laptop custody stays answerable. Refused if equipment is still assigned to them.',
+        confirmLabel: 'Delete',
+        destructive: true,
+      });
+      if (!confirmed) return;
+      const ok = await act(
+        'delete',
+        () => api.request(`/users/${user.id}`, { method: 'DELETE' }).then(() => true),
+        'Could not delete this person.',
+      );
+      if (ok) {
+        onClose();
+        onChanged();
+        onDeleted?.();
+      }
+    })();
 
   const heading = (text: string) => (
     <Text

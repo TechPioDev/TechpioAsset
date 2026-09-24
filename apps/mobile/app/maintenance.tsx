@@ -1,12 +1,13 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { PERMISSIONS, workOrderActions } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
 import { WO_TONE, woLabel } from './work-orders';
+import { toast } from '../src/components/toast';
 
 /**
  * Every maintenance record. Each card opens the work order; a job assigned to
@@ -53,7 +54,7 @@ export default function MaintenanceScreen() {
       await api.request(`/maintenance/${id}/accept`, { method: 'POST', body: {} });
       await load();
     } catch (error) {
-      Alert.alert('Could not acknowledge', error instanceof Error ? error.message : 'Try again.');
+      toast.say('Could not acknowledge', error instanceof Error ? error.message : 'Try again.');
     } finally {
       setAcknowledging(null);
     }

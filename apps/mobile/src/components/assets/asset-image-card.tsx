@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import {
   ASSET_PHOTO_ASPECT,
   assetPhotoHint,
@@ -44,6 +44,8 @@ import { AuthImage } from '../auth-image';
 import { PhotoViewer } from '../photo-viewer';
 import { Button, Card } from '../ui';
 import { AssetSheet } from './sheet';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * The picture that leads the asset screen (web: asset-image-card.tsx, v2.61).
@@ -258,11 +260,11 @@ export function AssetImageCard({
   async function upload(outcome: PickOutcome, replaceId: string | null) {
     if (outcome.kind === 'cancelled') return;
     if (outcome.kind === 'denied') {
-      Alert.alert('Permission needed', 'Allow PioAssets to use the camera or photos, then try again.');
+      toast.say('Permission needed', 'Allow PioAssets to use the camera or photos, then try again.');
       return;
     }
     if (outcome.kind === 'unavailable') {
-      Alert.alert('Not available', PICKER_UNAVAILABLE_MESSAGE);
+      toast.say('Not available', PICKER_UNAVAILABLE_MESSAGE);
       return;
     }
     setBusy(true);
@@ -277,7 +279,7 @@ export function AssetImageCard({
       // Saved whatever its shape; a picture that does not fit the 2:1 box is
       // told its own size and the exact one that does.
       const done = uploadedAlert({ replaced: replaceId !== null, dimensions: outcome.dimensions });
-      Alert.alert(done.title, done.message);
+      toast.say(done.title, done.message);
     } catch (e) {
       // The server's own words - the five-photo limit, a rejected file - are
       // the problem's `detail`, which is what problemMessage hands back.
@@ -297,7 +299,7 @@ export function AssetImageCard({
       setFailed(false);
       onChanged();
       const done = primaryChangedAlert(photoId);
-      Alert.alert(done.title, done.message);
+      toast.say(done.title, done.message);
     } catch (e) {
       setError(problemMessage(e, 'Could not set the primary image'));
     } finally {
@@ -307,28 +309,27 @@ export function AssetImageCard({
 
   function remove(photoId: string) {
     const prompt = removePhotoPrompt({ isPrimary: photoId === primaryPhotoId, count: ownPhotos.length });
-    Alert.alert(prompt.title, prompt.message, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          void (async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              await api.request(unitPhotoRemovePath(assetId, photoId, legacyPhotoApi), { method: 'DELETE' });
-              setFailed(false);
-              onChanged();
-              Alert.alert('Photo removed');
-            } catch (e) {
-              setError(problemMessage(e, 'Could not remove the photo'));
-            } finally {
-              setBusy(false);
-            }
-          })(),
-      },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: prompt.title,
+        message: prompt.message,
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
+      if (!ok) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await api.request(unitPhotoRemovePath(assetId, photoId, legacyPhotoApi), { method: 'DELETE' });
+        setFailed(false);
+        onChanged();
+        toast.success('Photo removed');
+      } catch (e) {
+        setError(problemMessage(e, 'Could not remove the photo'));
+      } finally {
+        setBusy(false);
+      }
+    })();
   }
 
   function act(key: UnitPhotoActionKey, photoId: string) {

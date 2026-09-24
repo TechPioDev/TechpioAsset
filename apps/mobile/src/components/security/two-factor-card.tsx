@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Platform, Text, View } from 'react-native';
+import { Linking, Platform, Text, View } from 'react-native';
 import {
   formatSecret,
   isCompleteCode,
@@ -13,6 +13,8 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card } from '../ui';
 import { CodeField, PasswordField } from './password-field';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * Two-factor authentication: set up, turn on, turn off - the web security
@@ -67,7 +69,7 @@ export function TwoFactorCard({
       });
       setEnrolment(result);
     } catch (error) {
-      Alert.alert('Could not start enrolment', problemMessage(error, 'Could not start enrolment'));
+      toast.say('Could not start enrolment', problemMessage(error, 'Could not start enrolment'));
     } finally {
       setStarting(false);
     }
@@ -82,13 +84,13 @@ export function TwoFactorCard({
     const url = enrolment?.otpauthUrl;
     // Only ever hand the OS a TOTP link - never whatever string came back.
     if (!url || !parseOtpauthUrl(url)) {
-      Alert.alert('Enter the key manually', 'Add the setup key below to your authenticator app.');
+      toast.say('Enter the key manually', 'Add the setup key below to your authenticator app.');
       return;
     }
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert(
+      toast.say(
         'No authenticator app found',
         'Install an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy…), or add the setup key below to one by hand.',
       );
@@ -103,10 +105,10 @@ export function TwoFactorCard({
       setEnrolment(null);
       setConfirmCode('');
       await onChanged();
-      Alert.alert('Two-factor authentication is on');
+      toast.say('Two-factor authentication is on');
     } catch (error) {
       setConfirmCode('');
-      Alert.alert('That code did not match', problemMessage(error, 'That code did not match'));
+      toast.say('That code did not match', problemMessage(error, 'That code did not match'));
     } finally {
       setConfirming(false);
     }
@@ -120,10 +122,10 @@ export function TwoFactorCard({
       setDisablePassword('');
       setDisableCode('');
       await onChanged();
-      Alert.alert('Two-factor authentication is off');
+      toast.say('Two-factor authentication is off');
     } catch (error) {
       setDisableCode('');
-      Alert.alert('Could not disable', problemMessage(error, 'Could not disable'));
+      toast.say('Could not disable', problemMessage(error, 'Could not disable'));
     } finally {
       setDisabling(false);
     }
@@ -231,14 +233,15 @@ export function TwoFactorCard({
             loading={disabling}
             disabled={!disablePassword || !isCompleteCode(disableCode)}
             onPress={() =>
-              Alert.alert(
-                'Turn off two-factor authentication?',
-                'Anyone with your password will be able to sign in as you.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Turn off', style: 'destructive', onPress: () => void turnOff() },
-                ],
-              )
+              void (async () => {
+                const ok = await confirm({
+                  title: 'Turn off two-factor authentication?',
+                  message: 'Anyone with your password will be able to sign in as you.',
+                  confirmLabel: 'Turn off',
+                  destructive: true,
+                });
+                if (ok) await turnOff();
+              })()
             }
           />
         </View>

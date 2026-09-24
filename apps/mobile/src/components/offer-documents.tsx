@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   PRODUCT_DOCUMENT_KINDS,
@@ -13,6 +13,8 @@ import { useSession } from '../providers/session';
 import { useTheme } from '../theme';
 import { OfferPhotoSheet } from './offer-photo-sheet';
 import { Button, Card, SectionTitle } from './ui';
+import { toast } from './toast';
+import { confirm } from './confirm';
 
 /**
  * The paperwork on an offer, on the phone (v2.55).
@@ -72,7 +74,7 @@ export function OfferDocuments({
       );
       await Linking.openURL(api.absoluteUrl(link.path));
     } catch (error) {
-      Alert.alert(
+      toast.say(
         'Could not open the document',
         error instanceof ApiError ? error.message : 'Please try again.',
       );
@@ -82,23 +84,25 @@ export function OfferDocuments({
   };
 
   const remove = (doc: OfferDocument) =>
-    Alert.alert('Remove this document?', 'It stays on record; it just stops showing here.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          void api
-            .request(`/vendor-products/${productId}/documents/${doc.id}`, { method: 'DELETE' })
-            .then(load)
-            .catch((error) =>
-              Alert.alert(
-                'Could not remove it',
-                error instanceof ApiError ? error.message : 'Please try again.',
-              ),
-            ),
-      },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Remove this document?',
+        message: 'It stays on record; it just stops showing here.',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Keep it',
+        destructive: true,
+      });
+      if (!ok) return;
+      try {
+        await api.request(`/vendor-products/${productId}/documents/${doc.id}`, { method: 'DELETE' });
+        await load();
+      } catch (error) {
+        toast.error(
+          'Could not remove it',
+          error instanceof ApiError ? error.message : 'Please try again.',
+        );
+      }
+    })();
 
   if (documents === null) return null;
   // Nothing to read and nothing to add: no empty card on a buyer's screen.

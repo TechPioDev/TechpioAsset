@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatFileSize } from '@techpioasset/domain';
 import { ApiError } from '../../lib/api-client';
@@ -7,6 +7,8 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, SectionTitle } from '../ui';
 import { RequestPhotoSheet } from './request-photo-sheet';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 export interface RequestAttachment {
   id: string;
@@ -49,27 +51,29 @@ export function RequestAttachments({
       );
       await Linking.openURL(api.absoluteUrl(link.path));
     } catch (error) {
-      Alert.alert('Could not open the file', error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say('Could not open the file', error instanceof ApiError ? error.message : 'Please try again.');
     } finally {
       setOpening(null);
     }
   }
 
   function remove(att: RequestAttachment) {
-    Alert.alert('Remove this attachment?', att.originalName, [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          void api
-            .request(`/requests/${requestId}/attachments/${att.id}`, { method: 'DELETE' })
-            .then(onChanged)
-            .catch((error) =>
-              Alert.alert('Could not remove', error instanceof ApiError ? error.message : 'Please try again.'),
-            ),
-      },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Remove this attachment?',
+        message: att.originalName,
+        confirmLabel: 'Remove',
+        cancelLabel: 'Keep it',
+        destructive: true,
+      });
+      if (!ok) return;
+      try {
+        await api.request(`/requests/${requestId}/attachments/${att.id}`, { method: 'DELETE' });
+        onChanged();
+      } catch (error) {
+        toast.error('Could not remove', error instanceof ApiError ? error.message : 'Please try again.');
+      }
+    })();
   }
 
   return (

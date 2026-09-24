@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { PERMISSIONS, qualityOutcome, type RejectDisposition } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT, type Tone } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { buildQualityCheck, qualityDraftProblem, type QualityDraft } from '../../src/lib/quality';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { toast } from '../../src/components/toast';
 
 /**
  * Quality check, at the place the goods are standing (v2.42).
@@ -109,9 +110,7 @@ export default function ReceiptScreen() {
 
   if (!receipt) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 
@@ -128,7 +127,7 @@ export default function ReceiptScreen() {
     const draft = draftFor(line);
     const problem = qualityDraftProblem(draft);
     if (problem) {
-      Alert.alert('Check the numbers', problem);
+      toast.say('Check the numbers', problem);
       return;
     }
     const payload = buildQualityCheck(draft);
@@ -141,14 +140,14 @@ export default function ReceiptScreen() {
       });
       setOpenLine(null);
       await load();
-      Alert.alert(
+      toast.say(
         'Inspection recorded',
         line.intake === 'ASSET' && payload.quantityAccepted > 0
           ? `${payload.quantityAccepted} unit(s) are now available to assign.`
           : 'Recorded.',
       );
     } catch (error) {
-      Alert.alert(
+      toast.say(
         'Could not record the inspection',
         error instanceof ApiError ? error.message : 'Please try again.',
       );

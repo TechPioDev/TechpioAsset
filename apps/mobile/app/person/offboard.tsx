@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import {
   offboardingExceptionProblem,
@@ -13,7 +13,7 @@ import {
 } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { HandoverSheet, type HandoverMode } from '../../src/components/handover-sheet';
 import { FlashBanner, useFlash } from '../../src/components/requests/photo-markers';
 import { errorText } from '../../src/components/people/sheet';
@@ -189,9 +189,7 @@ export default function OffboardScreen() {
 
   if (!person) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

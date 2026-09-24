@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState, type ReactNode } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { reportFreshnessWording, type DetailRow, type DetailTone } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT, type Tone } from '@techpioasset/ui-tokens';
 import { useTheme } from '../../theme';
 import type { IconName } from '../ui';
+import { toast } from '../toast';
 
 /**
  * The small pieces every asset-detail tab is built from (web: the Row, Tone and
@@ -49,17 +50,17 @@ export async function copyValue(value: string, label: string): Promise<void> {
   if (Platform.OS === 'web') {
     try {
       await navigator.clipboard.writeText(value);
-      Alert.alert('Copied', `${label} copied to the clipboard.`);
+      toast.say('Copied', `${label} copied to the clipboard.`);
       return;
     } catch {
-      Alert.alert('Clipboard is blocked', `Select the ${label.toLowerCase()} and copy it instead.`);
+      toast.say('Clipboard is blocked', `Select the ${label.toLowerCase()} and copy it instead.`);
       return;
     }
   }
   try {
     await Share.share({ message: value });
   } catch {
-    Alert.alert('Could not open the share sheet', `Long-press the ${label.toLowerCase()} to select it.`);
+    toast.say('Could not open the share sheet', `Long-press the ${label.toLowerCase()} to select it.`);
   }
 }
 

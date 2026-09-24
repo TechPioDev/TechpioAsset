@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import {
   MAINTENANCE_OPEN_STATUSES,
   PERMISSIONS,
@@ -11,6 +11,7 @@ import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { Button, Card, EmptyState, IconBadge, ListSkeleton, PullRefresh, StatusPill } from '../src/components/ui';
+import { toast } from '../src/components/toast';
 
 /**
  * v2.5 H6 - the technician's work-order list. "Mine" is the default (the jobs
@@ -99,7 +100,7 @@ export default function WorkOrdersScreen() {
       await api.request(`/maintenance/${id}/accept`, { method: 'POST', body: {} });
       await load();
     } catch (error) {
-      Alert.alert('Could not accept', error instanceof Error ? error.message : 'Try again.');
+      toast.say('Could not accept', error instanceof Error ? error.message : 'Try again.');
     } finally {
       setAccepting(null);
     }

@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { peopleGates } from '../../lib/people-admin';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Field } from '../ui';
 import { errorText } from './sheet';
+import { toast } from '../toast';
 
 /**
  * Change the address a person signs in with - the web's ChangeEmail, on the
@@ -45,7 +46,7 @@ export function ChangeEmailRow({
         body: { email: trimmed },
       });
       setOpen(false);
-      Alert.alert('Sign-in email changed', `They now sign in with ${result.email}`);
+      toast.say('Sign-in email changed', `They now sign in with ${result.email}`);
       onChanged();
     } catch (e) {
       // The server names the actual rule - address in use, not an address,

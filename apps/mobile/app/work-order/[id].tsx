@@ -1,13 +1,15 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { PERMISSIONS, workOrderActions } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Field, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Field, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { WO_TONE, isSlaOverdue, woLabel } from '../work-orders';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 /**
  * v2.5 H6 - the technician's work-order detail: start / hold / resume /
@@ -100,7 +102,7 @@ export default function WorkOrderScreen() {
       await load();
       return true;
     } catch (error) {
-      Alert.alert('Could not update', error instanceof Error ? error.message : 'Try again.');
+      toast.say('Could not update', error instanceof Error ? error.message : 'Try again.');
       return false;
     } finally {
       setBusy(false);
@@ -109,27 +111,31 @@ export default function WorkOrderScreen() {
 
   // Two buttons each - Android shows at most three.
   function confirmApprove(restoreAsset: boolean | null) {
-    Alert.alert(
-      'Approve this work order?',
-      restoreAsset === false
-        ? 'It closes. The asset stays out of service, as the technician asked.'
-        : 'It closes and the asset returns to service.',
-      [
-        { text: 'Not yet', style: 'cancel' },
-        { text: 'Approve', onPress: () => void act('approve') },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: 'Approve this work order?',
+        message:
+          restoreAsset === false
+            ? 'It closes. The asset stays out of service, as the technician asked.'
+            : 'It closes and the asset returns to service.',
+        confirmLabel: 'Approve',
+        cancelLabel: 'Not yet',
+      });
+      if (ok) await act('approve');
+    })();
   }
 
   function confirmCancel() {
-    Alert.alert(
-      'Cancel this work order?',
-      'It closes without being completed. This cannot be undone.',
-      [
-        { text: 'Keep it', style: 'cancel' },
-        { text: 'Cancel work order', style: 'destructive', onPress: () => void act('cancel') },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: 'Cancel this work order?',
+        message: 'It closes without being completed. This cannot be undone.',
+        confirmLabel: 'Cancel work order',
+        cancelLabel: 'Keep it',
+        destructive: true,
+      });
+      if (ok) await act('cancel');
+    })();
   }
 
   async function drawPart() {
@@ -141,13 +147,13 @@ export default function WorkOrderScreen() {
       });
       setQty('1');
       await load();
-      Alert.alert('Part drawn', 'The stock ledger records it against this work order.');
+      toast.say('Part drawn', 'The stock ledger records it against this work order.');
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         // The guarded take speaking - honest numbers, nothing moved.
-        Alert.alert('Draw refused', error.message);
+        toast.say('Draw refused', error.message);
       } else {
-        Alert.alert('Could not draw the part', error instanceof Error ? error.message : 'Try again.');
+        toast.say('Could not draw the part', error instanceof Error ? error.message : 'Try again.');
       }
     } finally {
       setBusy(false);
@@ -156,9 +162,7 @@ export default function WorkOrderScreen() {
 
   if (!wo) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

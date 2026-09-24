@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   REQUEST_STATUS_TOKENS,
   TONE_PALETTE_DARK,
@@ -10,9 +10,11 @@ import type { RequestStatus } from '@techpioasset/domain';
 import { useSession } from '../../src/providers/session';
 import { useTheme, type Scheme } from '../../src/theme';
 import { personName, formatMoney } from '../../src/lib/format';
-import { Button, Card, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Field, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { ProcurementAssessment } from '../../src/components/requests/procurement-assessment';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 import {
   RequestConversation,
   type RequestComment,
@@ -116,7 +118,7 @@ export function RequestDetailView({
       await api.request(`/requests/${request.id}/review`, { method: 'POST' });
       await load();
     } catch {
-      Alert.alert('Could not mark this', 'You may no longer be the approver for this step.');
+      toast.say('Could not mark this', 'You may no longer be the approver for this step.');
     } finally {
       setBusy(false);
     }
@@ -143,7 +145,7 @@ export function RequestDetailView({
         method: 'PATCH',
         body: { inventoryAvailable: !purchaseRequired, purchaseRequired },
       });
-      Alert.alert(
+      toast.say(
         'Recorded',
         purchaseRequired
           ? 'Marked as needing a purchase — it moves on to be costed.'
@@ -152,7 +154,7 @@ export function RequestDetailView({
       if (onFinished) onFinished();
       else router.back();
     } catch {
-      Alert.alert('Could not record this', 'You may no longer be able to assess this request.');
+      toast.say('Could not record this', 'You may no longer be able to assess this request.');
     } finally {
       setBusy(false);
     }
@@ -161,7 +163,7 @@ export function RequestDetailView({
   async function decide(decision: 'APPROVED' | 'REJECTED') {
     if (!request) return;
     if (decision === 'REJECTED' && comment.trim().length === 0) {
-      Alert.alert('Add a reason', 'Please note why you are rejecting this request.');
+      toast.say('Add a reason', 'Please note why you are rejecting this request.');
       return;
     }
     setBusy(true);
@@ -170,7 +172,7 @@ export function RequestDetailView({
         method: 'POST',
         body: { decision, comment: comment.trim() || undefined },
       });
-      Alert.alert(
+      toast.say(
         decision === 'APPROVED' ? 'Approved' : 'Rejected',
         decision === 'APPROVED'
           ? 'The request moves to the next step.'
@@ -179,7 +181,7 @@ export function RequestDetailView({
       if (onFinished) onFinished();
       else router.back();
     } catch {
-      Alert.alert('Could not submit', 'You may no longer be the approver for this step.');
+      toast.say('Could not submit', 'You may no longer be the approver for this step.');
       await load();
     } finally {
       setBusy(false);
@@ -200,18 +202,23 @@ export function RequestDetailView({
       if (request.canDecide && !assessment) {
         const items = request.items.map((i) => `${i.quantity} × ${i.description}`).join('\n');
         const who = request.requester ? personName(request.requester) : 'Someone';
-        Alert.alert(`Approve ${request.requestNumber}?`, `${who} asked for:\n${items}`, [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Approve', onPress: () => void decideRef.current('APPROVED') },
-        ]);
+        void (async () => {
+          const ok = await confirm({
+            title: `Approve ${request.requestNumber}?`,
+            message: `${who} asked for:\n${items}`,
+            confirmLabel: 'Approve',
+            cancelLabel: 'Not now',
+          });
+          if (ok) await decideRef.current('APPROVED');
+        })();
       } else {
-        Alert.alert(
+        toast.say(
           'Nothing to approve',
           'This request is no longer waiting on your approval. It may already have been decided.',
         );
       }
     } else if (!request.canDecide && !request.canDecline) {
-      Alert.alert(
+      toast.say(
         'Nothing to reject',
         'This request is no longer waiting on you. It may already have been decided.',
       );
@@ -220,9 +227,7 @@ export function RequestDetailView({
 
   if (!request) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

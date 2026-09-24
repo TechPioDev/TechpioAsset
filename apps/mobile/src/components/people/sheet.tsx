@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Pressable, Share, Text, View } from 'react-native';
 import { useTheme } from '../../theme';
+import { SheetShell } from '../sheet-shell';
 import { Button } from '../ui';
 
 /**
@@ -21,51 +22,12 @@ export function PeopleSheet({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const { c, spacing } = useTheme();
+  // U2 - see AssetSheet: one shell, so the people sheets gained the grabber
+  // and the swipe-down without their own copy of the chrome.
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, backgroundColor: 'rgba(2,6,23,0.45)', justifyContent: 'flex-end' }}
-      >
-        <View
-          style={{
-            backgroundColor: c.background,
-            borderTopLeftRadius: 22,
-            borderTopRightRadius: 22,
-            maxHeight: '92%',
-            paddingBottom: spacing.xl,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              padding: spacing.lg,
-              borderBottomWidth: 1,
-              borderBottomColor: c.border,
-            }}
-          >
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: c.text, fontSize: 17, fontWeight: '800' }} numberOfLines={1}>
-                {title}
-              </Text>
-              {subtitle ? (
-                <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
-                  {subtitle}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
-              <Ionicons name="close" size={22} color={c.muted} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: spacing.lg }} keyboardShouldPersistTaps="handled">
-            {children}
-          </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <SheetShell visible={visible} title={title} subtitle={subtitle} onClose={onClose}>
+      {children}
+    </SheetShell>
   );
 }
 

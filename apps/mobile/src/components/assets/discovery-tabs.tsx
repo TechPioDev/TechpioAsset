@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import {
   ASSET_DETAIL_COPY,
   HEALTH_GRADE_TONE,
@@ -23,6 +23,7 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, Field, SectionTitle } from '../ui';
 import { DetailRows, FreshnessBanner, TabEmpty, ToneBadge, useToneColor } from './detail-parts';
+import { toast } from '../toast';
 
 /**
  * The agent-reported tabs on the phone (web: discovery-tabs.tsx) - Hardware,
@@ -238,7 +239,7 @@ export function HealthTab({
       await api.request(`/assets/${assetId}/health/recompute`, { method: 'POST', body: {} });
       onRecomputed();
     } catch (e) {
-      Alert.alert('Could not recompute', problemMessage(e, 'Try again in a moment.'));
+      toast.say('Could not recompute', problemMessage(e, 'Try again in a moment.'));
     } finally {
       setBusy(false);
     }

@@ -3,12 +3,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Alert } from 'react-native';
 import { Button, Card, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import type { AuthUser } from '@techpioasset/contracts';
 import { ChangePasswordCard } from '../../src/components/security/change-password-card';
 import { PasswordGate } from '../../src/components/security/password-gate';
 import { TwoFactorCard } from '../../src/components/security/two-factor-card';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 /**
  * Where you are signed in, and how you got there.
@@ -106,14 +107,14 @@ export default function SecuritySettingsScreen() {
         identifySession: true,
       });
       await load();
-      Alert.alert(
+      toast.say(
         'Done',
         result.revoked === 1
           ? 'One other session was signed out.'
           : `${result.revoked} other sessions were signed out.`,
       );
     } catch {
-      Alert.alert('Could not sign out the others', 'Check your connection and try again.');
+      toast.say('Could not sign out the others', 'Check your connection and try again.');
     } finally {
       setRevoking(false);
     }
@@ -232,18 +233,16 @@ export default function SecuritySettingsScreen() {
           variant="secondary"
           loading={revoking}
           onPress={() => {
-            Alert.alert(
-              'Sign out of other devices?',
-              'Every other phone, tablet and browser signed in as you will be signed out. This device stays signed in.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Sign out others',
-                  style: 'destructive',
-                  onPress: () => void revokeOthers(),
-                },
-              ],
-            );
+            void (async () => {
+              const ok = await confirm({
+                title: 'Sign out of other devices?',
+                message:
+                  'Every other phone, tablet and browser signed in as you will be signed out. This device stays signed in.',
+                confirmLabel: 'Sign out others',
+                destructive: true,
+              });
+              if (ok) await revokeOthers();
+            })();
           }}
           style={{ marginBottom: spacing.lg }}
         />

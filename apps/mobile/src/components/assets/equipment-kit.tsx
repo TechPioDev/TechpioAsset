@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import { PERMISSIONS, assetIdentifier } from '@techpioasset/domain';
 import { problemMessage } from '../../lib/asset-admin';
@@ -8,6 +8,8 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, Chevron, Field, IconBadge, SectionTitle } from '../ui';
 import { AssetSheet } from './sheet';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * "Extra Assets" on the phone (web: equipment-kit.tsx) - everything else the
@@ -239,11 +241,15 @@ function AddExtraAssetSheet({
     };
   }, [api, q, visible]);
 
-  function confirm(a: KitAsset) {
-    Alert.alert(`Issue ${a.name}?`, `It goes to ${holderName ?? 'the holder'} and keeps its own serial and history.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Issue', onPress: () => void issue(a) },
-    ]);
+  function askToIssue(a: KitAsset) {
+    void (async () => {
+      const ok = await confirm({
+        title: `Issue ${a.name}?`,
+        message: `It goes to ${holderName ?? 'the holder'} and keeps its own serial and history.`,
+        confirmLabel: 'Issue',
+      });
+      if (ok) await issue(a);
+    })();
   }
 
   async function issue(a: KitAsset) {
@@ -251,9 +257,9 @@ function AddExtraAssetSheet({
     try {
       await api.request(`/assets/${a.id}/assign`, { method: 'POST', body: { userId: holderId } });
       onIssued();
-      Alert.alert(`Issued to ${holderName ?? 'the holder'}`);
+      toast.say(`Issued to ${holderName ?? 'the holder'}`);
     } catch (e) {
-      Alert.alert('Could not issue that asset', problemMessage(e, 'Try again in a moment.'));
+      toast.say('Could not issue that asset', problemMessage(e, 'Try again in a moment.'));
     } finally {
       setBusy(false);
     }
@@ -286,7 +292,7 @@ function AddExtraAssetSheet({
         rows.map((a) => (
           <Pressable
             key={a.id}
-            onPress={() => confirm(a)}
+            onPress={() => askToIssue(a)}
             style={({ pressed }) => ({
               flexDirection: 'row',
               alignItems: 'center',

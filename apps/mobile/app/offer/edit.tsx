@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { calculateLandedCost, formatInr, PROPOSED_SPECS_PER_OFFER } from '@techpioasset/domain';
 import { ApiError } from '../../src/lib/api-client';
 import { useSession } from '../../src/providers/session';
 import { useOfferPolicy } from '../../src/lib/use-offer-policy';
 import { useTheme } from '../../src/theme';
 import { ChipPicker } from '../../src/components/chip-picker';
-import { Button, Card, Field, Screen, SectionTitle } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Field, Screen, SectionTitle } from '../../src/components/ui';
+import { toast } from '../../src/components/toast';
 
 /**
  * Writing an offer on a phone (v2.45).
@@ -191,9 +192,7 @@ export default function OfferEditScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 
@@ -254,7 +253,7 @@ export default function OfferEditScreen() {
     } catch (error) {
       // The server names the actual rule - an end date before the start, a
       // discount above the price - better than anything generic here.
-      Alert.alert(
+      toast.say(
         editing ? 'Could not save the changes' : 'Could not save the offer',
         error instanceof ApiError ? error.message : 'Please try again.',
       );

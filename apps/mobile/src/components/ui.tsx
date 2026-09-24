@@ -202,6 +202,66 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
+/**
+ * The outline of a record's page while it loads (U2).
+ *
+ * `ListSkeleton` gave lists this treatment; detail screens kept a bare
+ * spinner centred on an empty page, which says "something is happening
+ * somewhere" and nothing else. Twelve screens had the identical block. This
+ * is the shape of what is coming - a title, a status pill, a couple of cards
+ * of facts - so the page appears to assemble rather than to flash.
+ */
+export function DetailSkeleton() {
+  const { c, radius, spacing } = useTheme();
+  const pulse = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const bar = (width: `${number}%`, height: number, marginTop = 0) => (
+    <View style={{ width, height, marginTop, borderRadius: 6, backgroundColor: c.border }} />
+  );
+
+  const block = (lines: number, key: number) => (
+    <View
+      key={key}
+      style={{
+        backgroundColor: c.card,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: c.border,
+        padding: 16,
+        marginBottom: spacing.md,
+      }}
+    >
+      {Array.from({ length: lines }, (_, i) => bar(i === 0 ? '45%' : '80%', i === 0 ? 11 : 13, i ? 12 : 0))}
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: c.background, padding: spacing.lg }}>
+      <Animated.View
+        style={{ opacity: pulse }}
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading"
+      >
+        {bar('65%', 22)}
+        {bar('35%', 13, 10)}
+        <View style={{ width: 92, height: 22, borderRadius: 999, backgroundColor: c.border, marginTop: 14, marginBottom: spacing.xl }} />
+        {[3, 2, 4].map((lines, i) => block(lines, i))}
+      </Animated.View>
+    </View>
+  );
+}
+
 /** Elevated surface. */
 export function Card({
   children,

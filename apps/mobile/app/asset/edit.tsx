@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   ASSET_CONDITIONS,
   ASSET_TYPES_BY_KEY,
@@ -12,7 +12,7 @@ import { CONDITION_TOKENS } from '@techpioasset/ui-tokens';
 import { ChipPicker } from '../../src/components/chip-picker';
 import { FormLabel } from '../../src/components/assets/sheet';
 import { PriceCard } from '../../src/components/assets/price-card';
-import { Button, Card, EmptyState, Field, Screen, SectionTitle } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, EmptyState, Field, Screen, SectionTitle } from '../../src/components/ui';
 import { ApiError } from '../../src/lib/api-client';
 import {
   buildUpdatePayload,
@@ -26,6 +26,7 @@ import {
 } from '../../src/lib/asset-admin';
 import { useSession } from '../../src/providers/session';
 import { statusLabel, useTheme } from '../../src/theme';
+import { toast } from '../../src/components/toast';
 
 /**
  * Edit an asset from the phone (web: assets/[id]/edit).
@@ -140,9 +141,7 @@ export default function EditAssetScreen() {
   }
   if (!asset || !values || !categories || !offices) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
   if (!canUpdate) {
@@ -171,7 +170,7 @@ export default function EditAssetScreen() {
         method: 'PATCH',
         body: buildUpdatePayload(values, specs, asset),
       });
-      Alert.alert('Asset updated');
+      toast.say('Asset updated');
       router.back();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {

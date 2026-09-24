@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RequestAssessment } from '@techpioasset/contracts';
 import { ApiError } from '../../lib/api-client';
@@ -15,6 +15,7 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { ChipPicker } from '../chip-picker';
 import { Button, Card, Field } from '../ui';
+import { toast } from '../toast';
 
 /**
  * The commercial side of a request, on the phone (v2.56).
@@ -95,7 +96,7 @@ export function ProcurementAssessment({
     if (purchaseRequired) {
       const bad = invalidMoneyField(form);
       if (bad) {
-        Alert.alert(
+        toast.say(
           `Check the ${bad.toLowerCase()}`,
           'Enter a non-negative amount with at most two decimal places, without commas.',
         );
@@ -108,7 +109,7 @@ export function ProcurementAssessment({
         method: 'PATCH',
         body: assessmentBody(purchaseRequired, form, suitableAssetId),
       });
-      Alert.alert(
+      toast.say(
         'Saved',
         saved.purchaseRequired === false
           ? 'Recorded — filled from stock, so no finance approval is needed.'
@@ -118,7 +119,7 @@ export function ProcurementAssessment({
       // The assessment can change which steps apply, so the chain is re-read too.
       onSaved();
     } catch (error) {
-      Alert.alert('Could not save', error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say('Could not save', error instanceof ApiError ? error.message : 'Please try again.');
     } finally {
       setSaving(false);
     }

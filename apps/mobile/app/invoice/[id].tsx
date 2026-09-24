@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PERMISSIONS, type VerificationStatus } from '@techpioasset/domain';
 import {
@@ -12,8 +12,10 @@ import { ApiError } from '../../src/lib/api-client';
 import { formatMoney, personName } from '../../src/lib/format';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, EmptyState, Field, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, EmptyState, Field, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { MatchPanel } from '../../src/components/invoices/match-panel';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 interface Issue {
   code: string;
@@ -117,9 +119,7 @@ export default function InvoiceDetailScreen() {
   }
   if (!data) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 
@@ -143,25 +143,22 @@ export default function InvoiceDetailScreen() {
       );
       await Linking.openURL(api.absoluteUrl(link.path));
     } catch (caught) {
-      Alert.alert('Could not open the document', caught instanceof ApiError ? caught.message : 'Please try again.');
+      toast.say('Could not open the document', caught instanceof ApiError ? caught.message : 'Please try again.');
     } finally {
       setOpening(false);
     }
   }
 
   function confirmDecision(decision: 'VERIFIED' | 'REJECTED') {
-    Alert.alert(
-      decision === 'VERIFIED' ? 'Verify this invoice?' : 'Reject this invoice?',
-      'Your decision is recorded against the invoice with your name.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: decision === 'VERIFIED' ? 'Verify' : 'Reject',
-          style: decision === 'VERIFIED' ? 'default' : 'destructive',
-          onPress: () => void decide(decision),
-        },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: decision === 'VERIFIED' ? 'Verify this invoice?' : 'Reject this invoice?',
+        message: 'Your decision is recorded against the invoice with your name.',
+        confirmLabel: decision === 'VERIFIED' ? 'Verify' : 'Reject',
+        destructive: decision !== 'VERIFIED',
+      });
+      if (ok) await decide(decision);
+    })();
   }
 
   async function decide(decision: 'VERIFIED' | 'REJECTED') {
@@ -174,7 +171,7 @@ export default function InvoiceDetailScreen() {
       setNotes('');
       await load();
     } catch (caught) {
-      Alert.alert(
+      toast.say(
         'Could not record the decision',
         caught instanceof ApiError ? caught.message : 'Please try again.',
       );

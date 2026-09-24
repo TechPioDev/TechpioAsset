@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { ApiError } from '../src/lib/api-client';
 import {
   DRAFT_IMAGES_FAILED_MESSAGE,
@@ -18,6 +18,7 @@ import {
 import { useSession } from '../src/providers/session';
 import { useT } from '../src/providers/language';
 import { useTheme } from '../src/theme';
+import { toast } from '../src/components/toast';
 import {
   Button,
   Card,
@@ -123,14 +124,14 @@ export default function ReportProblemScreen() {
           try {
             await api.request(`/requests/${created.id}/comments`, { formData: form });
           } catch {
-            Alert.alert('Photo not sent', DRAFT_IMAGES_FAILED_MESSAGE);
+            toast.say('Photo not sent', DRAFT_IMAGES_FAILED_MESSAGE);
             router.replace(`/request/${created.id}`);
             return;
           }
         }
       }
       await api.request(`/requests/${created.id}/submit`, { method: 'POST' });
-      Alert.alert(t('problem.sent'), t('problem.sentBody'));
+      toast.say(t('problem.sent'), t('problem.sentBody'));
       router.replace(`/request/${created.id}`);
     } catch (caught) {
       setError(

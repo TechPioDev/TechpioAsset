@@ -1,14 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { buildReceiveLines, canSubmitReceipt } from '../../src/lib/receive';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Chevron, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, Chevron, DetailSkeleton, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { PO_TONE, poLabel } from '../purchase-orders';
+import { toast } from '../../src/components/toast';
 
 interface PoLine {
   id: string;
@@ -86,16 +87,16 @@ export default function PurchaseOrderScreen() {
       setQty({});
       setSerials({});
       await load();
-      Alert.alert(
+      toast.say(
         'Goods received',
         `${created} asset(s) created from this delivery. Complete their details when you are back at a desk.`,
       );
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         // The over-receipt guard speaking - honest outstanding numbers.
-        Alert.alert('Over-receipt refused', error.message);
+        toast.say('Over-receipt refused', error.message);
       } else {
-        Alert.alert('Could not receive', error instanceof Error ? error.message : 'Try again.');
+        toast.say('Could not receive', error instanceof Error ? error.message : 'Try again.');
       }
     } finally {
       setBusy(false);
@@ -104,9 +105,7 @@ export default function PurchaseOrderScreen() {
 
   if (!po) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

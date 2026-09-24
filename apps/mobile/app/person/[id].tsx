@@ -1,26 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { MAX_PAGE_SIZE } from '@techpioasset/contracts';
 import type { AssetStatus } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { useSession } from '../../src/providers/session';
 import { statusColor, statusLabel, useTheme } from '../../src/theme';
-import {
-  Avatar,
-  Button,
-  Card,
-  Chevron,
-  IconBadge,
-  PullRefresh,
-  Screen,
-  SectionTitle,
-  StatusPill,
-} from '../../src/components/ui';
+import { Avatar, Button, Card, Chevron, DetailSkeleton, IconBadge, PullRefresh, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { ChangeEmailRow } from '../../src/components/people/change-email';
 import { ManageSheet } from '../../src/components/people/manage-sheet';
 import { peopleGates, statusLabel as accountStatusLabel, type UserRow } from '../../src/lib/people-admin';
+import { toast } from '../../src/components/toast';
 import {
   offboardActionLabel,
   offboardGates,
@@ -155,9 +146,9 @@ export default function PersonScreen() {
       );
       const row = rows?.find((r) => r.id === person.id);
       if (row) setManageRow(row);
-      else Alert.alert('Could not open', 'This person could not be found in People. Pull to refresh and try again.');
+      else toast.say('Could not open', 'This person could not be found in People. Pull to refresh and try again.');
     } catch {
-      Alert.alert('Could not open', 'Check your connection and try again.');
+      toast.say('Could not open', 'Check your connection and try again.');
     } finally {
       setOpening(false);
     }
@@ -165,9 +156,7 @@ export default function PersonScreen() {
 
   if (!person) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

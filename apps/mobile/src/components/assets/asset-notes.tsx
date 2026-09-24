@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { ApiError } from '../../lib/api-client';
 import { problemMessage } from '../../lib/asset-admin';
 import { NOTES_MAX_LENGTH, notesPayload } from '../../lib/asset-overview';
@@ -7,6 +7,7 @@ import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card } from '../ui';
 import { CardTitle } from './detail-parts';
+import { toast } from '../toast';
 
 /**
  * The Notes tab (web: asset-notes.tsx, v2.61): the asset's free-text notes,
@@ -48,18 +49,18 @@ export function AssetNotes({
       await api.request(`/assets/${assetId}`, { method: 'PATCH', body: notesPayload(draft, version) });
       setEditing(false);
       onSaved();
-      Alert.alert('Notes saved');
+      toast.say('Notes saved');
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         // The draft is kept and the record refreshed underneath it, so "save
         // again" genuinely works once the version has caught up.
         onSaved();
-        Alert.alert(
+        toast.say(
           'Notes changed elsewhere',
           'This asset was edited since it loaded. Its latest version has been brought in - your text is kept. Review and save again.',
         );
       } else {
-        Alert.alert('Could not save the notes', problemMessage(e, 'Try again in a moment.'));
+        toast.say('Could not save the notes', problemMessage(e, 'Try again in a moment.'));
       }
     } finally {
       setBusy(false);

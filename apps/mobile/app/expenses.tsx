@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import {
   EXPENSE_SOURCE_LABELS,
   EXPENSE_SOURCES,
@@ -18,6 +18,7 @@ import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
 import { ApiError } from '../src/lib/api-client';
 import { Button, Card, EmptyState, Field, PullRefresh, SectionTitle, StatCard } from '../src/components/ui';
+import { toast } from '../src/components/toast';
 import {
   EXPENSE_CHIPS,
   EXPENSE_LEVEL_LABELS,
@@ -130,7 +131,7 @@ function ExpensesReport() {
       });
       await Linking.openURL(api.absoluteUrl(link.path));
     } catch (e) {
-      Alert.alert(
+      toast.say(
         'Could not download the report',
         e instanceof ApiError ? e.message : 'Please try again.',
       );

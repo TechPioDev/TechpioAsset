@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useTheme } from '../src/theme';
@@ -18,6 +18,7 @@ import { cacheStock, cachedStock, savedLabel } from '../src/lib/offline-cache';
 import { isNoConnection } from '../src/lib/sync-service';
 import { SyncBanner } from '../src/components/sync-banner';
 import { useTabletLayout } from '../src/lib/tablet-layout';
+import { toast } from '../src/components/toast';
 
 interface Level {
   id: string;
@@ -276,7 +277,7 @@ export default function StockScreen() {
         onDone={(message) => {
           setCounting(null);
           void load();
-          Alert.alert('Count recorded', message);
+          toast.say('Count recorded', message);
         }}
       />
       <NewStockItemSheet
@@ -297,7 +298,7 @@ export default function StockScreen() {
         onAdded={() => {
           setAddPreset(null);
           void load();
-          Alert.alert('Stock added', 'Recorded in the ledger.');
+          toast.say('Stock added', 'Recorded in the ledger.');
         }}
       />
     </View>

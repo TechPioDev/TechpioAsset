@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../lib/api-client';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, Field } from '../ui';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 interface MatchResult {
   outcome: 'MATCHED' | 'QTY_MISMATCH' | 'PRICE_MISMATCH' | 'NO_RECEIPT' | 'NO_PO';
@@ -73,21 +75,22 @@ export function MatchPanel({
       await load();
       onChanged?.();
     } catch (error) {
-      Alert.alert('Could not run the match', error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say('Could not run the match', error instanceof ApiError ? error.message : 'Please try again.');
     } finally {
       setRunning(false);
     }
   }
 
   function confirmOverride() {
-    Alert.alert(
-      'Accept this mismatch?',
-      'The reason goes on the audit record, with your name.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Accept anyway', style: 'destructive', onPress: () => void override() },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: 'Accept this mismatch?',
+        message: 'The reason goes on the audit record, with your name.',
+        confirmLabel: 'Accept anyway',
+        destructive: true,
+      });
+      if (ok) await override();
+    })();
   }
 
   async function override() {
@@ -98,11 +101,11 @@ export function MatchPanel({
         body: { reason: reason.trim() },
       });
       setReason('');
-      Alert.alert('Overridden', 'Mismatch overridden — on the audit record.');
+      toast.say('Overridden', 'Mismatch overridden — on the audit record.');
       await load();
       onChanged?.();
     } catch (error) {
-      Alert.alert('Could not override', error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say('Could not override', error instanceof ApiError ? error.message : 'Please try again.');
     } finally {
       setOverriding(false);
     }

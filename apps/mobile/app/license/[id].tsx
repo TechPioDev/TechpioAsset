@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { PERMISSIONS } from '@techpioasset/domain';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../src/lib/api-client';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
-import { Button, Card, EmptyState, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, EmptyState, IconBadge, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
 import { LICENSE_LABEL, LICENSE_TONE, expiryText, type LicenseRow } from '../licenses';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 interface Assignment {
   id: string;
@@ -94,13 +96,13 @@ export default function LicenseDetailScreen() {
       setAssignOpen(false);
       setSearch('');
       await load();
-      Alert.alert('Seat assigned', `${principal.label} now holds a seat.`);
+      toast.say('Seat assigned', `${principal.label} now holds a seat.`);
     } catch (error) {
       if (error instanceof ApiError && error.code === 'SEAT_LIMIT_EXCEEDED') {
         // The same honest refusal the web shows — no override on mobile either.
-        Alert.alert('License limit exceeded', error.message);
+        toast.say('License limit exceeded', error.message);
       } else {
-        Alert.alert('Could not assign', error instanceof Error ? error.message : 'Try again.');
+        toast.say('Could not assign', error instanceof Error ? error.message : 'Try again.');
       }
     } finally {
       setBusy(false);
@@ -109,34 +111,30 @@ export default function LicenseDetailScreen() {
 
   async function revoke(assignment: Assignment) {
     if (!license) return;
-    Alert.alert('Revoke seat?', `${who(assignment)} will lose this licence seat.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Revoke',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setBusy(true);
-            try {
-              await api.request(`/licenses/${license.id}/revoke`, {
-                method: 'POST',
-                body: { assignmentId: assignment.id },
-              });
-              await load();
-            } finally {
-              setBusy(false);
-            }
-          })();
-        },
-      },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: 'Revoke seat?',
+        message: `${who(assignment)} will lose this licence seat.`,
+        confirmLabel: 'Revoke',
+        destructive: true,
+      });
+      if (!ok) return;
+      setBusy(true);
+      try {
+        await api.request(`/licenses/${license.id}/revoke`, {
+          method: 'POST',
+          body: { assignmentId: assignment.id },
+        });
+        await load();
+      } finally {
+        setBusy(false);
+      }
+    })();
   }
 
   if (!license) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

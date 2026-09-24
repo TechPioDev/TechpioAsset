@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { PERMISSIONS, type AssetStatus } from '@techpioasset/domain';
 import {
   DISPOSABLE_FROM,
@@ -17,6 +17,8 @@ import { useTheme } from '../../theme';
 import { ChipPicker } from '../chip-picker';
 import { Button, Card, Field, SectionTitle } from '../ui';
 import { AssetSheet, FormLabel } from './sheet';
+import { toast } from '../toast';
+import { confirm } from '../confirm';
 
 /**
  * Disposal on the phone (web: disposal-panel.tsx - recorded, never a delete).
@@ -133,14 +135,16 @@ export function DisposalCard({
       return;
     }
     setError(null);
-    Alert.alert(
-      `Dispose of ${assetName}?`,
-      'This is final: a disposed asset cannot come back into service. Its record and history remain visible.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Record disposal', style: 'destructive', onPress: () => void record() },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: `Dispose of ${assetName}?`,
+        message:
+          'This is final: a disposed asset cannot come back into service. Its record and history remain visible.',
+        confirmLabel: 'Record disposal',
+        destructive: true,
+      });
+      if (ok) await record();
+    })();
   }
 
   async function record() {
@@ -149,7 +153,7 @@ export function DisposalCard({
       await api.request(`/assets/${assetId}/dispose`, { method: 'POST', body: buildDisposalPayload(input) });
       setOpen(false);
       onChanged();
-      Alert.alert('Disposal recorded');
+      toast.say('Disposal recorded');
     } catch (e) {
       setError(e instanceof Error && e.message ? e.message : 'Could not record disposal');
     } finally {

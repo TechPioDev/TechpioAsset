@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { displayToken, scannedWhen, type SavedScan } from '../lib/offline-scans';
 import { useTheme } from '../theme';
 import { AssetSheet } from './assets/sheet';
 import { Button, EmptyState } from './ui';
+import { confirm } from './confirm';
 
 /**
  * Saved scans (0.3.29) - the codes read while there was no connection.
@@ -65,14 +66,15 @@ export function SavedScansSheet({
   }
 
   function confirmClearAll() {
-    Alert.alert(
-      'Clear all saved scans?',
-      `${scans.length === 1 ? 'The saved code' : `All ${scans.length} saved codes`} will be removed from this phone. The assets themselves are not affected.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear all', style: 'destructive', onPress: onClearAll },
-      ],
-    );
+    void (async () => {
+      const ok = await confirm({
+        title: 'Clear all saved scans?',
+        message: `${scans.length === 1 ? 'The saved code' : `All ${scans.length} saved codes`} will be removed from this phone. The assets themselves are not affected.`,
+        confirmLabel: 'Clear all',
+        destructive: true,
+      });
+      if (ok) onClearAll();
+    })();
   }
 
   return (

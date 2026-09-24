@@ -17,6 +17,21 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.42',
+    items: [
+      {
+        icon: 'chatbox-ellipses-outline',
+        title: 'No more pop-ups',
+        body: 'The app no longer stops you with a pop-up to say something went through. It tells you at the top of the screen and gets out of the way.',
+      },
+      {
+        icon: 'hand-left-outline',
+        title: 'Swipe a sheet away',
+        body: 'Handover, stock count and photo sheets can be pulled down to close.',
+      },
+    ],
+  },
+  {
     version: '0.3.41',
     items: [
       {

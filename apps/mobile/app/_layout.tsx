@@ -14,6 +14,8 @@ import { rememberDestination } from '../src/lib/pending-route';
 import { NotificationTaps } from '../src/components/notification-taps';
 import { WhatsNewGate } from '../src/components/whats-new-gate';
 import { SyncRunner } from '../src/components/sync-banner';
+import { ToastHost } from '../src/components/toast';
+import { ConfirmHost } from '../src/components/confirm';
 import { useTheme } from '../src/theme';
 
 /**
@@ -77,6 +79,10 @@ function RootShell() {
         <SessionGate />
         <WhatsNewGate />
         <SyncRunner />
+        {/* U2 - mounted once, above every screen: what the app says, and
+            what it asks before something cannot be taken back. */}
+        <ToastHost />
+        <ConfirmHost />
         <Stack
           screenOptions={{
             headerShown: false,

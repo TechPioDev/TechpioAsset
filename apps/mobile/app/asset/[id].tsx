@@ -2,8 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -95,7 +93,9 @@ import { MoreActionsSheet } from '../../src/components/assets/more-actions-sheet
 import { PriceCard } from '../../src/components/assets/price-card';
 import { TransferCard, type OpenTransfer } from '../../src/components/assets/transfer-card';
 import { useTheme } from '../../src/theme';
-import { Button, Card, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, Screen, SectionTitle, StatusPill } from '../../src/components/ui';
+import { toast } from '../../src/components/toast';
+import { confirm } from '../../src/components/confirm';
 
 interface Person {
   id?: string;
@@ -313,7 +313,7 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
       await api.request(`/assets/assignments/${openAssignment.id}/acknowledge`, { method: 'POST' });
       await load();
       setPhotoVersion((n) => n + 1);
-      Alert.alert('Receipt confirmed', 'Thanks — this asset is now marked as in use.');
+      toast.say('Receipt confirmed', 'Thanks — this asset is now marked as in use.');
     } finally {
       setBusy(false);
     }
@@ -334,9 +334,9 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
         body: { status: 'DAMAGED', reason: 'Reported damaged from mobile' },
       });
       await load();
-      Alert.alert('Reported', 'IT has been notified this asset is damaged.');
+      toast.say('Reported', 'IT has been notified this asset is damaged.');
     } catch {
-      Alert.alert('Could not report', 'You may not have permission to change this asset.');
+      toast.say('Could not report', 'You may not have permission to change this asset.');
     } finally {
       setBusy(false);
     }
@@ -362,35 +362,33 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
     if (allowed) {
       setHandover(askedAction as HandoverMode);
     } else if (askedAction === 'damage' && assetStatus !== 'DAMAGED' && (mayEdit || isMine)) {
-      Alert.alert(
-        'Report this asset as damaged?',
-        'IT is notified and its status changes to Damaged.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Report damage',
-            style: 'destructive',
-            onPress: () => void reportDamageRef.current(),
-          },
-        ],
-      );
+      void (async () => {
+        const ok = await confirm({
+          title: 'Report this asset as damaged?',
+          message: 'IT is notified and its status changes to Damaged.',
+          confirmLabel: 'Report damage',
+          destructive: true,
+        });
+        if (ok) await reportDamageRef.current();
+      })();
     } else if (askedAction === 'confirm-receipt') {
       // v2.78 - from the handover push. A receipt is evidence the device
       // reached this person, so it is asked once, with the tag in view, and
       // only the holder can give it (the server refuses anyone else too).
       if (openAssignment && isMine && !openAssignment.acknowledgedAt) {
-        Alert.alert(
-          `Confirm you have ${asset?.name ?? 'this asset'}?`,
-          `${asset?.assetTag ?? ''} — only confirm if it is with you. If it is not, tell IT instead.`,
-          [
-            { text: 'Not yet', style: 'cancel' },
-            { text: 'Confirm receipt', onPress: () => void confirmReceiptRef.current() },
-          ],
-        );
+        void (async () => {
+          const ok = await confirm({
+            title: `Confirm you have ${asset?.name ?? 'this asset'}?`,
+            message: `${asset?.assetTag ?? ''} — only confirm if it is with you. If it is not, tell IT instead.`,
+            confirmLabel: 'Confirm receipt',
+            cancelLabel: 'Not yet',
+          });
+          if (ok) await confirmReceiptRef.current();
+        })();
       } else if (openAssignment && isMine) {
-        Alert.alert('Already confirmed', 'You have already confirmed you received this asset.');
+        toast.say('Already confirmed', 'You have already confirmed you received this asset.');
       } else {
-        Alert.alert('Nothing to confirm', 'This asset is not assigned to you any more.');
+        toast.say('Nothing to confirm', 'This asset is not assigned to you any more.');
       }
     }
   }, [
@@ -408,9 +406,7 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
 
   if (!asset) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 
@@ -531,10 +527,14 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
       open();
       return;
     }
-    Alert.alert(`Check with ${warranty.label}`, notice, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: `Open ${warranty.label}`, onPress: open },
-    ]);
+    void (async () => {
+      const ok = await confirm({
+        title: `Check with ${warranty.label}`,
+        message: notice,
+        confirmLabel: `Open ${warranty.label}`,
+      });
+      if (ok) open();
+    })();
   }
 
   const scrollToAnchor = (key: Anchor) => {

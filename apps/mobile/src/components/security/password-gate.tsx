@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { postCredential } from '../../lib/account-security';
 import { ApiError } from '../../lib/api-client';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, IconBadge } from '../ui';
 import { PasswordField } from './password-field';
+import { toast } from '../toast';
 
 /**
  * "Confirm it's you" - the web security page's re-authentication gate
@@ -29,7 +30,7 @@ export function PasswordGate({ onConfirmed }: { onConfirmed: () => void }) {
     } catch (error) {
       setPassword('');
       const rateLimited = error instanceof ApiError && error.status === 429;
-      Alert.alert(
+      toast.say(
         rateLimited ? 'Too many attempts' : 'That password is not correct',
         rateLimited ? 'Wait a minute, then try again.' : undefined,
       );

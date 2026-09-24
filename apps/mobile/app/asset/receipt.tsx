@@ -1,9 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Share, Text, View } from 'react-native';
+import { Share, Text, View } from 'react-native';
 import * as Print from 'expo-print';
 import { assetReceipt, type ReceiptAssetInput, type ReceiptRow } from '@techpioasset/domain';
-import { Button, Card, EmptyState, Screen, SectionTitle } from '../../src/components/ui';
+import { Button, Card, DetailSkeleton, EmptyState, Screen, SectionTitle } from '../../src/components/ui';
 import { InfoRow } from '../../src/components/assets/detail-parts';
 import { ApiError } from '../../src/lib/api-client';
 import { receiptHtml, receiptText } from '../../src/lib/receipt-document';
@@ -84,9 +84,7 @@ export default function AssetReceiptScreen() {
 
   if (!receipt) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: 'center' }}>
-        <ActivityIndicator color={c.brand} />
-      </View>
+      <DetailSkeleton />
     );
   }
 

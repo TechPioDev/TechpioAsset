@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { PERMISSIONS, type AssetStatus } from '@techpioasset/domain';
 import { buildDispatchPayload, transferView } from '../../lib/asset-admin';
 import { useSession } from '../../providers/session';
@@ -7,6 +7,7 @@ import { useTheme } from '../../theme';
 import { ChipPicker } from '../chip-picker';
 import { Button, Card, Field, SectionTitle } from '../ui';
 import { AssetSheet, FormLabel } from './sheet';
+import { toast } from '../toast';
 
 /**
  * Office transfers on the phone (web: transfer-panel.tsx).
@@ -98,7 +99,7 @@ export function TransferCard({
       });
       setOpen(false);
       onChanged();
-      Alert.alert('Dispatched', 'Waiting for the destination to confirm arrival.');
+      toast.say('Dispatched', 'Waiting for the destination to confirm arrival.');
     } catch (e) {
       fail(e, 'Could not dispatch this asset');
     } finally {
@@ -115,7 +116,7 @@ export function TransferCard({
         body: { resultingStatus: landing },
       });
       onChanged();
-      Alert.alert('Arrival confirmed');
+      toast.say('Arrival confirmed');
     } catch (e) {
       fail(e, 'Could not confirm arrival');
     } finally {

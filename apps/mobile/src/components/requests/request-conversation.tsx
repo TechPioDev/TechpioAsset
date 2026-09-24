@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Linking, Switch, Text, View } from 'react-native';
+import { Linking, Switch, Text, View } from 'react-native';
 import { TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { ApiError } from '../../lib/api-client';
 import { PHOTO_MARKER_HINT, canSendMessage, commentPayload, failedMessage, sentMessage } from '../../lib/comment-images';
@@ -7,6 +7,7 @@ import { personName } from '../../lib/format';
 import { useSession } from '../../providers/session';
 import { useTheme } from '../../theme';
 import { Button, Card, Field, SectionTitle, StatusPill } from '../ui';
+import { toast } from '../toast';
 import {
   FlashBanner,
   MessageBodyView,
@@ -113,7 +114,7 @@ export function RequestConversation({
       );
       await Linking.openURL(api.absoluteUrl(link.path));
     } catch (error) {
-      Alert.alert('Could not open the image', error instanceof ApiError ? error.message : 'Please try again.');
+      toast.say('Could not open the image', error instanceof ApiError ? error.message : 'Please try again.');
     }
   }
 
