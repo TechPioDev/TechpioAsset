@@ -6,7 +6,6 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,6 +34,7 @@ import {
   type OwnershipType,
 } from '@techpioasset/domain';
 import { assetPills } from '../../src/asset-pills';
+import { assetIcon } from '../../src/lib/asset-icon';
 import { ChipPicker } from '../../src/components/chip-picker';
 import { useSession } from '../../src/providers/session';
 import { useTheme } from '../../src/theme';
@@ -48,6 +48,7 @@ import {
   ListSkeleton,
   PullRefresh,
   StatusPill,
+  Text,
 } from '../../src/components/ui';
 import { formatMoney } from '../../src/lib/format';
 import { MasterDetail } from '../../src/components/master-detail';
@@ -481,16 +482,16 @@ export default function AssetsScreen() {
                 ...(tablet && selected === item.id ? { borderColor: c.brand, borderWidth: 2 } : {}),
               }}
             >
-              <IconBadge icon="hardware-chip-outline" />
+              <IconBadge icon={assetIcon(item.category?.name, item.subcategory?.name, item.name)} />
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
+                <Text variant="body" weight="700" numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={{ color: c.subtle, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                <Text variant="caption" tone="subtle" numeric style={{ marginTop: 2 }} numberOfLines={1}>
                   {item.assetTag}
                   {item.serialNumber ? ` · ${item.serialNumber}` : ''}
                 </Text>
-                <Text style={{ color: c.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                <Text variant="caption" tone="muted" style={{ marginTop: 2 }} numberOfLines={1}>
                   {kind || '—'}
                 </Text>
                 <View
@@ -502,8 +503,14 @@ export default function AssetsScreen() {
                     alignItems: 'center',
                   }}
                 >
-                  {assetPills(item, scheme).map((p) => (
-                    <StatusPill key={p.label} label={p.label} bg={p.bg} fg={p.fg} />
+                  {assetPills(item, scheme).map((p, i) => (
+                    <StatusPill
+                      key={p.label}
+                      label={p.label}
+                      bg={p.bg}
+                      fg={p.fg}
+                      variant={i === 0 ? 'solid' : 'quiet'}
+                    />
                   ))}
                 </View>
                 <View
@@ -520,6 +527,7 @@ export default function AssetsScreen() {
                       label={condition.label}
                       bg={palette[condition.tone].bg}
                       fg={palette[condition.tone].fg}
+                      variant="quiet"
                     />
                   ) : null}
                   {ownership ? (
@@ -527,6 +535,7 @@ export default function AssetsScreen() {
                       label={ownership.label}
                       bg={palette[ownership.tone].bg}
                       fg={palette[ownership.tone].fg}
+                      variant="quiet"
                     />
                   ) : null}
                 </View>
@@ -549,10 +558,7 @@ export default function AssetsScreen() {
                     {assetHolderName(item.assignedUser)}
                   </Text>
                   {canSeeCost && 'purchaseCost' in item ? (
-                    <Text
-                      style={{ color: c.text, fontSize: 12, fontWeight: '700' }}
-                      numberOfLines={1}
-                    >
+                    <Text variant="caption" weight="700" numeric numberOfLines={1}>
                       {formatMoney(item.purchaseCost, item.currency ?? 'INR')}
                     </Text>
                   ) : null}

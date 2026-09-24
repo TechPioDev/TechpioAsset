@@ -12,6 +12,7 @@ import { ChangeEmailRow } from '../../src/components/people/change-email';
 import { ManageSheet } from '../../src/components/people/manage-sheet';
 import { peopleGates, statusLabel as accountStatusLabel, type UserRow } from '../../src/lib/people-admin';
 import { toast } from '../../src/components/toast';
+import { assetIcon } from '../../src/lib/asset-icon';
 import {
   offboardActionLabel,
   offboardGates,
@@ -278,7 +279,7 @@ export default function PersonScreen() {
                   gap: spacing.md,
                 }}
               >
-                <IconBadge icon="hardware-chip-outline" />
+                <IconBadge icon={assetIcon(null, a.subcategory?.name, a.name)} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
                     {a.name}

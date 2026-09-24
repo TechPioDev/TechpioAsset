@@ -30,6 +30,7 @@ import { SyncBanner } from '../../src/components/sync-banner';
 import { useTabletLayout } from '../../src/lib/tablet-layout';
 import { useT } from '../../src/providers/language';
 import { homePlan } from '../../src/lib/home-plan';
+import { assetIcon } from '../../src/lib/asset-icon';
 
 interface AssetRow {
   id: string;
@@ -287,7 +288,7 @@ export default function HomeScreen() {
                 <Text variant="body" weight="700" numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text variant="caption" tone="muted" style={{ marginTop: 2 }} numberOfLines={1}>
+                <Text variant="caption" tone="muted" numeric style={{ marginTop: 2 }} numberOfLines={1}>
                   {formatInr(Number(item.landedCost))} · {item.availableQuantity} available
                 </Text>
               </View>
@@ -323,7 +324,7 @@ export default function HomeScreen() {
                   gap: spacing.md,
                 }}
               >
-                <IconBadge icon="hardware-chip-outline" />
+                <IconBadge icon={assetIcon(null, null, item.name)} />
                 <View style={{ flex: 1 }}>
                   <Text variant="body" weight="700" numberOfLines={1}>
                     {item.name}

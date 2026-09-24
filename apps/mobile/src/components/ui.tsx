@@ -37,6 +37,7 @@ export function Text({
   variant = 'body',
   tone = 'default',
   weight,
+  numeric = false,
   style,
   ...props
 }: {
@@ -45,6 +46,13 @@ export function Text({
   tone?: 'default' | 'muted' | 'subtle' | 'brand' | 'danger' | 'success' | 'onBrand';
   /** Overrides the role's own weight, for a row's first line or a total. */
   weight?: TextStyle['fontWeight'];
+  /**
+   * Fixed-width digits (U3). For anything read as a figure rather than a
+   * word: asset tags, serials, quantities, money, dates. In a proportional
+   * face a 1 is narrower than a 0, so a column of numbers wobbles as it
+   * updates and two tags of the same length do not line up.
+   */
+  numeric?: boolean;
 } & RNTextProps) {
   const { c, type } = useTheme();
   const ink: Record<NonNullable<typeof tone>, string> = {
@@ -63,6 +71,7 @@ export function Text({
         type[variant] as TextStyle,
         { color: ink[tone] },
         weight ? { fontWeight: weight } : null,
+        numeric ? { fontVariant: ['tabular-nums' as const] } : null,
         style,
       ]}
     />
@@ -313,8 +322,52 @@ export function SectionTitle({ children, style }: { children: ReactNode; style?:
   );
 }
 
-/** Coloured status badge. Pass explicit bg/fg (from the shared tone tokens). */
-export function StatusPill({ label, bg, fg }: { label: string; bg: string; fg: string }) {
+/**
+ * Coloured status badge. Pass explicit bg/fg (from the shared tone tokens).
+ *
+ * `quiet` is the same words with the colour turned down (U3): a dot in the
+ * tone, then muted text on a hairline. An asset row carries up to four of
+ * these - status, lifecycle, availability, condition - and as four filled
+ * blocks a list of sixty assets was a field of colour with no hierarchy in
+ * it. The first badge on a row stays solid and the rest go quiet, so the eye
+ * lands on the status and the others are there when you look for them.
+ * Nothing is hidden; only its shout is.
+ */
+export function StatusPill({
+  label,
+  bg,
+  fg,
+  variant = 'solid',
+}: {
+  label: string;
+  bg: string;
+  fg: string;
+  variant?: 'solid' | 'quiet';
+}) {
+  const { c } = useTheme();
+  if (variant === 'quiet') {
+    return (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 5,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: c.border,
+          paddingLeft: 7,
+          paddingRight: 9,
+          paddingVertical: 3,
+          alignSelf: 'flex-start',
+        }}
+      >
+        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} />
+        <Text variant="micro" tone="muted" numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+    );
+  }
   return (
     <View
       style={{

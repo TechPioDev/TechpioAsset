@@ -17,6 +17,16 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.43',
+    items: [
+      {
+        icon: 'albums-outline',
+        title: 'Lists you can scan',
+        body: 'Each item now carries an icon for what it is — a laptop, a monitor, a headset — and only its status is highlighted, so a long list is easier on the eye.',
+      },
+    ],
+  },
+  {
     version: '0.3.42',
     items: [
       {

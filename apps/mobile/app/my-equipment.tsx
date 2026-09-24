@@ -6,6 +6,7 @@ import type { AssetStatus } from '@techpioasset/domain';
 import { useSession } from '../src/providers/session';
 import { useT } from '../src/providers/language';
 import { statusColor, statusLabel, useTheme } from '../src/theme';
+import { assetIcon } from '../src/lib/asset-icon';
 import {
   Card,
   Chevron,
@@ -134,7 +135,7 @@ export default function MyEquipmentScreen() {
                   gap: spacing.md,
                 }}
               >
-                <IconBadge icon="hardware-chip-outline" />
+                <IconBadge icon={assetIcon(null, a.subcategory?.name, a.name)} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text
                     style={{ color: c.text, fontWeight: '700', fontSize: 15 }}

@@ -2,7 +2,7 @@
   "expo": {
     "name": "PioAssets",
     "slug": "dalbeir-asset",
-    "version": "0.3.42",
+    "version": "0.3.43",
     "orientation": "default",
     "scheme": "techpioasset",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.techpio.asset",
-      "versionCode": 57,
+      "versionCode": 58,
       "permissions": [
         "CAMERA",
         "USE_BIOMETRIC",

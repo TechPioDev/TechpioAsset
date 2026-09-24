@@ -13,10 +13,23 @@ import { useT } from '../../src/providers/language';
 import type { StringKey } from '../../src/i18n/strings';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * U3 - the tab you are on is drawn filled, the others outlined.
+ *
+ * Every tab used the outline icon in both states, so the only difference
+ * between "here" and "not here" was the colour of a 21px glyph. Shape is the
+ * cue people actually read, and it is the one that survives being colour
+ * blind or glancing at the phone in sunlight.
+ */
 const icon =
   (name: IconName) =>
-  ({ color, size }: { color: string; size: number }) => (
-    <Ionicons name={name} color={color} size={size} />
+  ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
+    <Ionicons
+      name={(focused ? name.replace(/-outline$/, '') : name) as IconName}
+      color={color}
+      size={size}
+    />
   );
 
 /** Every screen that can take one of the role's places on the bar. */
