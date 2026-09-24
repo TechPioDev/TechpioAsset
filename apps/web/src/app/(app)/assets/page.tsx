@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronDown,
@@ -175,6 +175,41 @@ function AssetsTable() {
   // "Available: 166" and landing on 41 available laptops is the same broken
   // promise as landing on everything, only harder to notice.
   const [typeChosen, setTypeChosen] = useState(assetListArrivedFiltered(arriving));
+
+  /**
+   * v2.91 - once somebody touches a filter, the link's parameters come off
+   * the address bar.
+   *
+   * They seed the controls on arrival and then go stale: after changing the
+   * type, the bar still read `?status=DAMAGED,LOST,STOLEN` while the page
+   * showed something else, so a reload or a shared link brought back a filter
+   * the person had already moved past. The controls are in charge from the
+   * first change, and the URL should not claim otherwise.
+   */
+  const router = useRouter();
+  const dropLinkFilters = useCallback(() => {
+    const next = new URLSearchParams(params.toString());
+    let changed = false;
+    // `q` is the header's search box, not one of these controls - it stays.
+    for (const key of [
+      'status',
+      'lifecycleState',
+      'availabilityState',
+      'ownershipType',
+      'subcategoryId',
+      'categoryId',
+      'warrantyWithinDays',
+      'vendorProductId',
+    ]) {
+      if (next.has(key)) {
+        next.delete(key);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const query = next.toString();
+    router.replace(query ? `/assets?${query}` : '/assets', { scroll: false });
+  }, [params, router]);
   /**
    * Columns the API can order by, named as the API names them so a heading
    * cannot ask for a sort the server will quietly ignore.
@@ -364,6 +399,23 @@ function AssetsTable() {
               Warranty ending within {warrantyWithinDays} days · show all assets
             </button>
           ) : null}
+          {status.includes(',') ? (
+            <button
+              type="button"
+              onClick={() => {
+                setStatus('');
+                setPage(1);
+                dropLinkFilters();
+              }}
+              className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
+            >
+              {status
+                .split(',')
+                .map((s) => ASSET_STATUS_TOKENS[s as AssetStatus]?.label ?? s)
+                .join(', ')}{' '}
+              · show all assets
+            </button>
+          ) : null}
           {vendorProductId ? (
             <button
               type="button"
@@ -436,10 +488,27 @@ function AssetsTable() {
               onChange={(e) => {
                 setStatus(e.target.value);
                 setPage(1);
+                dropLinkFilters();
               }}
               className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
             >
               <option value="">All statuses</option>
+              {/* v2.91 - a status that arrived as a LIST ("Damaged, lost or
+                  stolen", from the dashboard's Critical tile) matched no
+                  option below, so the control had nothing to show for it: the
+                  list was filtered and the dropdown said otherwise. Checked in
+                  a browser - a select whose value is absent from its options
+                  lands on selectedIndex -1 and displays nothing of its own.
+                  This option carries the exact value, so the control states
+                  what is applied and can be changed out of. */}
+              {status.includes(',') ? (
+                <option value={status}>
+                  {status
+                    .split(',')
+                    .map((s) => ASSET_STATUS_TOKENS[s as AssetStatus]?.label ?? s)
+                    .join(', ')}
+                </option>
+              ) : null}
               {ASSET_STATUSES.map((value) => (
                 <option key={value} value={value}>
                   {ASSET_STATUS_TOKENS[value].label}
@@ -454,6 +523,7 @@ function AssetsTable() {
               onChange={(e) => {
                 setLifecycle(e.target.value);
                 setPage(1);
+                dropLinkFilters();
               }}
               className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
             >
@@ -472,6 +542,7 @@ function AssetsTable() {
               onChange={(e) => {
                 setAvailability(e.target.value);
                 setPage(1);
+                dropLinkFilters();
               }}
               className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
             >
@@ -490,6 +561,7 @@ function AssetsTable() {
               onChange={(e) => {
                 setOwnership(e.target.value);
                 setPage(1);
+                dropLinkFilters();
               }}
               className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
             >
