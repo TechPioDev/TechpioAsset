@@ -202,7 +202,7 @@ export default function EditAssetScreen() {
   }));
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Text style={{ color: c.muted, fontSize: 13, marginBottom: spacing.lg }}>
         {asset.assetTag} · {asset.name}
       </Text>

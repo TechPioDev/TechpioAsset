@@ -240,7 +240,7 @@ export function RequestDetailView({
     request.requester?.email !== user?.email;
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Card style={{ marginBottom: spacing.xl }}>
         <View
           style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}

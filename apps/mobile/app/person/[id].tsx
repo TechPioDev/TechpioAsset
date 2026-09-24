@@ -167,7 +167,7 @@ export default function PersonScreen() {
   const offboard = offboardGates(user, person);
 
   return (
-    <Screen scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
+    <Screen fade scroll refreshControl={<PullRefresh refreshing={loading} onRefresh={load} />}>
       <Card style={{ marginBottom: spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <Avatar name={name} size={52} />

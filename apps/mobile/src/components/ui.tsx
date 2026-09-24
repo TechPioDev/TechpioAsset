@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useTheme, type ThemeColors, type TypeRole } from '../theme';
 import { tapped } from '../lib/haptics';
+import { FadeIn } from './motion';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -97,6 +98,7 @@ export function Screen({
   padded = true,
   refreshControl,
   scrollRef,
+  fade = false,
 }: {
   children: ReactNode;
   scroll?: boolean;
@@ -104,9 +106,18 @@ export function Screen({
   refreshControl?: ComponentProps<typeof ScrollView>['refreshControl'];
   /** With `scroll`, a handle on the list so a screen can bring one of its sections into view. */
   scrollRef?: RefObject<ScrollView | null>;
+  /**
+   * Settle the content in rather than cutting to it (U4).
+   *
+   * For a screen that shows `DetailSkeleton` first: the swap from outline to
+   * record was a hard cut, which reads as a flicker. Off by default, because
+   * a screen you return to constantly should not re-animate every time.
+   */
+  fade?: boolean;
 }) {
   const { c, spacing } = useTheme();
   const pad = padded ? { padding: spacing.lg } : undefined;
+  const body = fade ? <FadeIn>{children}</FadeIn> : children;
   if (scroll) {
     return (
       <ScrollView
@@ -116,11 +127,11 @@ export function Screen({
         refreshControl={refreshControl}
         keyboardShouldPersistTaps="handled"
       >
-        {children}
+        {body}
       </ScrollView>
     );
   }
-  return <View style={[{ flex: 1, backgroundColor: c.background }, pad]}>{children}</View>;
+  return <View style={[{ flex: 1, backgroundColor: c.background }, pad]}>{body}</View>;
 }
 
 /**

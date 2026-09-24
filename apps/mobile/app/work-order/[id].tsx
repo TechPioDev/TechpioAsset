@@ -178,7 +178,7 @@ export default function WorkOrderScreen() {
   const awaitingApproval = wo.status === 'AWAITING_APPROVAL';
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Card style={{ marginBottom: spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <IconBadge icon="build-outline" tint={overdue ? c.danger : undefined} />

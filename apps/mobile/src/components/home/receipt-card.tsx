@@ -7,6 +7,7 @@ import { useT } from '../../providers/language';
 import { useTheme } from '../../theme';
 import { Button, Card, IconBadge } from '../ui';
 import { committed, refused } from '../../lib/haptics';
+import { LeaveOnDone } from '../motion';
 
 /** Rows shown before "and N more": the card is a prompt, not the list. */
 const SHOWN = 3;
@@ -33,6 +34,10 @@ export function ReceiptCard({
   const { c, spacing } = useTheme();
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  // U4 - which row has been confirmed and is on its way out. The reload that
+  // actually removes it waits for the animation to finish, so the row does
+  // not vanish underneath its own exit.
+  const [leaving, setLeaving] = useState<string | null>(null);
 
   if (waiting.length === 0) return null;
 
@@ -42,7 +47,7 @@ export function ReceiptCard({
     try {
       await api.request(`/assets/assignments/${row.assignmentId}/acknowledge`, { method: 'POST' });
       committed();
-      onConfirmed();
+      setLeaving(row.assignmentId);
     } catch {
       refused();
       setFailed(t('receipt.failed'));
@@ -78,33 +83,38 @@ export function ReceiptCard({
       </View>
 
       {waiting.slice(0, SHOWN).map((row) => (
-        <View
+        <LeaveOnDone
           key={row.assignmentId}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: spacing.md,
-            marginBottom: spacing.sm,
-          }}
+          gone={leaving === row.assignmentId}
+          onGone={onConfirmed}
         >
-          <Pressable
-            style={{ flex: 1 }}
-            onPress={() => router.push(`/asset/${row.assetId}`)}
-            accessibilityRole="link"
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+              marginBottom: spacing.sm,
+            }}
           >
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>
-              {row.name}
-            </Text>
-            <Text style={{ color: c.muted, fontSize: 12 }}>{row.assetTag}</Text>
-          </Pressable>
-          <Button
-            label={t('receipt.confirm')}
-            icon="checkmark"
-            onPress={() => void confirm(row)}
-            loading={busy === row.assignmentId}
-            disabled={busy !== null}
-          />
-        </View>
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => router.push(`/asset/${row.assetId}`)}
+              accessibilityRole="link"
+            >
+              <Text style={{ color: c.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>
+                {row.name}
+              </Text>
+              <Text style={{ color: c.muted, fontSize: 12 }}>{row.assetTag}</Text>
+            </Pressable>
+            <Button
+              label={t('receipt.confirm')}
+              icon="checkmark"
+              onPress={() => void confirm(row)}
+              loading={busy === row.assignmentId}
+              disabled={busy !== null || leaving !== null}
+            />
+          </View>
+        </LeaveOnDone>
       ))}
 
       {waiting.length > SHOWN ? (

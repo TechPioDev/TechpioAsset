@@ -197,7 +197,7 @@ export default function OffboardScreen() {
   if (!task) {
     const rows = outstandingPreview ?? [];
     return (
-      <Screen scroll>
+      <Screen scroll fade>
         <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>Offboarding {name}</Text>
         <Text style={{ color: c.muted, fontSize: 13, marginTop: 4, marginBottom: spacing.lg }}>
           Nothing has started. This is what offboarding {name} would involve.

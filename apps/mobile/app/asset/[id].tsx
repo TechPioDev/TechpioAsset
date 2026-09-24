@@ -583,7 +583,7 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
       : undefined;
 
   return (
-    <Screen scroll scrollRef={scrollRef}>
+    <Screen fade scroll scrollRef={scrollRef}>
       {offlineSince ? (
         <Card style={{ marginBottom: spacing.md, borderColor: c.warning, borderWidth: 1 }}>
           <Text style={{ color: c.text, fontWeight: '700', fontSize: 14 }}>No connection</Text>

@@ -97,7 +97,7 @@ export default function AssetReceiptScreen() {
   );
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Card style={{ marginBottom: spacing.lg }}>
         <Text style={{ color: c.text, fontSize: 18, fontWeight: '800' }}>{receipt.title}</Text>
         <Text style={{ color: c.muted, fontSize: 12, marginTop: 4 }}>{receipt.generatedLine}</Text>

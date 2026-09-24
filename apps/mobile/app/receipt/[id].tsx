@@ -157,7 +157,7 @@ export default function ReceiptScreen() {
   };
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>{receipt.grnNumber}</Text>
       <Text style={{ color: c.muted, fontSize: 13, marginTop: 4 }}>
         {[

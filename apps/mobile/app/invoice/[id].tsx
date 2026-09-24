@@ -111,7 +111,7 @@ export default function InvoiceDetailScreen() {
 
   if (error && !data) {
     return (
-      <Screen>
+      <Screen fade>
         <EmptyState icon="alert-circle-outline" title="Could not load this invoice" message={error} />
         <Button label="Try again" variant="secondary" onPress={() => void load()} />
       </Screen>

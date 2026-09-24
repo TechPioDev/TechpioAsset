@@ -37,6 +37,7 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+
   useEffect(() => {
     // v2.81 - back to where a shortcut or link was going, if the lock stopped it.
     if (status === 'authenticated') router.replace((takeDestination() ?? '/(tabs)') as never);

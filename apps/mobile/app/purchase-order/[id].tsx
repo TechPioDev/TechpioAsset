@@ -120,7 +120,7 @@ export default function PurchaseOrderScreen() {
   );
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Card style={{ marginBottom: spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
           <IconBadge icon="cube-outline" />

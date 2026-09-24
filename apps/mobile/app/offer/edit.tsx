@@ -272,7 +272,7 @@ export default function OfferEditScreen() {
   );
 
   return (
-    <Screen scroll>
+    <Screen scroll fade>
       <Text style={{ color: c.text, fontSize: 20, fontWeight: '800' }}>
         {editing ? 'Edit offer' : 'New offer'}
       </Text>

@@ -17,6 +17,16 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.44',
+    items: [
+      {
+        icon: 'sparkles-outline',
+        title: 'Smoother throughout',
+        body: 'Records settle into place instead of snapping in, and an item you confirm slides away as you do it. If your phone is set to reduce motion, none of this moves.',
+      },
+    ],
+  },
+  {
     version: '0.3.43',
     items: [
       {
