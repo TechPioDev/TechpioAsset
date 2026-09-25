@@ -1,0 +1,81 @@
+# PioAssets — STAGING stack, on the same VPS as production.
+#
+# Separate in the three ways that matter:
+#
+#   name:    a different compose project, so the containers AND the volumes are
+#            distinct. Staging physically cannot open production's database.
+#   ports:   3100/3101 on localhost, against production's 3000/3001.
+#   mounts:  the Firebase service-account key is NOT mounted here. Push on
+#            staging is PUSH_PROVIDER=mock, and the key it would need to reach a
+#            real phone is simply absent - a missing file is a stronger promise
+#            than a setting somebody can edit.
+#
+# The uploads volume starts EMPTY. Production's condition photos are pictures of
+# a real office and real desks; staging does not need them, and copying them
+# would put them on a second, less-guarded surface for no test value.
+#
+# Bring up:  ./deploy/deploy-vps.sh   (with the staging variables - see docs/STAGING.md)
+
+name: techpioasset-staging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No appendonly here: staging's queue state is not worth surviving a restart,
+    # and this keeps it off production's disk budget.
+    command: ['redis-server', '--save', '']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env.staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/apps/api/.local-storage
+    ports:
+      - '127.0.0.1:3101:3001'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '127.0.0.1:3100:3000'
+
+volumes:
+  pgdata:
+  uploads:

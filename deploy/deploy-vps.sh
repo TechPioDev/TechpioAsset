@@ -28,7 +28,16 @@ APP_DIR="${APP_DIR:-/opt/techpioasset}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.vps.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 SITE="${SITE:-https://pioassets.com}"
+BRANCH="${BRANCH:-main}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+
+# The two health-check URLs, overridable because staging sits behind basic auth.
+# Pointing them at the public URL there would make nginx answer 401 for BOTH -
+# and a 401 is exactly what the API check expects, so a dead API would PASS.
+# Staging aims them at the container ports instead, where a 401 can only have
+# come from the application.
+HEALTH_WEB_URL="${HEALTH_WEB_URL:-$SITE/login}"
+HEALTH_API_URL="${HEALTH_API_URL:-$SITE/api/v1/auth/me}"
 
 compose() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
@@ -64,12 +73,12 @@ fi
 FROM="$(git rev-parse --short HEAD)"
 echo "deploy: at $FROM ($(git log -1 --format=%s))"
 
-git fetch --quiet origin
-git merge --ff-only origin/main
+git fetch --quiet origin "$BRANCH"
+git merge --ff-only "origin/$BRANCH"
 
 TO="$(git rev-parse --short HEAD)"
 if [ "$FROM" = "$TO" ]; then
-  echo "deploy: already at origin/main; rebuilding anyway."
+  echo "deploy: already at origin/$BRANCH; rebuilding anyway."
 else
   echo "deploy: $FROM -> $TO"
   git log --oneline "$FROM..$TO" | sed 's/^/          /'
@@ -93,8 +102,8 @@ deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
 login=""
 me=""
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  login="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SITE/login" || echo 000)"
-  me="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SITE/api/v1/auth/me" || echo 000)"
+  login="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_WEB_URL" || echo 000)"
+  me="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_API_URL" || echo 000)"
   if [ "$login" = "200" ] && [ "$me" = "401" ]; then
     echo "deploy: ok - login=200 auth/me=401, now at $TO"
     compose ps "${SERVICES[@]}"
