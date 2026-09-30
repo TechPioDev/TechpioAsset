@@ -12,6 +12,11 @@ coverage/
 .env.*.local
 .env.prod
 .env.staging
+# Operator backups taken on the server before a migration. They hold live
+# secrets, they are never committed, and they must never be deleted either -
+# ignoring them keeps `git add -A` from turning one into a leak.
+.env.prod.bak*
+.env.staging.bak*
 !.env.example
 !.env.prod.example
 !.env.staging.example

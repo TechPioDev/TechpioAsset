@@ -62,11 +62,23 @@ done
 cd "$APP_DIR"
 
 # ── 1. A clean tree, or nothing ──────────────────────────────────────────────
-if [ -n "$(git status --porcelain)" ]; then
-  echo "deploy: the working tree on this server has uncommitted changes." >&2
-  echo "        Deploying would discard or trip over them. Showing them and stopping:" >&2
-  git status --short >&2
+# Tracked files only. A MODIFIED tracked file is a hand edit that the merge
+# would clobber or trip over, and that must stop the deploy. An UNTRACKED file
+# is a different thing: git itself refuses to overwrite one, so the merge below
+# fails safely on its own if a new commit ever claims that path. Blocking on
+# untracked files instead meant the server's own .env.prod backups - which hold
+# live secrets and must never be deleted - made every deploy impossible.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "deploy: a tracked file on this server has been edited by hand." >&2
+  echo "        Deploying would discard or trip over it. Showing it and stopping:" >&2
+  git status --short --untracked-files=no >&2
   exit 1
+fi
+
+UNTRACKED="$(git status --porcelain | grep '^??' || true)"
+if [ -n "$UNTRACKED" ]; then
+  echo "deploy: note - untracked files present (not deleted, not committed, not in the way):"
+  echo "$UNTRACKED" | sed 's/^?? /          /'
 fi
 
 # ── 2. Where we are now, for the rollback ────────────────────────────────────
