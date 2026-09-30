@@ -127,6 +127,15 @@ echo "scrub: scrubbing"
 compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v ON_ERROR_STOP=1 -v "password_hash=$HASH" < ./deploy/staging-scrub.sql
 
+# Written down BEFORE anything else can fail. The first real run died bringing
+# the containers up - after the scrub had committed - and took the only copy of
+# the password with it, leaving every account with a hash nobody knew the
+# plaintext for. A password that exists only in the tail of a log is a password
+# you have not got.
+printf '%s
+' "$STAGING_PASSWORD" > "$APP_DIR/.staging-password"
+chmod 600 "$APP_DIR/.staging-password"
+
 echo "scrub: starting staging"
 compose up -d
 
@@ -134,6 +143,7 @@ cat <<MSG
 
 ─────────────────────────────────────────────────────────────────────────────
  Staging password for EVERY account: $STAGING_PASSWORD
- Shown once. Not stored anywhere. Run this script again to get a new one.
+ Also written to $APP_DIR/.staging-password (mode 600).
+ Run this script again to get a new one.
 ─────────────────────────────────────────────────────────────────────────────
 MSG

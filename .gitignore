@@ -17,6 +17,8 @@ coverage/
 # ignoring them keeps `git add -A` from turning one into a leak.
 .env.prod.bak*
 .env.staging.bak*
+.staging-password
+.app-role-pw.tmp
 !.env.example
 !.env.prod.example
 !.env.staging.example
