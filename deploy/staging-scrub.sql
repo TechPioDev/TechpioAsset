@@ -157,7 +157,11 @@ UPDATE disposal_records SET recipient = 'Staging Recipient' WHERE recipient IS N
 -- Who did what and when is the useful part and stays. Where they were sitting
 -- and what browser they used is not, and is personal.
 UPDATE audit_logs      SET "ipAddress" = NULL, "userAgent" = NULL;
-UPDATE device_agents   SET "tokenHash" = '', "previousTokenHash" = NULL;
+-- tokenHash is NOT NULL and UNIQUE, so it cannot be blanked: setting every row
+-- to '' collides on the second agent. Per-row, obviously-not-a-token values
+-- keep the constraint satisfied and still leave nothing an enrolled agent
+-- could authenticate with.
+UPDATE device_agents   SET "tokenHash" = 'scrubbed-' || id, "previousTokenHash" = NULL;
 UPDATE assets          SET "macAddress" = NULL WHERE "macAddress" IS NOT NULL;
 
 COMMIT;
