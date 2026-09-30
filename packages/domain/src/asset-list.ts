@@ -117,7 +117,24 @@ export function assetHolderName(
  * ownership), and only somebody who sees their own equipment alone (`ownScope`)
  * is told about assignment. Callers that pass neither read as they always did.
  */
+/**
+ * What to say when nothing matched (v2.98).
+ *
+ * This used to look at `q` and `status` only, so a list narrowed by Type -
+ * which is most of them - was met with "Try clearing the search or status
+ * filter", naming two controls the reader had not touched. Someone filtering
+ * to Laptop + Available saw an empty table and advice about a search box that
+ * was empty, and reasonably concluded the filters were broken. They were not;
+ * the message was.
+ *
+ * It now counts what is actually applied and says so. The caller is expected
+ * to render the chips alongside, so the filters named here are the ones on
+ * screen and removable.
+ */
 export function assetListEmptyState(f: {
+  /** Everything currently narrowing the list. */
+  filters?: AssetListFilters;
+  /** Deprecated inputs, kept so existing callers keep working. */
   q?: string;
   status?: string;
   filtered?: boolean;
@@ -126,14 +143,23 @@ export function assetListEmptyState(f: {
   title: string;
   description: string;
 } {
+  const filters: AssetListFilters = f.filters ?? {
+    ...(f.q ? { q: f.q } : {}),
+    ...(f.status ? { status: f.status } : {}),
+  };
+  const applied = Object.values(filters).filter((v) => v != null && v !== '').length;
+
   const description =
-    f.q || f.status
-      ? 'Try clearing the search or status filter.'
-      : f.filtered
-        ? 'No assets match these filters. Try clearing one.'
-        : f.ownScope === false
-          ? 'No assets have been added yet.'
-          : 'Nothing has been assigned to you yet.';
+    applied === 1
+      ? 'No assets match this filter. Remove it to see more.'
+      : applied > 1
+        ? `No assets match these ${applied} filters. Removing one will widen the search.`
+        : f.filtered
+          ? 'No assets match these filters. Try clearing one.'
+          : f.ownScope === false
+            ? 'No assets have been added yet.'
+            : 'Nothing has been assigned to you yet.';
+
   return { title: 'No assets found', description };
 }
 

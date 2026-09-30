@@ -100,12 +100,14 @@ describe('who holds it', () => {
 });
 
 describe('an empty asset list', () => {
-  it('points at the search or status when one is set', () => {
+  it('talks about the filter that is set, whichever it is (v2.98)', () => {
+    // It used to name "the search or status filter" for every case, which was
+    // wrong the moment any other filter was the one narrowing the list.
     expect(assetListEmptyState({ q: 'x' }).description).toBe(
-      'Try clearing the search or status filter.',
+      'No assets match this filter. Remove it to see more.',
     );
     expect(assetListEmptyState({ status: 'LOST' }).description).toBe(
-      'Try clearing the search or status filter.',
+      'No assets match this filter. Remove it to see more.',
     );
   });
 
@@ -204,5 +206,41 @@ describe('whether a link named any filter', () => {
   it('is false for a bare link', () => {
     expect(assetListArrivedFiltered({})).toBe(false);
     expect(assetListArrivedFiltered({ status: '', q: '' })).toBe(false);
+  });
+});
+
+describe('the empty state names the filters that are actually applied (v2.98)', () => {
+  it('no longer blames the search box when Type is the filter', () => {
+    // The reported fault: Type=Laptop + Status=Available returned nothing and
+    // the page said "Try clearing the search or status filter" - naming a
+    // search box that was empty. Two filters were applied; it mentioned one.
+    const e = assetListEmptyState({ filters: { type: 'sub:abc', status: 'AVAILABLE' } });
+    expect(e.description).toContain('2 filters');
+    expect(e.description).not.toContain('search filter');
+    expect(e.description).not.toContain('status filter');
+  });
+
+  it('speaks in the singular for one filter', () => {
+    const e = assetListEmptyState({ filters: { type: 'sub:abc' } });
+    expect(e.description).toBe('No assets match this filter. Remove it to see more.');
+  });
+
+  it('counts every kind of filter, not just the two it used to know', () => {
+    const e = assetListEmptyState({
+      filters: { q: 'x', type: 'sub:a', status: 'AVAILABLE', warrantyWithinDays: '90' },
+    });
+    expect(e.description).toContain('4 filters');
+  });
+
+  it('says the fleet is empty when nothing is filtering', () => {
+    expect(assetListEmptyState({ filters: {}, ownScope: false }).description).toBe(
+      'No assets have been added yet.',
+    );
+  });
+
+  it('still works for callers passing the old q/status shape', () => {
+    // The phone has not been updated yet; it must not start lying.
+    expect(assetListEmptyState({ q: 'thinkpad' }).description).toContain('this filter');
+    expect(assetListEmptyState({}).description).toBe('Nothing has been assigned to you yet.');
   });
 });

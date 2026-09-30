@@ -730,14 +730,24 @@ function AssetsTable() {
         ) : isError ? (
           <ErrorState title="Could not load assets" detail={(error as Error).message} />
         ) : data.data.length === 0 ? (
+          <>
+          {/*
+            v2.98 - the message now names what is actually applied.
+
+            It looked at `q` and `status` only, so a list narrowed by Type - most
+            of them - was met with "Try clearing the search or status filter",
+            naming a search box that was empty. Filtering to Laptop + Available
+            returned nothing and the advice pointed at the wrong controls, which
+            reads as the filters being broken. They were not; the message was.
+
+            The chips sit at the top of the page and are removable there, so
+            they are not repeated here: an empty list showing the same filters
+            twice would be the duplication this screen has just been cleared of.
+          */}
           <EmptyState
-            {...assetListEmptyState({
-              q,
-              status,
-              filtered: Boolean(type || lifecycle || availability || ownership),
-              ownScope: user?.scope === 'OWN',
-            })}
+            {...assetListEmptyState({ filters, ownScope: user?.scope === 'OWN' })}
           />
+          </>
         ) : (
           <>
           {/* v2.71 - on a phone each asset is a card: name and status first,
