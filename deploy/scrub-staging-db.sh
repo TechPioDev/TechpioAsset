@@ -37,8 +37,20 @@ fi
 cd "$APP_DIR"
 compose() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
-# shellcheck disable=SC1090
-set -a; . "./$ENV_FILE"; set +a
+# Read the two values this script needs, rather than sourcing the whole file.
+# Sourcing executes it: MAIL_FROM="PioAssets Staging <no-reply@staging.invalid>"
+# is a perfectly good env-file line and a shell redirection, and the script died
+# on it. An env file is data, and reading it as data is also the safer habit.
+env_value() {
+  sed -n "s/^$1=//p" "./$ENV_FILE" | head -1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+POSTGRES_DB="$(env_value POSTGRES_DB)"
+POSTGRES_USER="$(env_value POSTGRES_USER)"
+
+if [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_USER" ]; then
+  echo "scrub: $ENV_FILE is missing POSTGRES_DB or POSTGRES_USER." >&2
+  exit 2
+fi
 
 # ── A second lock on the door ────────────────────────────────────────────────
 # The SQL refuses a database whose name lacks "staging"; refuse here too, before
