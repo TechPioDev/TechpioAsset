@@ -15,7 +15,7 @@ production's database even by mistake.
 | compose project | `techpioasset` | `techpioasset-staging` |
 | compose file | `docker-compose.vps.yml` | `docker-compose.staging.yml` |
 | env file | `.env.prod` | `.env.staging` |
-| ports (localhost) | web 3000, api 3001 | web 3100, api 3101 |
+| ports (localhost) | web 3000, api 3001 | web 3200, api 3201 |
 | branch | `prod` | `main` |
 | mail / push / AI | live | mock, and unable to be otherwise |
 
@@ -89,8 +89,8 @@ cd /opt/techpioasset-staging && \
   ENV_FILE=.env.staging \
   SITE=https://staging.pioassets.com \
   BRANCH=main \
-  HEALTH_WEB_URL=http://127.0.0.1:3100/login \
-  HEALTH_API_URL=http://127.0.0.1:3101/api/v1/auth/me \
+  HEALTH_WEB_URL=http://127.0.0.1:3200/login \
+  HEALTH_API_URL=http://127.0.0.1:3201/api/v1/auth/me \
   ./deploy/deploy-vps.sh
 
 # production (branch: prod) — unchanged defaults except the branch

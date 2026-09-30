@@ -4,7 +4,10 @@
 #
 #   name:    a different compose project, so the containers AND the volumes are
 #            distinct. Staging physically cannot open production's database.
-#   ports:   3100/3101 on localhost, against production's 3000/3001.
+#   ports:   3200/3201 on localhost, against production's 3000/3001.
+#            NOT 3100/3101 - piomanage's web container already holds 3100 on
+#            this box, and a port collision is discovered at the worst moment:
+#            after everything else has succeeded.
 #   mounts:  the Firebase service-account key is NOT mounted here. Push on
 #            staging is PUSH_PROVIDER=mock, and the key it would need to reach a
 #            real phone is simply absent - a missing file is a stronger promise
@@ -62,7 +65,7 @@ services:
     volumes:
       - uploads:/app/apps/api/.local-storage
     ports:
-      - '127.0.0.1:3101:3001'
+      - '127.0.0.1:3201:3001'
 
   web:
     build:
@@ -74,7 +77,7 @@ services:
     depends_on:
       - api
     ports:
-      - '127.0.0.1:3100:3000'
+      - '127.0.0.1:3200:3000'
 
 volumes:
   pgdata:
