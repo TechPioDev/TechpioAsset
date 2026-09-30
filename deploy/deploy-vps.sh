@@ -28,7 +28,17 @@ APP_DIR="${APP_DIR:-/opt/techpioasset}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.vps.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 SITE="${SITE:-https://pioassets.com}"
-BRANCH="${BRANCH:-main}"
+# Which line this checkout follows. Defaults to the branch it is ON - the
+# production checkout sits on `prod`, staging sits on `main` - so neither needs
+# a flag. Defaulting to a literal instead would mean one forgotten variable
+# deploys staging's code to production, which is the single mistake the branch
+# split exists to prevent.
+BRANCH="${BRANCH:-$(git -C "${APP_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)}"
+if [ "$BRANCH" = "HEAD" ]; then
+  echo "deploy: ${APP_DIR} is on a detached HEAD, so there is no branch to follow." >&2
+  echo "        Check out prod (production) or main (staging), or pass BRANCH=." >&2
+  exit 1
+fi
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
 # The two health-check URLs, overridable because staging sits behind basic auth.

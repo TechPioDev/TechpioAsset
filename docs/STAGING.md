@@ -77,25 +77,23 @@ staging volume starts empty and avatars fall back to initials.
 
 ## Deploying
 
-The same script drives both. Staging health-checks the container ports, not the
-public URL: staging sits behind basic auth, so nginx would answer 401 for both
-checks — and 401 is what the API check expects, so a dead API would pass.
+The same script drives both, and **neither needs a flag**: it follows whatever
+branch its checkout is on. `/opt/techpioasset` is on `prod`,
+`/opt/techpioasset-staging` is on `main`. Defaulting to a literal branch would
+mean one forgotten variable deploys staging's code to production, which is the
+single mistake this split exists to prevent. A detached HEAD is refused.
 
 ```bash
-# staging (branch: main)
-cd /opt/techpioasset-staging && \
-  APP_DIR=/opt/techpioasset-staging \
-  COMPOSE_FILE=docker-compose.staging.yml \
-  ENV_FILE=.env.staging \
-  SITE=https://staging.pioassets.com \
-  BRANCH=main \
-  HEALTH_WEB_URL=http://127.0.0.1:3200/login \
-  HEALTH_API_URL=http://127.0.0.1:3201/api/v1/auth/me \
-  ./deploy/deploy-vps.sh
+# staging  (follows main)
+cd /opt/techpioasset-staging &&   APP_DIR=/opt/techpioasset-staging   COMPOSE_FILE=docker-compose.staging.yml   ENV_FILE=.env.staging   SITE=https://staging.pioassets.com   HEALTH_WEB_URL=http://127.0.0.1:3200/login   HEALTH_API_URL=http://127.0.0.1:3201/api/v1/auth/me   ./deploy/deploy-vps.sh
 
-# production (branch: prod) — unchanged defaults except the branch
-cd /opt/techpioasset && BRANCH=prod ./deploy/deploy-vps.sh
+# production  (follows prod)
+ssh root@pioassets.com /opt/techpioasset/deploy/deploy-vps.sh
 ```
+
+Staging health-checks the container ports, not the public URL: it sits behind
+basic auth, so nginx would answer 401 to both checks — and 401 is exactly what
+the API check expects, so a dead API would report a successful deploy.
 
 ## Promoting a tested commit to production
 
@@ -104,8 +102,13 @@ fast-forward, so production can only ever run a commit that has been on staging.
 
 ```bash
 git checkout prod && git merge --ff-only main && git push origin prod
-cd /opt/techpioasset && BRANCH=prod ./deploy/deploy-vps.sh
+ssh root@pioassets.com /opt/techpioasset/deploy/deploy-vps.sh
+git checkout main
 ```
+
+If the fast-forward is refused, `prod` has commits `main` does not — which means
+something was deployed to production without going through staging. Find out
+what before forcing anything.
 
 ## First-time setup
 
