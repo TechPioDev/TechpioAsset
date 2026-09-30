@@ -114,7 +114,9 @@ cd /opt/techpioasset && BRANCH=prod ./deploy/deploy-vps.sh
 3. `cp .env.staging.example .env.staging` and fill every `CHANGE_ME` with
    **fresh** secrets — a staging box sharing production's JWT secret is a way
    into production.
-4. `htpasswd -c /etc/nginx/.htpasswd-staging pioassets`
+4. `htpasswd -c /etc/nginx/.htpasswd-staging pioassets`, then
+   `chown root:www-data /etc/nginx/.htpasswd-staging && chmod 640` it — without
+   the chown the nginx worker cannot read it and every request is a 500.
 5. Install `deploy/nginx/staging.pioassets.com.conf`, then
    `certbot --nginx -d staging.pioassets.com`.
 6. Refresh from production with the script above.
