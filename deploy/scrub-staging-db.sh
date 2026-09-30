@@ -64,10 +64,28 @@ compose exec -T postgres psql -U "$POSTGRES_USER" -d postgres \
   -c "CREATE DATABASE \"$POSTGRES_DB\";"
 
 echo "scrub: restoring $(basename "$DUMP")"
-# --no-owner / --no-acl: the production roles do not exist here, and staging
-# should not be handed production's role grants even if they did.
-compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  --no-owner --no-acl --clean --if-exists < "$DUMP"
+
+# The nightly backup is GZIPPED PLAIN SQL - deploy/backup-db.sh runs pg_dump
+# without -Fc - so psql reads it and pg_restore cannot. Sniffed rather than
+# assumed, because the two fail in opposite and equally confusing ways: given
+# plain SQL, pg_restore says the input is not a valid archive; given an
+# archive, psql spews binary at the terminal.
+decompress() {
+  case "$DUMP" in
+    *.gz) gunzip -c "$DUMP" ;;
+    *) cat "$DUMP" ;;
+  esac
+}
+
+if decompress | head -c 5 | grep -q 'PGDMP'; then
+  # --no-owner / --no-acl: the production roles do not exist here, and staging
+  # should not be handed production's role grants even if they did.
+  decompress | compose exec -T postgres     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-acl
+else
+  # ON_ERROR_STOP so a half-applied dump stops here rather than being scrubbed
+  # and served as though it were whole.
+  decompress | compose exec -T postgres     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 --quiet
+fi
 
 # ── One password for every account, generated here ───────────────────────────
 # Hashed inside the api image so it uses the application's own argon2id
