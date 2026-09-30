@@ -4,10 +4,8 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertTriangle,
   ArrowRight,
   Boxes,
-  CheckCircle2,
   ClipboardList,
   Eye,
   FileBarChart,
@@ -16,7 +14,6 @@ import {
   Package,
   Plus,
   ShoppingBag,
-  ShieldAlert,
   ShieldCheck,
   Upload,
   Users,
@@ -25,6 +22,7 @@ import {
 import { ASSET_STATUS_TOKENS, OFFER_LIFECYCLE_TOKENS } from '@techpioasset/ui-tokens';
 import {
   PERMISSIONS,
+  ASSET_STATUS_GROUPS,
   fleetBreakdown,
   formatInr,
   isReadOnlyPermission,
@@ -104,67 +102,26 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 /**
- * KPI tile v2 - a tone accent bar on the left edge carries the state, the
- * number carries the story. Hover lifts, focus rings; the accent doubles as
- * the tile's identity for scanning a row of six.
+ * v2.94 - the bar is the navigation now.
+ *
+ * Six tiles beneath it repeated its segments, because the segments were not
+ * clickable and the tiles were. A segment that opens the list it counts lets
+ * the duplicates go: one control, in one place, saying one thing once.
  */
-function Kpi({
-  icon,
-  tone,
-  value,
-  label,
-  sub,
-  href,
-}: {
-  icon: ReactNode;
-  tone: string;
-  value: number;
+interface FleetSegment {
+  key: string;
   label: string;
-  sub: string;
+  count: number;
+  tone: string;
+  /** The list this segment counts. Absent for "Other", which has no filter. */
   href?: string;
-}) {
-  const body = (
-    <div className="group relative h-full overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 pl-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <span
-        aria-hidden="true"
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ background: `var(--tone-${tone}-solid)` }}
-      />
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-[27px] font-bold leading-none tracking-tight tabular-nums">
-          {value.toLocaleString()}
-        </div>
-        <span
-          className="grid size-8 shrink-0 place-items-center rounded-lg transition group-hover:scale-110"
-          style={{ color: `var(--tone-${tone}-fg)`, background: `var(--tone-${tone}-bg)` }}
-        >
-          {icon}
-        </span>
-      </div>
-      <div className="mt-2.5 text-[13px] font-semibold">{label}</div>
-      <div className="mt-0.5 text-xs text-[var(--color-content-subtle)]">{sub}</div>
-    </div>
-  );
-  return href ? (
-    <Link href={href} className="block h-full">
-      {body}
-    </Link>
-  ) : (
-    body
-  );
 }
 
-/**
- * The fleet in one line - a segmented composition bar. Status colors do the
- * status job; identity is never color alone: segments wide enough carry their
- * own percentage, and the legend beneath names every state with its count.
- * 2px surface gaps keep neighbouring fills honest.
- */
 function FleetBar({
   segments,
   total,
 }: {
-  segments: { key: string; label: string; count: number; tone: string }[];
+  segments: FleetSegment[];
   total: number;
 }) {
   const visible = segments.filter((seg) => seg.count > 0);
@@ -178,39 +135,62 @@ function FleetBar({
       >
         {visible.map((seg, i) => {
           const pctOf = (seg.count / total) * 100;
-          return (
-            <div
+          const inner =
+            pctOf >= 8 ? (
+              <span className="px-1 text-[11px] font-bold tabular-nums text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]">
+                {Math.round(pctOf)}%
+              </span>
+            ) : null;
+          const style = {
+            flexGrow: seg.count,
+            flexBasis: 0,
+            background: `var(--tone-${seg.tone}-solid)`,
+            marginLeft: i === 0 ? 0 : 2,
+          };
+          const cls =
+            'relative flex items-center justify-center transition-[flex-grow] duration-500';
+          const title = `${seg.label}: ${seg.count} (${Math.round(pctOf)}%)`;
+          return seg.href ? (
+            <Link
               key={seg.key}
-              title={`${seg.label}: ${seg.count} (${Math.round(pctOf)}%)`}
-              className="relative flex items-center justify-center transition-[flex-grow] duration-500"
-              style={{
-                flexGrow: seg.count,
-                flexBasis: 0,
-                background: `var(--tone-${seg.tone}-solid)`,
-                marginLeft: i === 0 ? 0 : 2,
-              }}
+              href={seg.href}
+              title={`${title} - open this list`}
+              className={`${cls} hover:brightness-110`}
+              style={style}
             >
-              {pctOf >= 8 ? (
-                <span className="px-1 text-[11px] font-bold tabular-nums text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]">
-                  {Math.round(pctOf)}%
-                </span>
-              ) : null}
+              {inner}
+            </Link>
+          ) : (
+            <div key={seg.key} title={title} className={cls} style={style}>
+              {inner}
             </div>
           );
         })}
       </div>
       <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        {visible.map((seg) => (
-          <span key={seg.key} className="inline-flex items-center gap-1.5 text-xs">
-            <span
-              aria-hidden="true"
-              className="size-2.5 rounded-[3px]"
-              style={{ background: `var(--tone-${seg.tone}-solid)` }}
-            />
-            <span className="text-[var(--color-content-muted)]">{seg.label}</span>
-            <span className="font-semibold tabular-nums">{seg.count.toLocaleString()}</span>
-          </span>
-        ))}
+        {visible.map((seg) => {
+          const swatch = (
+            <>
+              <span
+                aria-hidden="true"
+                className="size-2.5 rounded-[3px]"
+                style={{ background: `var(--tone-${seg.tone}-solid)` }}
+              />
+              <span className="text-[var(--color-content-muted)]">{seg.label}</span>
+              <span className="font-semibold tabular-nums">{seg.count.toLocaleString()}</span>
+            </>
+          );
+          const cls = 'inline-flex items-center gap-1.5 text-xs';
+          return seg.href ? (
+            <Link key={seg.key} href={seg.href} className={`${cls} hover:underline`}>
+              {swatch}
+            </Link>
+          ) : (
+            <span key={seg.key} className={cls}>
+              {swatch}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -642,16 +622,24 @@ export default function DashboardPage() {
     month: 'long',
   });
 
-  const fleetSegments = [
-    { key: 'assigned', label: 'Assigned', count: assigned, tone: 'progress' },
-    { key: 'available', label: 'Available', count: available, tone: 'success' },
-    { key: 'stock', label: 'In stock', count: inStock, tone: 'info' },
-    { key: 'incoming', label: 'On order', count: incoming, tone: 'neutral' },
-    { key: 'repair', label: 'Under repair', count: underRepair, tone: 'warning' },
-    { key: 'critical', label: 'Damaged / lost', count: critical, tone: 'critical' },
-    { key: 'retired', label: 'Retired', count: retired, tone: 'muted' },
-    // Orange on purpose. "Other" appearing at all means a status nobody
-    // bucketed, and that should look wrong rather than blend in as grey.
+  // The link is built from the SAME group that produced the number, so a
+  // segment can never open a list that disagrees with the count on it - the
+  // fault the Assigned tile had, counting ASSIGNED + IN_USE and linking to
+  // ASSIGNED alone.
+  const groupHref = (k: keyof typeof ASSET_STATUS_GROUPS) =>
+    `/assets?status=${ASSET_STATUS_GROUPS[k].join(',')}`;
+
+  const fleetSegments: FleetSegment[] = [
+    { key: 'assigned', label: 'Assigned', count: assigned, tone: 'progress', href: groupHref('assigned') },
+    { key: 'available', label: 'Available', count: available, tone: 'success', href: groupHref('available') },
+    { key: 'stock', label: 'In stock', count: inStock, tone: 'info', href: groupHref('inStock') },
+    { key: 'incoming', label: 'On order', count: incoming, tone: 'neutral', href: groupHref('onOrder') },
+    { key: 'repair', label: 'Under repair', count: underRepair, tone: 'warning', href: groupHref('underRepair') },
+    { key: 'critical', label: 'Damaged / lost', count: critical, tone: 'critical', href: groupHref('critical') },
+    { key: 'retired', label: 'Retired', count: retired, tone: 'muted', href: groupHref('retired') },
+    // Orange on purpose, and deliberately NOT a link. "Other" appearing at all
+    // means a status nobody bucketed - there is no filter that would show it,
+    // and offering one that returned nothing would be a second lie.
     { key: 'other', label: 'Other', count: other, tone: 'danger' },
   ];
 
@@ -712,7 +700,10 @@ export default function DashboardPage() {
                 <div className="text-[30px] font-bold leading-none tabular-nums">
                   {total.toLocaleString()}
                 </div>
-                <div className="mt-1 text-xs font-medium text-[var(--color-content-muted)]">
+                <div
+                  className="mt-1 text-xs font-medium text-[var(--color-content-muted)]"
+                  title="Operational = everything except under repair, damaged, lost, stolen and retired."
+                >
                   assets · {operational}% operational
                 </div>
               </div>
@@ -743,64 +734,33 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Role-based "what needs me now" tiles (server-scoped). */}
+      {/*
+        Role-based "what needs me now" tiles (server-scoped).
+
+        A reader who can see the fleet already has the total in the hero above,
+        so the server's assets-total tile is hidden for them - the same number
+        twice, two inches apart, was the clearest example of the duplication.
+        A reader who cannot see the hero still gets it.
+      */}
       <section aria-label="For you">
-        <RoleTiles />
+        <RoleTiles hideKeys={isFleetViewer ? ['assets-total'] : []} />
       </section>
 
       {isFleetViewer ? (
         <>
-          {/* ── KPI band ─────────────────────────────────────────────────── */}
-          <section aria-label="Key metrics" className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            <Kpi
-              icon={<Boxes className="size-[18px]" />}
-              tone="info"
-              value={total}
-              label="Total assets"
-              sub={`${byOffice.length} office${byOffice.length === 1 ? '' : 's'}`}
-              href="/assets"
-            />
-            <Kpi
-              icon={<CheckCircle2 className="size-[18px]" />}
-              tone="success"
-              value={available}
-              label="Available"
-              sub={`${pct(available)}% of fleet`}
-              href="/assets?status=AVAILABLE"
-            />
-            <Kpi
-              icon={<Users className="size-[18px]" />}
-              tone="progress"
-              value={assigned}
-              label="Assigned"
-              sub={`${pct(assigned)}% of fleet`}
-              href="/assets?status=ASSIGNED,IN_USE"
-            />
-            <Kpi
-              icon={<Wrench className="size-[18px]" />}
-              tone="warning"
-              value={underRepair}
-              label="Under repair"
-              sub="in service"
-              href="/assets?status=UNDER_REPAIR"
-            />
-            <Kpi
-              icon={<ShieldAlert className="size-[18px]" />}
-              tone="danger"
-              value={w30}
-              label="Warranty expiring"
-              sub="within 30 days"
-              href="/reports"
-            />
-            <Kpi
-              icon={<AlertTriangle className="size-[18px]" />}
-              tone="critical"
-              value={critical}
-              label="Critical"
-              sub="damaged / lost / stolen"
-              href="/assets?status=DAMAGED,LOST,STOLEN"
-            />
-          </section>
+          {/*
+            v2.94 - the KPI band is gone, and that is the point.
+
+            It held six tiles: Total assets (the hero says it), Available,
+            Assigned, Under repair and Critical (the bar above says all four,
+            and its segments are now links), and Warranty expiring within 30
+            days - which sat next to a server tile counting 90 days, two
+            near-identical labels showing different numbers.
+
+            Half a dashboard drawn twice is why nothing on it stood out. The
+            warranty figure survives in the row above, where it is stated once
+            with its window.
+          */}
 
           {/* ── Spend (Finance only) ─────────────────────────────────────── */}
           {canSeeSpend && spend.data && spend.data.rows.length > 0 ? (
@@ -880,9 +840,16 @@ export default function DashboardPage() {
           <section className="grid gap-4 lg:grid-cols-3">
             <Card className="p-5">
               <SectionHead kicker="Health" title="Fleet in service" />
+              {/*
+                The last one. This read `assets.length`, so with a page of 100
+                and 2,174 retired it printed "-2383 devices" - a negative count
+                of working equipment. The percentage beside it was already
+                computed from `total` and was right, which is exactly why
+                nobody noticed: one number on the card was correct.
+              */}
               <Gauge
                 percent={operational}
-                label={`Operational · ${assets.length - underRepair - critical - retired} devices`}
+                label={`Operational · ${(total - underRepair - critical - retired).toLocaleString()} devices`}
               />
             </Card>
             <Card className="p-5">

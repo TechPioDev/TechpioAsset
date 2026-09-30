@@ -52,7 +52,7 @@ export const TILE_ICONS: Record<string, LucideIcon> = {
  * actor may see (gated by permission + scope), so an Employee gets a couple and a
  * manager/IT lead gets several — the same component renders every role.
  */
-export function RoleTiles() {
+export function RoleTiles({ hideKeys = [] }: { hideKeys?: string[] } = {}) {
   const { data, isPending, isError, error } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: () => apiFetch<{ tiles: Tile[] }>('/dashboard'),
@@ -72,7 +72,7 @@ export function RoleTiles() {
 
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {data.tiles.map((tile) => {
+      {data.tiles.filter((t) => !hideKeys.includes(t.key)).map((tile) => {
         const Icon = TILE_ICONS[tile.icon] ?? Layers;
         return (
           <Link key={tile.key} href={tile.href} className="group">

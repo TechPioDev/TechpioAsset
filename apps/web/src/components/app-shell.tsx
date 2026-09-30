@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { apiFetch } from '@/lib/api-client';
 import { Sparkles,
   BellRing,
   Building2,
@@ -91,6 +93,55 @@ const NAV_TOP: NavItem[] = [{ href: '/dashboard', label: 'Dashboard', Icon: Layo
  * you are; and whatever you open by hand is remembered, so somebody who lives
  * in Procurement is not re-opening it every morning.
  */
+/**
+ * v2.94 - work waiting on you, shown where you would go to do it.
+ *
+ * The count already existed on the dashboard, which is the one screen you are
+ * not on when you are wondering whether anything needs you.
+ */
+const NAV_BADGES: Record<string, string> = {
+  '/requests': 'awaiting-approval',
+  '/maintenance': 'open-maintenance',
+};
+
+/**
+ * The badge owns its query rather than the shell holding one and passing the
+ * number down.
+ *
+ * AppShell has early returns - `if (status === 'loading')` and `if (!user)` -
+ * so a hook added to it must sit above both, or React, which counts hooks
+ * rather than naming them, sees the count change between renders and tears the
+ * whole shell down. A component of its own removes the question: this either
+ * renders or it does not, and one that does not render has no hooks to count.
+ *
+ * Every instance shares the dashboard summary's query key, so React Query
+ * serves them all from the request the tiles already make.
+ */
+function NavBadge({ tileKey, collapsed }: { tileKey: string; collapsed: boolean }) {
+  const { data } = useQuery({
+    queryKey: ['dashboard-summary'],
+    queryFn: () => apiFetch<{ tiles: { key: string; value: number }[] }>('/dashboard'),
+    staleTime: 60_000,
+  });
+  const count = data?.tiles.find((t) => t.key === tileKey)?.value ?? 0;
+  if (count <= 0) return null;
+  return (
+    <>
+      <span
+        className={cn(
+          'ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold tabular-nums',
+          'bg-[var(--tone-warning-bg)] text-[var(--tone-warning-fg)]',
+          collapsed && 'lg:hidden',
+        )}
+      >
+        {count > 99 ? '99+' : count}
+      </span>
+      {/* The number is decoration beside a word; the reader needs the claim. */}
+      <span className="sr-only">, {count} waiting</span>
+    </>
+  );
+}
+
 const NAV_GROUPS: NavGroup[] = [
   {
     key: 'workspace',
@@ -365,7 +416,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <Icon aria-hidden="true" className="size-4 shrink-0" />
-        <span className={cn(collapsed && 'lg:sr-only')}>{label}</span>
+        <span className={cn('flex-1', collapsed && 'lg:sr-only')}>{label}</span>
+        {NAV_BADGES[href] ? <NavBadge tileKey={NAV_BADGES[href]} collapsed={collapsed} /> : null}
       </Link>
     );
   };
