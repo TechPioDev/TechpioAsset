@@ -387,27 +387,60 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         // click through the menu would close the menu around you and there
         // would be nothing on screen saying where you are.
         const holdsCurrentPage = group.items.some((i) => isActive(pathname, i.href));
+        const groupIsCurrent = holdsCurrentPage;
+        // Where the heading goes. `groups` drops any group with nothing the
+        // reader may see, so this is always present - but say so rather than
+        // assert it, and render nothing if that ever stops being true.
+        const landing = group.items[0];
+        if (!landing) return null;
         const open = openGroup === undefined ? holdsCurrentPage : openGroup === group.key;
         const panelId = `nav-group-${group.key}`;
         return (
           <div key={group.key} className="mt-1">
-            <button
-              type="button"
-              onClick={() => setGroupOpen(group.key, !open)}
-              aria-expanded={open}
-              aria-controls={panelId}
+            {/*
+              v2.93 - the heading is a LINK, and the chevron beside it is the
+              toggle.
+
+              It used to be one button that only expanded. Clicking "Assets"
+              and arriving nowhere is the same broken promise as a filtered
+              link opening the unfiltered list: the word names a place, so it
+              should go there. Two controls rather than one clever one, because
+              a single element cannot honestly be both a link and a disclosure
+              - a screen reader would have to be told one lie or the other.
+
+              The destination is the group's first VISIBLE item, not a fixed
+              href. `groups` is already permission-filtered, so this can never
+              land somebody on a page that only says they lack permission.
+            */}
+            <div
               className={cn(
-                'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-3 py-2',
-                'text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors',
+                'flex items-center rounded-[var(--radius-control)] transition-colors',
+                'text-[11px] font-semibold uppercase tracking-[0.08em]',
                 'text-[var(--color-content-subtle)] hover:bg-[var(--color-surface-sunken)]',
+                groupIsCurrent && 'text-[var(--color-content)]',
               )}
             >
-              <ChevronRight
-                aria-hidden="true"
-                className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
-              />
-              <span className="flex-1 text-left">{group.label}</span>
-            </button>
+              <Link
+                href={landing.href}
+                onClick={() => setGroupOpen(group.key, true)}
+                className="flex-1 rounded-[var(--radius-control)] px-3 py-2 text-left"
+              >
+                {group.label}
+              </Link>
+              <button
+                type="button"
+                onClick={() => setGroupOpen(group.key, !open)}
+                aria-expanded={open}
+                aria-controls={panelId}
+                aria-label={`${open ? 'Collapse' : 'Expand'} ${group.label}`}
+                className="rounded-[var(--radius-control)] px-2.5 py-2"
+              >
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
+                />
+              </button>
+            </div>
 
             {open ? (
               <div id={panelId} className="grid gap-0.5">
