@@ -47,7 +47,12 @@ cd /opt/techpioasset-staging
 
 It drops and recreates the staging database, restores the dump, scrubs it,
 starts the stack, and prints one randomly generated password shared by every
-account. The password is shown once and stored nowhere.
+account. The password is also written to `.staging-password` (mode 600).
+
+Sign in as **`admin@staging.invalid`** — the scrub gives the first super admin
+in each company that fixed address. Every other account becomes
+`user-<hash>@staging.invalid`, which is right for the accounts nobody signs in
+as and wrong for the one somebody has to.
 
 What the scrub does:
 
@@ -117,9 +122,11 @@ what before forcing anything.
 3. `cp .env.staging.example .env.staging` and fill every `CHANGE_ME` with
    **fresh** secrets — a staging box sharing production's JWT secret is a way
    into production.
-4. `htpasswd -c /etc/nginx/.htpasswd-staging pioassets`, then
-   `chown root:www-data /etc/nginx/.htpasswd-staging && chmod 640` it — without
-   the chown the nginx worker cannot read it and every request is a 500.
+4. `./deploy/staging-gate-password.sh` — generates the basic-auth password,
+   writes the htpasswd file with the right owner, records it in
+   `/root/staging-basic-auth.txt` and reloads nginx. Run it again any time to
+   rotate; changing the password also invalidates whatever a browser cached,
+   which is the usual reason a correct password keeps being rejected.
 5. Install `deploy/nginx/staging.pioassets.com.conf`, then
    `certbot --nginx -d staging.pioassets.com`.
 6. Refresh from production with the script above.

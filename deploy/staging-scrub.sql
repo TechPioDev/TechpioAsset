@@ -131,6 +131,27 @@ UPDATE users SET
   "mfaEnabledAt"       = NULL,
   "externalIdpSubject" = NULL;
 
+-- ── One address you can actually type ────────────────────────────────────────
+--
+-- The rename above gives every account a hash: user-3a7007a6@staging.invalid.
+-- That is right for the 168 accounts nobody signs in as, and wrong for the one
+-- somebody has to. Handing an owner a random hex string to type into a login
+-- form produced exactly the failure you would expect, twice.
+--
+-- The FIRST super admin in each company gets a fixed address instead. Per
+-- company, because the unique key is [companyId, email] and a multi-tenant
+-- restore would otherwise collide; first by creation, so the same person keeps
+-- the same address across refreshes.
+UPDATE users u SET email = 'admin@staging.invalid'
+WHERE u.id IN (
+  SELECT DISTINCT ON (x."companyId") x.id
+  FROM users x
+  JOIN user_roles ur ON ur."userId" = x.id
+  JOIN roles r ON r.id = ur."roleId"
+  WHERE r.key = 'SUPER_ADMIN' AND x."deletedAt" IS NULL
+  ORDER BY x."companyId", x."createdAt"
+);
+
 -- ── Organisation and supplier contact details ────────────────────────────────
 UPDATE companies SET
   "contactEmail" = CASE WHEN "contactEmail" IS NULL THEN NULL ELSE 'company@staging.invalid' END,
@@ -169,7 +190,8 @@ COMMIT;
 -- ── How to get in ────────────────────────────────────────────────────────────
 -- Every account now has the same password. These are the ones worth using.
 \echo ''
-\echo 'Scrub complete. Sign in to staging with these (password: the one you passed in):'
+\echo 'Scrub complete. Sign in as admin@staging.invalid with the password below.'
+\echo 'Other accounts (same password) if you want to see what an employee sees:'
 SELECT u.email,
        coalesce(p."displayName", p."firstName" || ' ' || p."lastName") AS name,
        r.name AS role
