@@ -431,7 +431,13 @@ export default function DashboardPage() {
   const statsQuery = useQuery({
     queryKey: ['dashboard-asset-stats'],
     enabled: canSeeAssets,
-    queryFn: () => apiFetch<{ total: number; byStatus: Record<string, number> }>('/assets/stats'),
+    queryFn: () =>
+      apiFetch<{
+        total: number;
+        byStatus: Record<string, number>;
+        byCategory: { name: string; count: number }[];
+        byOffice: { name: string; count: number }[];
+      }>('/assets/stats'),
   });
 
   // Total spend by category — server-aggregated, and only ever requested for
@@ -514,21 +520,29 @@ export default function DashboardPage() {
   const inMonths = (m: number) =>
     new Date(now + m * 30 * DAY).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-  const groupTop = (key: (a: AssetRow) => string | null) => {
-    const map = new Map<string, number>();
-    for (const a of assets) {
-      const k = key(a) ?? 'Unassigned';
-      map.set(k, (map.get(k) ?? 0) + 1);
-    }
-    const sorted = [...map.entries()].sort((a, b) => b[1] - a[1]);
-    const top = sorted.slice(0, 5);
-    const rest = sorted.slice(5).reduce((n, [, v]) => n + v, 0);
-    const rows = top.map(([name, value], i) => ({ name, value, fill: seriesColor(i) }));
+  /**
+   * The five biggest groups, and everything else as "Other".
+   *
+   * Takes counts the SERVER produced. It used to count the fetched page, which
+   * is how a donut came to print 169 in the middle while its slices read 99
+   * and 1, and an office pie showed 56% + 3%. Rolling the tail into "Other"
+   * rather than dropping it is what keeps the slices adding up to the total in
+   * the middle.
+   */
+  const groupTop = (counts: { name: string; count: number }[]) => {
+    const sorted = [...counts].sort((a, b) => b.count - a.count);
+    const rows = sorted
+      .slice(0, 5)
+      .map(({ name, count }, i) => ({ name, value: count, fill: seriesColor(i) }));
+    const rest = sorted.slice(5).reduce((n, r) => n + r.count, 0);
     if (rest > 0) rows.push({ name: 'Other', value: rest, fill: seriesColor(5) });
     return rows;
   };
-  const byCategory = groupTop((a) => a.category?.name ?? null);
-  const byOffice = groupTop((a) => a.office?.name ?? null);
+  // From the server, not from `assets`. Grouping the fetched page put "169"
+  // in the middle of a donut whose slices read 99 and 1, and an office pie
+  // whose two slices came to 59%.
+  const byCategory = groupTop(statsQuery.data?.byCategory ?? []);
+  const byOffice = groupTop(statsQuery.data?.byOffice ?? []);
 
   const monthCounts = new Map<string, number>();
   for (const a of assets) {

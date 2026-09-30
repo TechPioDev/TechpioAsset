@@ -27,7 +27,13 @@ export function StatusBarChart({ data }: { data: StatusDatum[] }) {
   return (
     <div className="h-64 w-full px-2 py-3">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: -18 }}>
+        {/*
+          left: 0, not -18. The negative margin pulled the axis off-canvas and
+          the 32px-wide tick labels were clipped to their last character, so
+          0/20/40/60/80 all rendered as "0" - five zeros down the side of a
+          chart whose tallest bar was 79.
+        */}
+        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
           <XAxis
             dataKey="label"
@@ -41,7 +47,7 @@ export function StatusBarChart({ data }: { data: StatusDatum[] }) {
           />
           <YAxis
             allowDecimals={false}
-            width={32}
+            width={38}
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 11, fill: 'var(--color-content-subtle)' }}

@@ -53,7 +53,12 @@ const stats = async () => {
   const res = await api(app).get('/api/v1/assets/stats').set(auth(s.itAdmin));
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   // Responses are enveloped: { data: ... , meta: ... }.
-  return res.body.data as { total: number; byStatus: Record<string, number> };
+  return res.body.data as {
+    total: number;
+    byStatus: Record<string, number>;
+    byCategory: { name: string; count: number }[];
+    byOffice: { name: string; count: number }[];
+  };
 };
 
 describe('asset counts', () => {
@@ -83,6 +88,28 @@ describe('asset counts', () => {
     const { total, byStatus } = await stats();
     const summed = Object.values(byStatus).reduce((n, c) => n + c, 0);
     expect(summed).toBe(total);
+  });
+
+  it('breaks down by category to the same total', async () => {
+    // The donut printed 169 in the middle and 99 + 1 around it, because the
+    // slices were counted from a page of 100.
+    const { total, byCategory } = await stats();
+    expect(byCategory.reduce((n, c) => n + c.count, 0)).toBe(total);
+  });
+
+  it('breaks down by office to the same total, counting the unassigned', async () => {
+    // The office pie came to 59%. An asset with no office is not nothing - it
+    // is Unassigned, and it is the one worth chasing.
+    const { total, byOffice } = await stats();
+    expect(byOffice.reduce((n, o) => n + o.count, 0)).toBe(total);
+  });
+
+  it('names every group rather than returning ids', async () => {
+    const { byCategory, byOffice } = await stats();
+    for (const row of [...byCategory, ...byOffice]) {
+      expect(row.name, JSON.stringify(row)).not.toMatch(/^c[a-z0-9]{20,}$/); // not a cuid
+      expect(row.name.length).toBeGreaterThan(0);
+    }
   });
 
   it('is refused without a session', async () => {

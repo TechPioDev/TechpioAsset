@@ -328,21 +328,58 @@ export class AssetsService {
    * lets the caller account for every asset: a status nobody thought to show
    * still arrives, and can be totalled instead of vanishing.
    */
-  async statusCounts(actor: AuthUser): Promise<{ total: number; byStatus: Record<string, number> }> {
+  async statusCounts(actor: AuthUser): Promise<{
+    total: number;
+    byStatus: Record<string, number>;
+    byCategory: { name: string; count: number }[];
+    byOffice: { name: string; count: number }[];
+  }> {
     const where = this.listWhere(actor, {} as AssetListQuery);
-    const rows = await this.prisma.client.asset.groupBy({
-      by: ['status'],
-      where,
-      _count: { _all: true },
-    });
+    const db = this.prisma.client;
+
+    const [statusRows, categoryRows, officeRows] = await Promise.all([
+      db.asset.groupBy({ by: ['status'], where, _count: { _all: true } }),
+      db.asset.groupBy({ by: ['categoryId'], where, _count: { _all: true } }),
+      db.asset.groupBy({ by: ['officeId'], where, _count: { _all: true } }),
+    ]);
 
     const byStatus: Record<string, number> = {};
     let total = 0;
-    for (const r of rows) {
+    for (const r of statusRows) {
       byStatus[r.status] = r._count._all;
       total += r._count._all;
     }
-    return { total, byStatus };
+
+    // groupBy returns ids; the reader needs names. Fetched for exactly the ids
+    // that came back, so an empty fleet costs no second query.
+    const named = async (
+      pairs: { id: string | null; count: number }[],
+      lookup: (ids: string[]) => Promise<{ id: string; name: string }[]>,
+    ) => {
+      const real = pairs.map((p) => p.id).filter((id): id is string => id !== null);
+      const names = new Map((await lookup(real)).map((r) => [r.id, r.name]));
+      return pairs
+        .map((p) => ({
+          // A null office is "Unassigned" - a real answer, and one worth
+          // seeing, so it is counted rather than dropped.
+          name: p.id === null ? 'Unassigned' : (names.get(p.id) ?? 'Unknown'),
+          count: p.count,
+        }))
+        .sort((a, b) => b.count - a.count);
+    };
+
+    const [byCategory, byOffice] = await Promise.all([
+      named(
+        categoryRows.map((r) => ({ id: r.categoryId, count: r._count._all })),
+        (ids) => db.category.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      ),
+      named(
+        officeRows.map((r) => ({ id: r.officeId, count: r._count._all })),
+        (ids) => db.office.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      ),
+    ]);
+
+    return { total, byStatus, byCategory, byOffice };
   }
 
   /**
