@@ -186,6 +186,19 @@ export class AssetsController {
   }
 
   // Declared before ':id' so the static path wins the route match.
+  @Get('stats')
+  @RequirePermissions(PERMISSIONS.ASSETS_READ)
+  @ApiOperation({
+    summary: 'Asset counts by status',
+    description:
+      'Counted in the database across the caller’s whole data scope, so a breakdown always ' +
+      'reconciles with the total. Deriving these from a page of results does not: it counts ' +
+      'the page.',
+  })
+  stats(@CurrentUser() actor: AuthUser) {
+    return this.assets.statusCounts(actor);
+  }
+
   @Get('export')
   @RequirePermissions(PERMISSIONS.ASSETS_READ)
   @ApiOperation({

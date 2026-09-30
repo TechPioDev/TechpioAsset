@@ -25,6 +25,7 @@ import {
 import { ASSET_STATUS_TOKENS, OFFER_LIFECYCLE_TOKENS } from '@techpioasset/ui-tokens';
 import {
   PERMISSIONS,
+  fleetBreakdown,
   formatInr,
   isReadOnlyPermission,
   type AssetStatus,
@@ -444,6 +445,15 @@ export default function DashboardPage() {
     queryFn: () => apiFetchPage<AssetRow>('/assets?pageSize=100'),
   });
 
+  // Counts come from the database, not from the page of rows above. Deriving
+  // them by filtering `assets` counted the PAGE: 169 assets with pageSize=100
+  // produced a breakdown summing to 100, printed beside a total of 169.
+  const statsQuery = useQuery({
+    queryKey: ['dashboard-asset-stats'],
+    enabled: canSeeAssets,
+    queryFn: () => apiFetch<{ total: number; byStatus: Record<string, number> }>('/assets/stats'),
+  });
+
   // Total spend by category — server-aggregated, and only ever requested for
   // roles that may see cost (Finance / Super Admin).
   const spend = useQuery({
@@ -481,21 +491,27 @@ export default function DashboardPage() {
   // reader who cannot see the fleet. The sections that use them are already
   // behind isFleetViewer.
   const assets = data?.data ?? [];
-  const total = data?.meta.page.totalItems ?? 0;
-  const count = (s: AssetStatus) => assets.filter((a) => a.status === s).length;
+  const byStatus = statsQuery.data?.byStatus ?? {};
+  const total = statsQuery.data?.total ?? data?.meta.page.totalItems ?? 0;
 
-  const available = count('AVAILABLE');
-  const assigned = count('ASSIGNED') + count('IN_USE');
-  const underRepair = count('UNDER_REPAIR');
-  const critical = (['DAMAGED', 'LOST', 'STOLEN'] as AssetStatus[]).reduce(
-    (n, s) => n + count(s),
-    0,
-  );
-  const retired = (['RETIRED', 'DISPOSED'] as AssetStatus[]).reduce((n, s) => n + count(s), 0);
-  const pct = (n: number) => (assets.length ? Math.round((n / assets.length) * 100) : 0);
+  // Grouped by the domain rules, which are tested to cover every status - so a
+  // status added later lands in `other` instead of vanishing from the bar.
+  const fleet = fleetBreakdown(byStatus, total);
+  const {
+    available,
+    assigned,
+    inStock,
+    onOrder: incoming,
+    underRepair,
+    critical,
+    retired,
+    other,
+  } = fleet;
 
-  const operational = assets.length
-    ? Math.round(((assets.length - underRepair - critical - retired) / assets.length) * 100)
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+
+  const operational = total
+    ? Math.round(((total - underRepair - critical - retired) / total) * 100)
     : 100;
 
   const now = Date.now();
@@ -559,7 +575,7 @@ export default function DashboardPage() {
   const statusData = (Object.keys(ASSET_STATUS_TOKENS) as AssetStatus[])
     .map((s) => ({
       label: ASSET_STATUS_TOKENS[s].label,
-      count: count(s),
+      count: byStatus[s] ?? 0,
       fill: `var(--tone-${ASSET_STATUS_TOKENS[s].tone}-solid)`,
     }))
     .filter((d) => d.count > 0);
@@ -627,11 +643,16 @@ export default function DashboardPage() {
   });
 
   const fleetSegments = [
-    { key: 'available', label: 'Available', count: available, tone: 'success' },
     { key: 'assigned', label: 'Assigned', count: assigned, tone: 'progress' },
+    { key: 'available', label: 'Available', count: available, tone: 'success' },
+    { key: 'stock', label: 'In stock', count: inStock, tone: 'info' },
+    { key: 'incoming', label: 'On order', count: incoming, tone: 'neutral' },
     { key: 'repair', label: 'Under repair', count: underRepair, tone: 'warning' },
     { key: 'critical', label: 'Damaged / lost', count: critical, tone: 'critical' },
-    { key: 'retired', label: 'Retired', count: retired, tone: 'neutral' },
+    { key: 'retired', label: 'Retired', count: retired, tone: 'muted' },
+    // Orange on purpose. "Other" appearing at all means a status nobody
+    // bucketed, and that should look wrong rather than blend in as grey.
+    { key: 'other', label: 'Other', count: other, tone: 'danger' },
   ];
 
   // The action center: everything asking for a decision, one card, ranked by
@@ -709,7 +730,7 @@ export default function DashboardPage() {
 
         {isFleetViewer ? (
           <div className="relative mt-6">
-            <FleetBar segments={fleetSegments} total={assets.length} />
+            <FleetBar segments={fleetSegments} total={total} />
           </div>
         ) : (
           <p className="relative mt-3 max-w-xl text-sm text-[var(--color-content-muted)]">
@@ -753,7 +774,7 @@ export default function DashboardPage() {
               value={assigned}
               label="Assigned"
               sub={`${pct(assigned)}% of fleet`}
-              href="/assets?status=ASSIGNED"
+              href="/assets?status=ASSIGNED,IN_USE"
             />
             <Kpi
               icon={<Wrench className="size-[18px]" />}

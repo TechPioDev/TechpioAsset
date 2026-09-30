@@ -11,7 +11,19 @@ import {
 
 export { SOFT_DELETABLE_MODELS, UNDELETABLE_MODELS, UndeletableModelError };
 
-const READ_OPERATIONS = new Set(['findFirst', 'findMany', 'findUnique', 'count', 'aggregate']);
+// Every read that soft-deleted rows must stay out of. `groupBy` belongs here
+// as much as `count` does: it was missing, so a grouped count reported rows
+// that the list beside it had already filtered away - a dashboard totalling
+// 6659 next to a list of 6655. Anything that genuinely wants deleted rows asks
+// for them with `includeDeleted: true`.
+const READ_OPERATIONS = new Set([
+  'findFirst',
+  'findMany',
+  'findUnique',
+  'count',
+  'aggregate',
+  'groupBy',
+]);
 const DELETE_OPERATIONS = new Set(['delete', 'deleteMany']);
 const WRITE_OPERATIONS = new Set(['create', 'update', 'updateMany', 'upsert', 'createMany']);
 

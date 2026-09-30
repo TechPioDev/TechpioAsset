@@ -315,6 +315,37 @@ export class AssetsService {
   }
 
   /**
+   * How many assets there are, by status, across the WHOLE scoped fleet.
+   *
+   * The dashboard used to work this out by filtering the first page of rows it
+   * had already fetched. With pageSize=100 and 169 assets that produced a
+   * breakdown summing to 100 - the page size, not the fleet - shown beside a
+   * total of 169 taken from the server. Two numbers from two different
+   * populations, side by side, one of them silently wrong.
+   *
+   * Counting belongs in the database because it is the only place that can see
+   * every row. Returning the full map rather than a handful of named buckets
+   * lets the caller account for every asset: a status nobody thought to show
+   * still arrives, and can be totalled instead of vanishing.
+   */
+  async statusCounts(actor: AuthUser): Promise<{ total: number; byStatus: Record<string, number> }> {
+    const where = this.listWhere(actor, {} as AssetListQuery);
+    const rows = await this.prisma.client.asset.groupBy({
+      by: ['status'],
+      where,
+      _count: { _all: true },
+    });
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const r of rows) {
+      byStatus[r.status] = r._count._all;
+      total += r._count._all;
+    }
+    return { total, byStatus };
+  }
+
+  /**
    * All assets matching the list filters, flattened for CSV export. Honours the
    * caller's scope and cost visibility; capped so an export can't become an
    * unbounded scan. Cost is a column only when the caller may see it.
