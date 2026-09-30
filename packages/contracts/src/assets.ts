@@ -128,7 +128,11 @@ export type WarrantyExtractInputBody = z.infer<typeof warrantyExtractSchema>;
 
 export const assetListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  // v2.97 - raised from 100 to 200 so a fleet this size fits on one page.
+  // Still capped: "all" stops being a safe request the moment somebody has
+  // 50,000 assets, and the honest answer for the whole set is Export, which
+  // streams a CSV rather than rendering fifty thousand rows into a browser.
+  pageSize: z.coerce.number().int().min(1).max(200).default(25),
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
   q: z.string().trim().min(1).max(200).optional(),

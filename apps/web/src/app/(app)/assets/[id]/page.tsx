@@ -41,7 +41,6 @@ import {
   LIFECYCLE_STATE_TOKENS,
   AVAILABILITY_STATE_TOKENS,
   OWNERSHIP_TYPE_TOKENS,
-  type StatusToken,
 } from '@techpioasset/ui-tokens';
 import {
   assetHealth,
@@ -82,7 +81,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, NativeSelect, Skeleton } from '@/components/ui';
 import { Input } from '@/components/ui/input';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, dedupeBadges } from '@/components/status-badge';
 import { HealthStars } from '@/components/health-stars';
 import { CustodyPanel } from '@/components/assets/custody-panel';
 import { EquipmentKit } from '@/components/assets/equipment-kit';
@@ -229,14 +228,6 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 /** Drop badges whose label an earlier badge already carries. */
-function dedupeBadges(tokens: (StatusToken | null)[]): StatusToken[] {
-  const seen = new Set<string>();
-  return tokens.filter((t): t is StatusToken => {
-    if (!t || seen.has(t.label)) return false;
-    seen.add(t.label);
-    return true;
-  });
-}
 
 /** Copies a serial or MAC without selecting it by hand; the icon confirms. */
 function CopyButton({ value, label }: { value: string; label: string }) {

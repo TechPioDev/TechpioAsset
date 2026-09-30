@@ -56,3 +56,25 @@ export function StatusBadge({
     </span>
   );
 }
+
+/**
+ * Badges that say the same thing, said once.
+ *
+ * An asset carries a status and two dimensions derived from it, so printing
+ * all three verbatim gives "Assigned · Deployed · Assigned", or for a damaged
+ * laptop in the shop "Damaged · In maintenance · In repair" - three words for
+ * one situation, which reads as three problems. Pair it with
+ * `assetStateToShow`, which decides WHICH dimensions still say something the
+ * status does not; this removes what is left over.
+ *
+ * Lived in the asset detail page, which is why the asset LIST went on printing
+ * three badges a row long after the detail page stopped.
+ */
+export function dedupeBadges(tokens: (StatusToken | null | undefined)[]): StatusToken[] {
+  const seen = new Set<string>();
+  return tokens.filter((t): t is StatusToken => {
+    if (!t || seen.has(t.label)) return false;
+    seen.add(t.label);
+    return true;
+  });
+}

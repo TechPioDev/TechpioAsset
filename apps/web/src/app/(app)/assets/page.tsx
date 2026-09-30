@@ -24,15 +24,13 @@ import {
 import {
   ASSET_STATUSES,
   ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
-  LIFECYCLE_STATES,
-  AVAILABILITY_STATES,
-  OWNERSHIP_TYPES,
   PERMISSIONS,
   assetHolderName,
   assetListEmptyState,
   deviceActiveUser,
   deviceUptime,
   assetFilterChips,
+  assetStateToShow,
   assetListFilterParams,
   assetListFiltersFromLink,
   assetListArrivedFiltered,
@@ -52,7 +50,8 @@ import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { useConfirm } from '@/providers/confirm-provider';
 import { Button, Card, EmptyState, ErrorState, Skeleton } from '@/components/ui';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, dedupeBadges } from '@/components/status-badge';
+import { ListFooter, usePageSize } from '@/components/list-footer';
 import { SortableHeader } from '@/components/sortable-header';
 
 // Statuses that destroy or retire an asset — a bulk change to one asks first.
@@ -219,6 +218,7 @@ function AssetsTable() {
   const [sort, setSort] = useState<AssetSortField | null>(null);
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = usePageSize('techpioasset:assets:pageSize');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
   const q = params.get('q') ?? '';
@@ -261,7 +261,7 @@ function AssetsTable() {
 
   const query = filterParams();
   query.set('page', String(page));
-  query.set('pageSize', '25');
+  query.set('pageSize', String(pageSize));
   if (sort) {
     query.set('sort', sort);
     query.set('order', order);
@@ -300,6 +300,12 @@ function AssetsTable() {
       warrantyWithinDays,
       vendorProductId,
       page,
+      // v2.97 - pageSize belongs in the key. Without it, choosing 200 rows
+      // changed the request but React Query answered from the cache keyed on
+      // the old one: the footer said "Showing 1-200 of 6,698" above 25 rows.
+      // A key that omits something the request depends on does not cache the
+      // query, it caches a different query under its name.
+      pageSize,
       sort,
       order,
     ],
@@ -320,7 +326,7 @@ function AssetsTable() {
   const canBulk = can(PERMISSIONS.ASSETS_UPDATE);
   useEffect(() => {
     setSelected(new Set());
-  }, [q, status, lifecycle, availability, ownership, page]);
+  }, [q, status, lifecycle, availability, ownership, page, pageSize]);
 
   const rows = data?.data ?? [];
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
@@ -572,63 +578,26 @@ function AssetsTable() {
               ))}
             </select>
           </label>
-          <label className="grid gap-1 text-xs">
-            <span className="font-medium text-[var(--color-content-muted)]">Lifecycle</span>
-            <select
-              value={lifecycle}
-              onChange={(e) => {
-                setLifecycle(e.target.value);
-                setPage(1);
-                dropLinkFilters();
-              }}
-              className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
-            >
-              <option value="">Any lifecycle</option>
-              {LIFECYCLE_STATES.map((value) => (
-                <option key={value} value={value}>
-                  {LIFECYCLE_STATE_TOKENS[value].label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs">
-            <span className="font-medium text-[var(--color-content-muted)]">Availability</span>
-            <select
-              value={availability}
-              onChange={(e) => {
-                setAvailability(e.target.value);
-                setPage(1);
-                dropLinkFilters();
-              }}
-              className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
-            >
-              <option value="">Any availability</option>
-              {AVAILABILITY_STATES.map((value) => (
-                <option key={value} value={value}>
-                  {AVAILABILITY_STATE_TOKENS[value].label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs">
-            <span className="font-medium text-[var(--color-content-muted)]">Ownership</span>
-            <select
-              value={ownership}
-              onChange={(e) => {
-                setOwnership(e.target.value);
-                setPage(1);
-                dropLinkFilters();
-              }}
-              className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
-            >
-              <option value="">Any ownership</option>
-              {OWNERSHIP_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {OWNERSHIP_TYPE_TOKENS[value].label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/*
+            v2.97 - Lifecycle, Availability and Ownership are gone as controls.
+            Not to tidy the toolbar: they could not narrow anything Status
+            could not.
+
+            lifecycleState and availabilityState are `LEGACY_MAP[status]` - a
+            pure function of status, derived on every write, and nothing in the
+            codebase sets them independently. The live fleet shows it exactly:
+            Lifecycle DEPLOYED 158 is Status IN_USE 79 + ASSIGNED 79;
+            IN_MAINTENANCE 4 is DAMAGED 3 + UNDER_REPAIR 1. A coarser spelling
+            of the same fact, offered as though it were a second question.
+
+            Ownership was worse - all 169 assets hold the same empty value, so
+            the control could only ever return everything or nothing.
+
+            The API still accepts all three, and a link carrying one still
+            filters and still shows a chip. What is removed is OFFERING them:
+            three controls that looked like ways to narrow the list and were
+            not.
+          */}
           </div>
           <div className={moreOpen ? 'max-sm:order-last max-sm:flex max-sm:w-full max-sm:flex-wrap max-sm:gap-2 sm:contents' : 'max-sm:hidden sm:contents'}>
           <button
@@ -971,22 +940,35 @@ function AssetsTable() {
                       {asset.category?.name ?? '—'}
                     </td>
                     <td className="px-4 py-2.5">
+                      {/*
+                        v2.97 - one situation, one badge.
+
+                        Every row printed three: "In use", "Deployed",
+                        "Assigned" - the status, and the two dimensions DERIVED
+                        from it, side by side as though they were three facts.
+                        assetStateToShow keeps a dimension only when it says
+                        something the status does not, and dedupeBadges drops
+                        what is left saying the same word twice. The detail
+                        page and the phone have done this since v2.89; the list
+                        was the screen still showing all three.
+                      */}
                       <div className="flex flex-wrap items-center gap-1">
-                        <StatusBadge token={ASSET_STATUS_TOKENS[asset.status]} size="sm" />
-                        {asset.lifecycleState ? (
-                          <StatusBadge
-                            token={LIFECYCLE_STATE_TOKENS[asset.lifecycleState]}
-                            size="sm"
-                            showIcon={false}
-                          />
-                        ) : null}
-                        {asset.availabilityState ? (
-                          <StatusBadge
-                            token={AVAILABILITY_STATE_TOKENS[asset.availabilityState]}
-                            size="sm"
-                            showIcon={false}
-                          />
-                        ) : null}
+                        {dedupeBadges(
+                          (() => {
+                            const shown = assetStateToShow(asset);
+                            return [
+                              ASSET_STATUS_TOKENS[shown.status],
+                              shown.lifecycleState
+                                ? LIFECYCLE_STATE_TOKENS[shown.lifecycleState]
+                                : null,
+                              shown.availabilityState
+                                ? AVAILABILITY_STATE_TOKENS[shown.availabilityState]
+                                : null,
+                            ];
+                          })(),
+                        ).map((token) => (
+                          <StatusBadge key={token.label} token={token} size="sm" />
+                        ))}
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
@@ -1034,30 +1016,22 @@ function AssetsTable() {
         )}
       </Card>
 
-      {data && data.meta.page.totalPages > 1 ? (
-        <nav aria-label="Pagination" className="flex items-center justify-between text-sm">
-          <p className="text-[var(--color-content-subtle)]">
-            Page {data.meta.page.page} of {data.meta.page.totalPages}
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 py-1.5 disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= data.meta.page.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 py-1.5 disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
-        </nav>
+      {data ? (
+        <ListFooter
+          page={data.meta.page.page}
+          pageSize={pageSize}
+          totalItems={data.meta.page.totalItems}
+          totalPages={data.meta.page.totalPages}
+          onPage={setPage}
+          onPageSize={(n) => {
+            setPageSize(n);
+            // Page 7 of 25-row pages does not exist once there are 200 to a
+            // page, and asking for it returns an empty list that looks like a
+            // filter gone wrong.
+            setPage(1);
+          }}
+          noun="assets"
+        />
       ) : null}
     </div>
   );
