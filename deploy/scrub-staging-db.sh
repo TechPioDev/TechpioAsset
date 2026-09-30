@@ -103,11 +103,20 @@ fi
 # Hashed inside the api image so it uses the application's own argon2id
 # parameters rather than a second opinion about them.
 STAGING_PASSWORD="staging-$(openssl rand -base64 12 | tr -d '/+=' | head -c 12)"
+# Build first, separately. `compose run` builds on demand and prints the build
+# log to STDOUT, which the command substitution below would otherwise capture
+# as the hash - the first real run came back with "#1 [internal] load local
+# bake definition" where an argon2 digest should have been.
+echo "scrub: preparing the api image"
+compose build api >/dev/null
+
+# And take the hash by marker rather than trusting the whole of stdout, because
+# compose narrates container lifecycle there too.
 HASH="$(compose run --rm --no-deps -T api node -e '
   const { hash } = require("@node-rs/argon2");
   hash(process.argv[1], { algorithm: 2, memoryCost: 19456, timeCost: 2, parallelism: 1 })
-    .then((h) => process.stdout.write(h));
-' "$STAGING_PASSWORD" | tr -d '\r\n')"
+    .then((h) => console.log("ARGON2HASH:" + h));
+' "$STAGING_PASSWORD" 2>/dev/null | sed -n 's/^.*ARGON2HASH://p' | tail -1)"
 
 case "$HASH" in
   '$argon2id$'*) ;;
