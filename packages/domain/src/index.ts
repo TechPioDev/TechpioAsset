@@ -1,6 +1,7 @@
 export * from './state-machine';
 export * from './asset-rollup';
 export * from './asset-list';
+export * from './asset-filter-chips';
 export * from './asset-health';
 export * from './fleet-breakdown';
 export * from './asset-state';

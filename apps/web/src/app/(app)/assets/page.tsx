@@ -32,10 +32,12 @@ import {
   assetListEmptyState,
   deviceActiveUser,
   deviceUptime,
+  assetFilterChips,
   assetListFilterParams,
   assetListFiltersFromLink,
   assetListArrivedFiltered,
   defaultAssetTypeFilter,
+  type AssetListFilters,
   type AssetListSortField,
   type AssetCondition,
   type AssetStatus,
@@ -371,6 +373,69 @@ function AssetsTable() {
 
   // How many filters are on, for the phone's Filters button.
   const activeFilters = [type, status, lifecycle, availability, ownership].filter(Boolean).length;
+
+  /**
+   * v2.96 - every applied filter, as something you can read and remove.
+   *
+   * This replaces three hand-written banners that covered three of the eight
+   * filters: a warranty window, a multi-status link, and a catalogue listing.
+   * Filters set from the dropdowns had nothing at all, so the only way to know
+   * what was narrowing the list was to read five selects - and people
+   * reasonably concluded the list was broken instead.
+   */
+  const filters: AssetListFilters = {
+    q,
+    type,
+    status,
+    lifecycle,
+    availability,
+    ownership,
+    warrantyWithinDays,
+    vendorProductId,
+  };
+
+  const chips = assetFilterChips(filters, {
+    status: (code) => ASSET_STATUS_TOKENS[code as AssetStatus]?.label,
+    lifecycle: (code) => LIFECYCLE_STATE_TOKENS[code as LifecycleState]?.label,
+    availability: (code) => AVAILABILITY_STATE_TOKENS[code as AvailabilityState]?.label,
+    ownership: (code) => OWNERSHIP_TYPE_TOKENS[code as OwnershipType]?.label,
+    type: (value) => {
+      if (value === 'sub:none') return 'No type set';
+      const [kind, id] = [value.slice(0, 4), value.slice(4)];
+      if (kind === 'cat:') return categories?.find((c) => c.id === id)?.name;
+      return categories?.flatMap((c) => c.subcategories).find((sc) => sc.id === id)?.name;
+    },
+  });
+
+  /** Clearing one chip clears exactly one filter, and nothing else. */
+  const clearFilter = (key: keyof AssetListFilters) => {
+    if (key === 'q') {
+      const next = new URLSearchParams(params.toString());
+      next.delete('q');
+      const query = next.toString();
+      router.replace(query ? `/assets?${query}` : '/assets', { scroll: false });
+    } else {
+      const set = {
+        type: setType,
+        status: setStatus,
+        lifecycle: setLifecycle,
+        availability: setAvailability,
+        ownership: setOwnership,
+        warrantyWithinDays: setWarrantyWithinDays,
+        vendorProductId: setVendorProductId,
+      }[key];
+      set?.('');
+      // A filter that arrived in the URL has to leave the URL too, or the next
+      // render reads it straight back in.
+      dropLinkFilters();
+    }
+    if (key === 'type') setTypeChosen(true);
+    setPage(1);
+  };
+
+  const clearAllFilters = () => {
+    for (const chip of chips) clearFilter(chip.key);
+  };
   // v2.76 - the two agent columns appear when anything on the page has an
   // agent report; a list of chairs does not carry an empty Uptime column.
   const showActivity = Boolean(data?.data.some((a) => a.osInfo));
@@ -387,46 +452,37 @@ function AssetsTable() {
                 ? `Results for “${q}”.`
                 : 'Everything you are permitted to see.'}
           </p>
-          {warrantyWithinDays ? (
-            <button
-              type="button"
-              onClick={() => {
-                setWarrantyWithinDays('');
-                setPage(1);
-              }}
-              className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
-            >
-              Warranty ending within {warrantyWithinDays} days · show all assets
-            </button>
-          ) : null}
-          {status.includes(',') ? (
-            <button
-              type="button"
-              onClick={() => {
-                setStatus('');
-                setPage(1);
-                dropLinkFilters();
-              }}
-              className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
-            >
-              {status
-                .split(',')
-                .map((s) => ASSET_STATUS_TOKENS[s as AssetStatus]?.label ?? s)
-                .join(', ')}{' '}
-              · show all assets
-            </button>
-          ) : null}
-          {vendorProductId ? (
-            <button
-              type="button"
-              onClick={() => {
-                setVendorProductId('');
-                setPage(1);
-              }}
-              className="mt-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
-            >
-              Bought from one catalogue listing · show all assets
-            </button>
+          {/*
+            One row, every applied filter, each removable. It replaces three
+            separate banners that between them covered three of the eight
+            filters - so a list narrowed by the Lifecycle or Ownership dropdown
+            said nothing at all about why it was short.
+          */}
+          {chips.length > 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {chips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => clearFilter(chip.key)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface-sunken)] py-1 pl-2.5 pr-2 text-xs transition-colors hover:border-[var(--color-brand)]"
+                >
+                  <span className="text-[var(--color-content-muted)]">{chip.label}:</span>
+                  <span className="font-medium">{chip.value}</span>
+                  <X aria-hidden="true" className="size-3 shrink-0" />
+                  <span className="sr-only">Remove this filter</span>
+                </button>
+              ))}
+              {chips.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="ml-0.5 text-xs font-medium text-[var(--color-brand)] hover:underline"
+                >
+                  Clear all
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
