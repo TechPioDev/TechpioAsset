@@ -219,3 +219,38 @@ export function assetListArrivedFiltered(f: AssetListFilters): boolean {
       f.vendorProductId,
   );
 }
+
+/**
+ * The line under the "Assets" heading (v2.99).
+ *
+ * It said "Everything you are permitted to see." while the page opened on a
+ * Laptop filter showing 50 of 169. The sentence was simply false, and the
+ * owner wants the default kept - which is their call, and a reasonable one
+ * when most of the day is laptops. So the fix is the sentence, not the
+ * default.
+ *
+ * It deliberately does NOT repeat how many rows matched. The footer says that
+ * ("Showing 1-50 of 50 assets") and the chips say WHICH filters are on. This
+ * says the one thing neither of them does: that what you are looking at is not
+ * everything, and how big "everything" is.
+ */
+export function assetListSubtitle(a: {
+  /** How many filters are narrowing the list. */
+  filterCount: number;
+  /** The whole fleet in the caller's scope, unfiltered. */
+  totalInScope?: number;
+  /** An employee who only ever sees their own kit. */
+  ownScope?: boolean;
+}): string {
+  if (a.ownScope) return 'Assets assigned to you.';
+
+  if (a.filterCount > 0) {
+    return a.totalInScope != null
+      ? `Filtered view - ${a.totalInScope.toLocaleString()} assets in total.`
+      : 'Filtered view - not every asset is shown.';
+  }
+
+  return a.totalInScope != null
+    ? `Everything you are permitted to see - ${a.totalInScope.toLocaleString()} assets.`
+    : 'Everything you are permitted to see.';
+}

@@ -32,6 +32,7 @@ import {
   assetFilterChips,
   assetStateToShow,
   assetListFilterParams,
+  assetListSubtitle,
   assetListFiltersFromLink,
   assetListArrivedFiltered,
   defaultAssetTypeFilter,
@@ -269,6 +270,15 @@ function AssetsTable() {
 
   // Types come from the company's own catalogue rather than the domain list, so
   // the dropdown offers what this company actually has.
+  // The whole fleet, unfiltered. Same endpoint and same query key as the
+  // dashboard, so it is served from cache and the two screens cannot disagree
+  // about how many assets exist.
+  const fleetSize = useQuery({
+    queryKey: ['dashboard-asset-stats'],
+    queryFn: () => apiFetch<{ total: number }>('/assets/stats'),
+    staleTime: 60_000,
+  });
+
   const { data: categories, isError: categoriesFailed } = useQuery({
     queryKey: ['categories'],
     queryFn: () =>
@@ -452,11 +462,24 @@ function AssetsTable() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Assets</h1>
           <p className="mt-1 text-sm text-[var(--color-content-muted)]">
-            {user?.scope === 'OWN'
-              ? 'Assets assigned to you.'
-              : q
-                ? `Results for “${q}”.`
-                : 'Everything you are permitted to see.'}
+            {/*
+              v2.99 - this said "Everything you are permitted to see." while
+              the page opened on a Laptop filter showing 50 of 169. The owner
+              keeps the default, which is their call; the sentence was the part
+              that was false.
+
+              It does not repeat how many rows matched - the footer says that,
+              and the chips say which filters are on. It says the one thing
+              neither does: that this is not everything, and how big everything
+              is.
+            */}
+            {q
+              ? `Results for “${q}”.`
+              : assetListSubtitle({
+                  filterCount: chips.length,
+                  totalInScope: fleetSize.data?.total,
+                  ownScope: user?.scope === 'OWN',
+                })}
           </p>
           {/*
             One row, every applied filter, each removable. It replaces three

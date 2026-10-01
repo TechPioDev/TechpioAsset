@@ -6,6 +6,7 @@ import {
   assetListEmptyState,
   assetListFilterParams,
   assetListSortFields,
+  assetListSubtitle,
   defaultAssetTypeFilter,
   toQueryString,
   assetListFiltersFromLink,
@@ -242,5 +243,39 @@ describe('the empty state names the filters that are actually applied (v2.98)', 
     // The phone has not been updated yet; it must not start lying.
     expect(assetListEmptyState({ q: 'thinkpad' }).description).toContain('this filter');
     expect(assetListEmptyState({}).description).toBe('Nothing has been assigned to you yet.');
+  });
+});
+
+describe('the subtitle stops contradicting the page (v2.99)', () => {
+  it('does not claim to show everything while a filter is on', () => {
+    // The fault: "Everything you are permitted to see." above a Laptop
+    // filter showing 50 of 169.
+    const s = assetListSubtitle({ filterCount: 1, totalInScope: 169 });
+    expect(s).not.toContain('Everything');
+    expect(s).toContain('169');
+  });
+
+  it('still claims everything when nothing is filtering', () => {
+    expect(assetListSubtitle({ filterCount: 0, totalInScope: 169 })).toBe(
+      'Everything you are permitted to see - 169 assets.',
+    );
+  });
+
+  it('works before the total has loaded', () => {
+    // The count comes from a second request; the sentence must not read
+    // "undefined assets" while it is in flight.
+    expect(assetListSubtitle({ filterCount: 2 })).toBe(
+      'Filtered view - not every asset is shown.',
+    );
+    expect(assetListSubtitle({ filterCount: 0 })).toBe('Everything you are permitted to see.');
+  });
+
+  it('an employee is told whose assets these are, filtered or not', () => {
+    expect(assetListSubtitle({ filterCount: 0, ownScope: true })).toBe('Assets assigned to you.');
+    expect(assetListSubtitle({ filterCount: 3, ownScope: true })).toBe('Assets assigned to you.');
+  });
+
+  it('groups thousands, because a fleet can be large', () => {
+    expect(assetListSubtitle({ filterCount: 1, totalInScope: 6698 })).toContain('6,698');
   });
 });
