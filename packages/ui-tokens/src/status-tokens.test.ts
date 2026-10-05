@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { STATUS_TOKEN_REGISTRY, ASSET_STATUS_TOKENS } from './status-tokens';
+import {
+  STATUS_TOKEN_REGISTRY,
+  ASSET_STATUS_TOKENS,
+  ASSET_STATUS_GROUP_LABELS,
+} from './status-tokens';
+import { ASSET_STATUS_GROUPS } from '@techpioasset/domain';
 import { TONES, TONE_PALETTE_LIGHT, TONE_PALETTE_DARK, type Tone } from './tones';
 
 /** Relative luminance per WCAG 2.1. */
@@ -82,5 +87,30 @@ describe('semantic consistency', () => {
   it('marks loss and theft as critical, not merely danger', () => {
     expect(ASSET_STATUS_TOKENS.LOST.tone).toBe('critical');
     expect(ASSET_STATUS_TOKENS.STOLEN.tone).toBe('critical');
+  });
+});
+
+describe('a group name never means two numbers (v3.0)', () => {
+  it('does not reuse a status name for a group that merges several', () => {
+    // The reported fault: "Assigned 155" in the fleet bar sat above
+    // "Assigned 76" in the chart. The group merging ASSIGNED and IN_USE was
+    // called "Assigned", so one word carried two numbers on one screen.
+    const statusLabels = new Set(Object.values(ASSET_STATUS_TOKENS).map((t) => t.label));
+    const clashes: string[] = [];
+    for (const [key, label] of Object.entries(ASSET_STATUS_GROUP_LABELS)) {
+      const statuses = ASSET_STATUS_GROUPS[key as keyof typeof ASSET_STATUS_GROUPS];
+      // Sharing a name is fine when the group IS that one status - same set,
+      // same number, nothing to contradict.
+      if (statuses.length > 1 && statusLabels.has(label)) {
+        clashes.push(`group "${key}" is called "${label}", which is also one status`);
+      }
+    }
+    expect(clashes, clashes.join('; ')).toEqual([]);
+  });
+
+  it('names every group', () => {
+    for (const key of Object.keys(ASSET_STATUS_GROUPS)) {
+      expect(ASSET_STATUS_GROUP_LABELS[key as keyof typeof ASSET_STATUS_GROUP_LABELS]).toBeTruthy();
+    }
   });
 });

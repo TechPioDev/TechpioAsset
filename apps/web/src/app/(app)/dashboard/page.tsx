@@ -19,7 +19,11 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
-import { ASSET_STATUS_TOKENS, OFFER_LIFECYCLE_TOKENS } from '@techpioasset/ui-tokens';
+import {
+  ASSET_STATUS_GROUP_LABELS,
+  ASSET_STATUS_TOKENS,
+  OFFER_LIFECYCLE_TOKENS,
+} from '@techpioasset/ui-tokens';
 import {
   PERMISSIONS,
   ASSET_STATUS_GROUPS,
@@ -644,13 +648,13 @@ export default function DashboardPage() {
     `/assets?status=${ASSET_STATUS_GROUPS[k].join(',')}`;
 
   const fleetSegments: FleetSegment[] = [
-    { key: 'assigned', label: 'Assigned', count: assigned, tone: 'progress', href: groupHref('assigned') },
-    { key: 'available', label: 'Available', count: available, tone: 'success', href: groupHref('available') },
-    { key: 'stock', label: 'In stock', count: inStock, tone: 'info', href: groupHref('inStock') },
-    { key: 'incoming', label: 'On order', count: incoming, tone: 'neutral', href: groupHref('onOrder') },
-    { key: 'repair', label: 'Under repair', count: underRepair, tone: 'warning', href: groupHref('underRepair') },
-    { key: 'critical', label: 'Damaged / lost', count: critical, tone: 'critical', href: groupHref('critical') },
-    { key: 'retired', label: 'Retired', count: retired, tone: 'muted', href: groupHref('retired') },
+    { key: 'assigned', label: ASSET_STATUS_GROUP_LABELS.assigned, count: assigned, tone: 'progress', href: groupHref('assigned') },
+    { key: 'available', label: ASSET_STATUS_GROUP_LABELS.available, count: available, tone: 'success', href: groupHref('available') },
+    { key: 'stock', label: ASSET_STATUS_GROUP_LABELS.inStock, count: inStock, tone: 'info', href: groupHref('inStock') },
+    { key: 'incoming', label: ASSET_STATUS_GROUP_LABELS.onOrder, count: incoming, tone: 'neutral', href: groupHref('onOrder') },
+    { key: 'repair', label: ASSET_STATUS_GROUP_LABELS.underRepair, count: underRepair, tone: 'warning', href: groupHref('underRepair') },
+    { key: 'critical', label: ASSET_STATUS_GROUP_LABELS.critical, count: critical, tone: 'critical', href: groupHref('critical') },
+    { key: 'retired', label: ASSET_STATUS_GROUP_LABELS.retired, count: retired, tone: 'muted', href: groupHref('retired') },
     // Orange on purpose, and deliberately NOT a link. "Other" appearing at all
     // means a status nobody bucketed - there is no filter that would show it,
     // and offering one that returned nothing would be a second lie.

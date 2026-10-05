@@ -15,6 +15,7 @@ import {
   type OwnershipType,
   OFFER_LIFECYCLES,
   type OfferLifecycle,
+  type AssetStatusGroup,
 } from '@techpioasset/domain';
 import type { Tone } from './tones';
 
@@ -171,3 +172,31 @@ export const STATUS_TOKEN_REGISTRY = [
   { name: 'OwnershipType', values: OWNERSHIP_TYPES, tokens: OWNERSHIP_TYPE_TOKENS },
   { name: 'OfferLifecycle', values: OFFER_LIFECYCLES, tokens: OFFER_LIFECYCLE_TOKENS },
 ] as const;
+
+/**
+ * What each fleet-breakdown group is CALLED (v3.0).
+ *
+ * These lived in the dashboard, and two collided with the name of a single
+ * status: one screen showed "Assigned 155" in the fleet bar and "Assigned 76"
+ * in the chart below it, and "Retired 2" above "Retired 1". The same word, two
+ * numbers, a few inches apart. Nothing was miscounted - the words were wrong.
+ *
+ * A group holding exactly one status may share that status's name: same set,
+ * same number, nothing to contradict. A group merging several must not, and
+ * the test beside this file fails if one does.
+ *
+ * They live here rather than in the domain because a label is presentation,
+ * and because the check needs to see BOTH these and ASSET_STATUS_TOKENS -
+ * domain cannot import ui-tokens, only the other way round.
+ */
+export const ASSET_STATUS_GROUP_LABELS: Readonly<Record<AssetStatusGroup, string>> = {
+  // ASSIGNED + IN_USE. Not "Assigned": that is one of the two it contains.
+  assigned: 'With people',
+  available: 'Available',
+  inStock: 'In stock',
+  onOrder: 'On order',
+  underRepair: 'Under repair',
+  critical: 'Damaged / lost',
+  // RETIRED + DISPOSED + DONATED. Not "Retired", for the same reason.
+  retired: 'Retired or disposed',
+};

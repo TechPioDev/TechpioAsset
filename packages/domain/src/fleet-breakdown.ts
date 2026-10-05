@@ -83,3 +83,4 @@ export function assetStatusGroups(): Map<AssetStatus, AssetStatusGroup> {
     for (const s of statuses) m.set(s, key as AssetStatusGroup);
   return m;
 }
+

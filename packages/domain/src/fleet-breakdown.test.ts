@@ -87,3 +87,4 @@ describe('the groups mean what they say', () => {
     expect(b.retired).toBe(6);
   });
 });
+
