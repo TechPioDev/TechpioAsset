@@ -333,6 +333,8 @@ export class AssetsService {
     byStatus: Record<string, number>;
     byCategory: { name: string; count: number }[];
     byOffice: { name: string; count: number }[];
+    /** How many of them carry a purchase date, and when. */
+    purchase: { dated: number; byMonth: { month: string; count: number }[] };
   }> {
     const where = this.listWhere(actor, {} as AssetListQuery);
     const db = this.prisma.client;
@@ -379,7 +381,38 @@ export class AssetsService {
       ),
     ]);
 
-    return { total, byStatus, byCategory, byOffice };
+    // Purchase dates, for the growth chart.
+    //
+    // Only the dates, and only for rows that have one - so this stays small
+    // whatever the fleet size, and shrinks to nothing on a fleet that has
+    // never recorded a purchase. It goes through the same `where` as
+    // everything else rather than raw SQL, because raw SQL would step around
+    // the caller's scope.
+    const dates = await db.asset.findMany({
+      where: { AND: [where, { purchaseDate: { not: null } }] },
+      select: { purchaseDate: true },
+    });
+
+    const months = new Map<string, number>();
+    for (const row of dates) {
+      const d = row.purchaseDate;
+      if (!d) continue;
+      const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      months.set(month, (months.get(month) ?? 0) + 1);
+    }
+
+    return {
+      total,
+      byStatus,
+      byCategory,
+      byOffice,
+      purchase: {
+        dated: dates.length,
+        byMonth: [...months.entries()]
+          .map(([month, count]) => ({ month, count }))
+          .sort((a, b) => a.month.localeCompare(b.month)),
+      },
+    };
   }
 
   /**

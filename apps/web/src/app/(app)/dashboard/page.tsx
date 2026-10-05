@@ -28,6 +28,8 @@ import {
   PERMISSIONS,
   ASSET_STATUS_GROUPS,
   fleetBreakdown,
+  fleetGrowthReadiness,
+  fleetGrowthShortfall,
   formatInr,
   isReadOnlyPermission,
   type AssetStatus,
@@ -441,6 +443,7 @@ export default function DashboardPage() {
         byStatus: Record<string, number>;
         byCategory: { name: string; count: number }[];
         byOffice: { name: string; count: number }[];
+        purchase: { dated: number; byMonth: { month: string; count: number }[] };
       }>('/assets/stats'),
   });
 
@@ -548,27 +551,31 @@ export default function DashboardPage() {
   const byCategory = groupTop(statsQuery.data?.byCategory ?? []);
   const byOffice = groupTop(statsQuery.data?.byOffice ?? []);
 
-  const monthCounts = new Map<string, number>();
-  for (const a of assets) {
-    if (!a.purchaseDate) continue;
-    const d = new Date(a.purchaseDate);
-    const bucket = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthCounts.set(bucket, (monthCounts.get(bucket) ?? 0) + 1);
-  }
+  /*
+    v3.1 - the growth line is built from the SERVER's purchase dates, not from
+    the page of rows. It iterated `assets`, so with pageSize=100 it charted
+    whatever dated assets happened to land on page one - the fifth place that
+    bug turned up.
+
+    It is also only drawn when most of the fleet carries a date. A cumulative
+    count understates the fleet by exactly the number of undated assets, so on
+    3-of-171 it drew a line rising to 2 under the heading "Fleet growth". That
+    is not an approximation, it is a wrong number that looks like an answer.
+  */
+  const purchase = statsQuery.data?.purchase;
+  const growthReady = fleetGrowthReadiness(purchase?.dated ?? 0, total);
+
   let running = 0;
-  const growth = [...monthCounts.keys()]
-    .sort()
-    .map((m) => {
-      running += monthCounts.get(m) ?? 0;
-      const [y, mo] = m.split('-');
-      return {
-        label: new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, {
-          month: 'short',
-        }),
-        value: running,
-      };
-    })
-    .slice(-12);
+  const growth = (purchase?.byMonth ?? []).map(({ month, count }) => {
+    running += count;
+    const [y, mo] = month.split('-');
+    return {
+      label: new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, {
+        month: 'short',
+      }),
+      value: running,
+    };
+  });
 
   const statusData = (Object.keys(ASSET_STATUS_TOKENS) as AssetStatus[])
     .map((s) => ({
@@ -825,8 +832,8 @@ export default function DashboardPage() {
           <section className="grid gap-4 lg:grid-cols-3">
             <Card className="p-5 lg:col-span-2">
               <SectionHead kicker="Trajectory" title="Fleet growth" />
-              {growth.length === 0 ? (
-                <EmptyState title="No purchase dates" description="Growth needs dated purchases." />
+              {!growthReady.ok ? (
+                <EmptyState {...fleetGrowthShortfall(growthReady)} />
               ) : (
                 <GrowthArea data={growth} />
               )}
