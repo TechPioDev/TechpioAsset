@@ -590,7 +590,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     is cropped to the character and the words are set in the app's own type.
   */
   const brandCard = (
-    <div className="mt-auto px-3 pb-1 pt-3">
+    <div className="px-3 pb-3 pt-2">
       <div className="rounded-[var(--radius-card)] bg-[var(--color-surface-sunken)] p-3 text-center">
         <Image
           src="/app/manage-track-secure.png"
@@ -717,7 +717,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
-          {navFooter}
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -731,6 +730,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
             <span className={cn(collapsed && 'sr-only')}>Collapse</span>
           </button>
+          {/* Below Collapse, as asked: the last thing in the sidebar. */}
+          {navFooter}
         </aside>
 
         {drawerOpen ? (
