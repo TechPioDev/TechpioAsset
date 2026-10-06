@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -13,8 +14,11 @@ import {
   Building2,
   Package,
   Plus,
+  QrCode,
   ShoppingBag,
   ShieldCheck,
+  Check,
+  Target,
   Upload,
   Users,
   Wrench,
@@ -374,6 +378,13 @@ export default function DashboardPage() {
         byOffice: { name: string; count: number }[];
         purchase: { dated: number; byMonth: { month: string; count: number }[] };
         warranty: Record<string, number> & { total: number };
+        trend: {
+          change: number;
+          changePercent: number | null;
+          since: string;
+          ageDays: number;
+          direction: 'up' | 'down' | 'flat';
+        } | null;
       }>('/assets/stats'),
   });
 
@@ -523,6 +534,7 @@ export default function DashboardPage() {
     3-of-171 it drew a line rising to 2 under the heading "Fleet growth". That
     is not an approximation, it is a wrong number that looks like an answer.
   */
+  const trend = statsQuery.data?.trend ?? null;
   const purchase = statsQuery.data?.purchase;
   const growthReady = fleetGrowthReadiness(purchase?.dated ?? 0, total);
 
@@ -596,11 +608,22 @@ export default function DashboardPage() {
   // For an OWN-scope user (e.g. Employee) the fetched assets ARE their own kit.
   const myEquipment = assets.slice(0, 8);
 
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
+  /*
+    "Good afternoon" - the greeting from the owner's banner.
+
+    Computed during render, but only ever SHOWN inside the `user?.firstName`
+    branch. The auth provider starts with a null user and fills it in an
+    effect, so the server and the first client paint both take the other
+    branch and this string is never part of the HTML being hydrated. That
+    matters: the server is on UTC and the office is on IST, so a greeting
+    rendered on both sides would disagree about the time of day for five and a
+    half hours of every evening.
+
+    It replaces the date kicker, which the banner does not have - and which had
+    the same server/client problem with none of the warmth.
+  */
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   // The link is built from the SAME group that produced the number, so a
   // segment can never open a list that disagrees with the count on it - the
@@ -610,13 +633,55 @@ export default function DashboardPage() {
     `/assets?status=${ASSET_STATUS_GROUPS[k].join(',')}`;
 
   const fleetSegments: FleetSegment[] = [
-    { key: 'assigned', label: ASSET_STATUS_GROUP_LABELS.assigned, count: assigned, tone: 'progress', href: groupHref('assigned') },
-    { key: 'available', label: ASSET_STATUS_GROUP_LABELS.available, count: available, tone: 'success', href: groupHref('available') },
-    { key: 'stock', label: ASSET_STATUS_GROUP_LABELS.inStock, count: inStock, tone: 'info', href: groupHref('inStock') },
-    { key: 'incoming', label: ASSET_STATUS_GROUP_LABELS.onOrder, count: incoming, tone: 'neutral', href: groupHref('onOrder') },
-    { key: 'repair', label: ASSET_STATUS_GROUP_LABELS.underRepair, count: underRepair, tone: 'warning', href: groupHref('underRepair') },
-    { key: 'critical', label: ASSET_STATUS_GROUP_LABELS.critical, count: critical, tone: 'critical', href: groupHref('critical') },
-    { key: 'retired', label: ASSET_STATUS_GROUP_LABELS.retired, count: retired, tone: 'muted', href: groupHref('retired') },
+    {
+      key: 'assigned',
+      label: ASSET_STATUS_GROUP_LABELS.assigned,
+      count: assigned,
+      tone: 'progress',
+      href: groupHref('assigned'),
+    },
+    {
+      key: 'available',
+      label: ASSET_STATUS_GROUP_LABELS.available,
+      count: available,
+      tone: 'success',
+      href: groupHref('available'),
+    },
+    {
+      key: 'stock',
+      label: ASSET_STATUS_GROUP_LABELS.inStock,
+      count: inStock,
+      tone: 'info',
+      href: groupHref('inStock'),
+    },
+    {
+      key: 'incoming',
+      label: ASSET_STATUS_GROUP_LABELS.onOrder,
+      count: incoming,
+      tone: 'neutral',
+      href: groupHref('onOrder'),
+    },
+    {
+      key: 'repair',
+      label: ASSET_STATUS_GROUP_LABELS.underRepair,
+      count: underRepair,
+      tone: 'warning',
+      href: groupHref('underRepair'),
+    },
+    {
+      key: 'critical',
+      label: ASSET_STATUS_GROUP_LABELS.critical,
+      count: critical,
+      tone: 'critical',
+      href: groupHref('critical'),
+    },
+    {
+      key: 'retired',
+      label: ASSET_STATUS_GROUP_LABELS.retired,
+      count: retired,
+      tone: 'muted',
+      href: groupHref('retired'),
+    },
     // Orange on purpose, and deliberately NOT a link. "Other" appearing at all
     // means a status nobody bucketed - there is no filter that would show it,
     // and offering one that returned nothing would be a second lie.
@@ -629,85 +694,208 @@ export default function DashboardPage() {
     <div className="grid gap-6">
       {/* v2.80 - a handover waiting on this person, before anything else. */}
       <ReceiptPrompt />
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section
-        className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] p-6 sm:p-7"
-        style={{
-          background:
-            'linear-gradient(135deg, color-mix(in srgb, var(--color-brand) 14%, var(--color-surface-raised)) 0%, var(--color-surface-raised) 55%)',
-        }}
-      >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full opacity-25 blur-3xl"
-          style={{ background: 'var(--color-brand)' }}
-        />
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <span className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[var(--color-brand)]">
-              {today}
-            </span>
-            <h1 className="mt-1 text-[26px] font-bold tracking-tight sm:text-[30px]">
-              {user?.firstName
-                ? `Welcome back, ${user.firstName}`
-                : isVendor
-                  ? 'Your catalogue'
-                  : 'Asset command center'}
+      {/* ── Hero (v3.7, to the owner's banner) ─────────────────────── */}
+      {/*
+        Three bands, as drawn: who you are and what you can do, a photograph,
+        and the orange panel.
+
+        TWO DELIBERATE DEPARTURES from the artwork, both about text being
+        readable rather than taste:
+
+        1. The orange is deeper than the logo's #F88808. White on #F88808 is
+           about 2.2:1 - below the 4.5:1 that body text needs - so the three
+           ticked lines in the banner would be hard to read for anyone, and
+           unreadable for some. #C2410C carries the same orange at 5.4:1. The
+           logo orange still appears, on the icon tile, where it is decoration
+           and no rule applies.
+        2. globals.css records why orange was kept out of the UI entirely: it
+           is 1.14 against the danger tone, so an orange control and an
+           "overdue" badge look alike. The panel is a block of brand colour
+           and states no status, so it does not compete; the primary BUTTON is
+           left in brand blue for that reason, and is the one place this
+           differs visibly from the drawing.
+      */}
+      <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)_minmax(0,0.78fr)]">
+          {/* Band 1 — greeting, the fleet in one line, and the actions */}
+          <div className="relative z-10 p-6 sm:p-7">
+            <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[30px]">
+              {user?.firstName ? (
+                <>
+                  {greeting},
+                  <br />
+                  {user.firstName} <span aria-hidden="true">👋</span>
+                </>
+              ) : isVendor ? (
+                'Your catalogue'
+              ) : (
+                'Asset command center'
+              )}
             </h1>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              {roleLabel ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-brand)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-contrast)]">
-                  <Users className="size-3.5" />
-                  {roleLabel}
+
+            <p className="mt-2 max-w-sm text-sm text-[var(--color-content-muted)]">
+              {isVendor
+                ? publishesAtOnce
+                  ? 'What you are offering this buyer. Add products, keep prices and stock current, and publish - buyers see an offer as soon as you do.'
+                  : 'What you are offering this buyer. Add products, keep prices and stock current, and send new offers for approval.'
+                : isFleetViewer
+                  ? "Here's what's happening with your IT assets today."
+                  : "Here's what's assigned to you and where you can help. Confirm equipment you have received, and raise a ticket the moment something misbehaves."}
+            </p>
+
+            {/*
+              v3.6 - the fleet in one line, and a trend only when one exists.
+
+              The banner has no number in it. This one stays because it is the
+              sentence the subtitle promises: a reader told "here's what's
+              happening" and given no figure has been told nothing.
+            */}
+            {isFleetViewer ? (
+              <p className="mt-2.5 text-sm font-medium">
+                <span className="tabular-nums">{total.toLocaleString()}</span> assets
+                <span
+                  className="text-[var(--color-content-muted)]"
+                  title="Operational = everything except under repair, damaged, lost, stolen and retired."
+                >
+                  {' '}
+                  · {operational}% operational
                 </span>
+                {trend ? (
+                  <span
+                    /*
+                      Not green-for-up, amber-for-down. A fleet that shrank by
+                      six is six machines retired as often as it is a problem,
+                      and one that grew is more spend as often as it is
+                      progress. The figure and its sign carry the fact; colour
+                      would be a verdict the dashboard cannot support.
+                    */
+                    className="text-[var(--color-content-muted)]"
+                    title={`Compared with ${new Date(trend.since).toLocaleDateString()}`}
+                  >
+                    {' '}
+                    ·{' '}
+                    {trend.direction === 'flat'
+                      ? `no change in ${trend.ageDays} days`
+                      : `${trend.change > 0 ? '+' : ''}${trend.change.toLocaleString()}` +
+                        (trend.changePercent === null
+                          ? ''
+                          : ` (${trend.changePercent > 0 ? '+' : ''}${trend.changePercent}%)`) +
+                        ` in ${trend.ageDays} days`}
+                  </span>
+                ) : null}
+              </p>
+            ) : null}
+
+            {/* Who you are and what you can see. Small, but it is the answer
+                to "why can I not edit this" and should not need a support
+                request. */}
+            {roleLabel || scopeLabel || isReadOnly ? (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {roleLabel ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-brand)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-contrast)]">
+                    <Users aria-hidden="true" className="size-3.5" />
+                    {roleLabel}
+                  </span>
+                ) : null}
+                {scopeLabel ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--color-content-muted)]">
+                    <ShieldCheck aria-hidden="true" className="size-3.5" />
+                    {scopeLabel}
+                  </span>
+                ) : null}
+                {isReadOnly ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--tone-warning-fg)]">
+                    <Eye aria-hidden="true" className="size-3.5" /> Read-only
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* The three actions from the banner. Each appears only for
+                someone who may actually do it: an Import button that answers
+                403 is worse than no button. */}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {!isReadOnly && can(PERMISSIONS.ASSETS_CREATE) ? (
+                <Link
+                  href="/assets/new"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-brand)] px-4 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-md transition hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <Plus aria-hidden="true" className="size-4" /> Add asset
+                </Link>
               ) : null}
-              {scopeLabel ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-2.5 py-1 text-xs font-medium text-[var(--color-content-muted)] backdrop-blur">
-                  <ShieldCheck className="size-3.5" />
-                  {scopeLabel}
-                </span>
+              {canSeeAssets ? (
+                <Link
+                  href="/assets/scan"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-semibold transition hover:bg-[var(--color-surface-sunken)]"
+                >
+                  <QrCode aria-hidden="true" className="size-4" /> Quick scan
+                </Link>
               ) : null}
-              {isReadOnly ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--tone-warning-fg)]">
-                  <Eye className="size-3.5" /> Read-only
-                </span>
+              {!isReadOnly && can(PERMISSIONS.ASSETS_IMPORT) ? (
+                <Link
+                  href="/assets/import"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-semibold transition hover:bg-[var(--color-surface-sunken)]"
+                >
+                  <Upload aria-hidden="true" className="size-4" /> Import assets
+                </Link>
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-5">
-            {isFleetViewer ? (
-              <div className="hidden text-right sm:block">
-                <div className="text-[30px] font-bold leading-none tabular-nums">
-                  {total.toLocaleString()}
-                </div>
-                <div
-                  className="mt-1 text-xs font-medium text-[var(--color-content-muted)]"
-                  title="Operational = everything except under repair, damaged, lost, stolen and retired."
-                >
-                  assets · {operational}% operational
-                </div>
-              </div>
-            ) : null}
-            {!isReadOnly && can(PERMISSIONS.ASSETS_CREATE) ? (
-              <Link
-                href="/assets/new"
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-brand)] px-4 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-md transition hover:-translate-y-0.5 hover:shadow-lg"
+
+          {/* Band 2 — the photograph. Decoration, so it is hidden from
+              assistive technology and dropped below lg, where it would push
+              the actions off a phone screen for nothing. */}
+          <div className="relative hidden min-h-[13rem] lg:block">
+            <Image
+              src="/app/dashboard-hero.webp"
+              alt=""
+              aria-hidden="true"
+              fill
+              sizes="(min-width: 1024px) 34vw, 0px"
+              className="object-cover object-center"
+              priority
+            />
+          </div>
+
+          {/* Band 3 — the orange panel, with the diagonal edge from the
+              drawing. Full width on a phone, where a diagonal has nothing to
+              cut into. */}
+          <div
+            className="relative flex flex-col justify-center gap-3 p-6 text-white lg:-ml-10 lg:pl-14 lg:[clip-path:polygon(2.75rem_0,100%_0,100%_100%,0_100%)]"
+            style={{ background: 'linear-gradient(135deg, #C2410C 0%, #9A3412 100%)' }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-base font-bold leading-snug">
+                Keep your IT assets
+                <br />
+                organized and secure
+              </h2>
+              <span
+                aria-hidden="true"
+                className="grid size-10 shrink-0 place-items-center rounded-xl"
+                style={{ background: '#F88808' }}
               >
-                <Plus className="size-4" /> Add asset
-              </Link>
-            ) : null}
+                <Target className="size-5 text-white" />
+              </span>
+            </div>
+            <ul className="grid gap-2 text-[13px] font-medium">
+              {['Track hardware & software', 'Monitor warranty & licenses', 'Reduce downtime'].map(
+                (line) => (
+                  <li key={line} className="flex items-center gap-2">
+                    <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-white/95">
+                      <Check
+                        aria-hidden="true"
+                        className="size-3 text-[#15803D]"
+                        strokeWidth={3.5}
+                      />
+                    </span>
+                    {line}
+                  </li>
+                ),
+              )}
+            </ul>
           </div>
         </div>
-
-        {isFleetViewer ? null : (
-          <p className="relative mt-3 max-w-xl text-sm text-[var(--color-content-muted)]">
-            {isVendor
-              ? publishesAtOnce
-                ? 'What you are offering this buyer. Add products, keep prices and stock current, and publish - buyers see an offer as soon as you do.'
-                : 'What you are offering this buyer. Add products, keep prices and stock current, and send new offers for approval.'
-              : "Here's what's assigned to you and where you can help. Confirm equipment you have received, and raise a ticket the moment something misbehaves."}
-          </p>
-        )}
       </section>
 
       {/*
@@ -725,7 +913,10 @@ export default function DashboardPage() {
         week shedding.
       */}
       {isFleetViewer ? (
-        <section aria-label="Fleet at a glance" className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <section
+          aria-label="Fleet at a glance"
+          className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5"
+        >
           {fleetSegments
             .filter((seg) => seg.key !== 'other' || seg.count > 0)
             .slice(0, 5)
@@ -755,7 +946,11 @@ export default function DashboardPage() {
               const cls =
                 'flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 transition-colors';
               return seg.href ? (
-                <Link key={seg.key} href={seg.href} className={`${cls} hover:border-[var(--color-brand)]`}>
+                <Link
+                  key={seg.key}
+                  href={seg.href}
+                  className={`${cls} hover:border-[var(--color-brand)]`}
+                >
                   {card}
                 </Link>
               ) : (
