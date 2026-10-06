@@ -32,6 +32,8 @@ import {
   PERMISSIONS,
   ASSET_STATUS_GROUPS,
   fleetBreakdown,
+  fleetSegments as domainFleetSegments,
+  type FleetSegmentKey,
   fleetGrowthReadiness,
   fleetGrowthShortfall,
   formatInr,
@@ -120,6 +122,10 @@ const SCOPE_LABELS: Record<string, string> = {
  */
 interface FleetSegment {
   key: string;
+  /** Which group in the domain breakdown this card draws. The domain decides
+   *  WHICH cards appear (fleet-segments.ts); this is the join back to the
+   *  label, tone and link the page gives them. */
+  domainKey: FleetSegmentKey;
   label: string;
   count: number;
   tone: string;
@@ -635,6 +641,7 @@ export default function DashboardPage() {
   const fleetSegments: FleetSegment[] = [
     {
       key: 'assigned',
+      domainKey: 'assigned' as const,
       label: ASSET_STATUS_GROUP_LABELS.assigned,
       count: assigned,
       tone: 'progress',
@@ -642,6 +649,7 @@ export default function DashboardPage() {
     },
     {
       key: 'available',
+      domainKey: 'available' as const,
       label: ASSET_STATUS_GROUP_LABELS.available,
       count: available,
       tone: 'success',
@@ -649,6 +657,7 @@ export default function DashboardPage() {
     },
     {
       key: 'stock',
+      domainKey: 'inStock' as const,
       label: ASSET_STATUS_GROUP_LABELS.inStock,
       count: inStock,
       tone: 'info',
@@ -656,6 +665,7 @@ export default function DashboardPage() {
     },
     {
       key: 'incoming',
+      domainKey: 'onOrder' as const,
       label: ASSET_STATUS_GROUP_LABELS.onOrder,
       count: incoming,
       tone: 'neutral',
@@ -663,6 +673,7 @@ export default function DashboardPage() {
     },
     {
       key: 'repair',
+      domainKey: 'underRepair' as const,
       label: ASSET_STATUS_GROUP_LABELS.underRepair,
       count: underRepair,
       tone: 'warning',
@@ -670,6 +681,7 @@ export default function DashboardPage() {
     },
     {
       key: 'critical',
+      domainKey: 'critical' as const,
       label: ASSET_STATUS_GROUP_LABELS.critical,
       count: critical,
       tone: 'critical',
@@ -677,6 +689,7 @@ export default function DashboardPage() {
     },
     {
       key: 'retired',
+      domainKey: 'retired' as const,
       label: ASSET_STATUS_GROUP_LABELS.retired,
       count: retired,
       tone: 'muted',
@@ -685,8 +698,16 @@ export default function DashboardPage() {
     // Orange on purpose, and deliberately NOT a link. "Other" appearing at all
     // means a status nobody bucketed - there is no filter that would show it,
     // and offering one that returned nothing would be a second lie.
-    { key: 'other', label: 'Other', count: other, tone: 'danger' },
+    { key: 'other', domainKey: 'other' as const, label: 'Other', count: other, tone: 'danger' },
   ];
+
+  // Which of them to actually render. The domain decides; the page only draws.
+  const visibleSegments = domainFleetSegments(fleet).map(({ key }) => {
+    const seg = fleetSegments.find((s) => s.domainKey === key);
+    // Unreachable unless a group is added to the breakdown and not here, which
+    // is what the covers-every-group test in the domain exists to catch.
+    return seg!;
+  });
 
   // The action center: everything asking for a decision, one card, ranked by
   // severity - recommendations first, then the specific devices behind them.
@@ -898,6 +919,54 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {/* ── "Manage · Track · Secure", the card from the design ─────────── */}
+      {/*
+        Static by design: this says what the product is for, not what today's
+        numbers are. Nothing here is fetched, and nothing here should ever
+        start being fetched - the moment a figure appears in it, it becomes a
+        claim that has to be kept true.
+
+        The headline is TEXT, not part of the picture. The artwork arrived with
+        the words baked into the bitmap, which would have meant a heading that
+        no screen reader can read, no one can select or translate, and that
+        blurs on a high-density display. The illustration was cropped to just
+        the character and the words set in the page's own type.
+      */}
+      <section
+        aria-label="What PioAssets is for"
+        className="overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]"
+      >
+        <div className="flex flex-col items-center gap-5 p-5 sm:flex-row sm:gap-7 sm:p-6">
+          <Image
+            src="/app/manage-track-secure.png"
+            alt=""
+            aria-hidden="true"
+            width={192}
+            height={160}
+            className="h-auto w-36 shrink-0 sm:w-44"
+          />
+          <div className="min-w-0 text-center sm:text-left">
+            <h2 className="text-xl font-bold leading-tight tracking-tight sm:text-2xl">
+              Manage
+              <span className="text-[var(--color-content-subtle)]"> · </span>
+              Track
+              <span className="text-[var(--color-content-subtle)]"> · </span>
+              Secure
+              <br />
+              All your IT assets
+            </h2>
+            {/* The orange rule from the drawing. Decoration, so the logo
+                orange is free to be itself here - no text sits on it and no
+                status is being signalled. */}
+            <span
+              aria-hidden="true"
+              className="mt-3 inline-block h-1 w-14 rounded-full"
+              style={{ background: '#F88808' }}
+            />
+          </div>
+        </div>
+      </section>
+
       {/*
         v3.5 - the fleet at a glance, one card per group.
 
@@ -917,48 +986,56 @@ export default function DashboardPage() {
           aria-label="Fleet at a glance"
           className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5"
         >
-          {fleetSegments
-            .filter((seg) => seg.key !== 'other' || seg.count > 0)
-            .slice(0, 5)
-            .map((seg) => {
-              const card = (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="flex size-11 shrink-0 items-center justify-center rounded-xl"
-                    style={{ background: `var(--tone-${seg.tone}-bg)` }}
-                  >
-                    <span
-                      className="size-5 rounded-md"
-                      style={{ background: `var(--tone-${seg.tone}-solid)` }}
-                    />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-2xl font-bold leading-none tabular-nums">
-                      {seg.count.toLocaleString()}
-                    </span>
-                    <span className="mt-1 block truncate text-sm text-[var(--color-content-muted)]">
-                      {seg.label}
-                    </span>
-                  </span>
-                </>
-              );
-              const cls =
-                'flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 transition-colors';
-              return seg.href ? (
-                <Link
-                  key={seg.key}
-                  href={seg.href}
-                  className={`${cls} hover:border-[var(--color-brand)]`}
+          {/*
+            v3.8 - every group that has anything in it, never a fixed number.
+
+            This read `.slice(0, 5)`, to match the five cards in the mock. The
+            groups are ordered by how actionable they are, so the five kept
+            were the interesting ones and critical, retired and other were
+            dropped - on a 6,828-asset fleet that showed five cards summing to
+            4,500 under a headline of 6,828. The rule now lives in
+            packages/domain/src/fleet-segments.ts with a test that fails if it
+            ever goes back to truncating.
+          */}
+          {visibleSegments.map((seg) => {
+            const card = (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: `var(--tone-${seg.tone}-bg)` }}
                 >
-                  {card}
-                </Link>
-              ) : (
-                <div key={seg.key} className={cls}>
-                  {card}
-                </div>
-              );
-            })}
+                  <span
+                    className="size-5 rounded-md"
+                    style={{ background: `var(--tone-${seg.tone}-solid)` }}
+                  />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-2xl font-bold leading-none tabular-nums">
+                    {seg.count.toLocaleString()}
+                  </span>
+                  <span className="mt-1 block truncate text-sm text-[var(--color-content-muted)]">
+                    {seg.label}
+                  </span>
+                </span>
+              </>
+            );
+            const cls =
+              'flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 transition-colors';
+            return seg.href ? (
+              <Link
+                key={seg.key}
+                href={seg.href}
+                className={`${cls} hover:border-[var(--color-brand)]`}
+              >
+                {card}
+              </Link>
+            ) : (
+              <div key={seg.key} className={cls}>
+                {card}
+              </div>
+            );
+          })}
         </section>
       ) : null}
 
