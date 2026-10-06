@@ -1115,10 +1115,15 @@ export default function DashboardPage() {
                   rather than dropped, exactly as groupTop does for the charts.
                 */}
                 <div className="grid min-w-[260px] flex-1 gap-1.5 sm:max-w-md">
-                  {spendRows.map((r) => {
+                  {spendRows.map((r, i) => {
                     const pctOf = Math.round((r.total / spendGrand) * 100);
                     return (
-                      <div key={r.name} className="grid grid-cols-[1fr_auto] items-center gap-x-3">
+                      <div
+                        // By position: a category genuinely called "Other"
+                        // would collide with the rolled-up tail row.
+                        key={`${r.name}-${i}`}
+                        className="grid grid-cols-[1fr_auto] items-center gap-x-3"
+                      >
                         <div className="flex items-center justify-between text-[13px]">
                           <span className="text-[var(--color-content-muted)]">
                             {r.name}{' '}

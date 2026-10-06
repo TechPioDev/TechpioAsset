@@ -7,6 +7,7 @@ export * from './fleet-breakdown';
 export * from './fleet-growth';
 export * from './fleet-trend';
 export * from './fleet-segments';
+export * from './disambiguate-names';
 export * from './asset-state';
 export * from './asset-condition-status';
 export * from './asset-status';

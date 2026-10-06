@@ -33,6 +33,7 @@ import {
   sanitizeAssetSpecs,
   PUSH_CATEGORY,
   fleetBreakdown,
+  disambiguateNames,
   fleetTrend,
   type FleetTrend,
   warrantyBreakdown,
@@ -374,21 +375,32 @@ export class AssetsService {
     // that came back, so an empty fleet costs no second query.
     const named = async (
       pairs: { id: string | null; count: number }[],
-      lookup: (ids: string[]) => Promise<{ id: string; name: string }[]>,
+      lookup: (
+        ids: string[],
+      ) => Promise<{ id: string; name: string; category?: { name: string } | null }[]>,
       // What a null id means here. An office with none is "Unassigned"; a type
       // with none is "No type set". Same shape, different sentence.
       whenNull = 'Unassigned',
     ) => {
       const real = pairs.map((p) => p.id).filter((id): id is string => id !== null);
-      const names = new Map((await lookup(real)).map((r) => [r.id, r.name]));
-      return pairs
+      const rows = await lookup(real);
+      const names = new Map(rows.map((r) => [r.id, r.name]));
+      // Only types have one; categories and offices are already unique.
+      const owners = new Map(rows.map((r) => [r.id, r.category?.name ?? null]));
+      const counted = pairs
         .map((p) => ({
           // A null is a real answer and worth seeing, so it is counted rather
           // than dropped.
           name: p.id === null ? whenNull : (names.get(p.id) ?? 'Unknown'),
           count: p.count,
+          qualifier: p.id === null ? null : (owners.get(p.id) ?? null),
         }))
         .sort((a, b) => b.count - a.count);
+
+      // Two rows with the same label and different numbers is the fault this
+      // dashboard keeps being fixed for. A name that repeats gets its category;
+      // a name that does not is left alone.
+      return disambiguateNames(counted).map(({ name, count }) => ({ name, count }));
     };
 
     const [byCategory, byOffice, byType] = await Promise.all([
@@ -402,10 +414,28 @@ export class AssetsService {
         (ids) =>
           db.office.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
       ),
+      /*
+        Types carry their CATEGORY (v3.9).
+
+        Type names are unique within a category, not across them, so "Laptop"
+        under Hardware and "Laptop" under IT assets are two real types that can
+        both hold equipment. The donut grouped by type and drew what came back:
+
+            Laptop  53
+            Laptop   8
+
+        Two rows a reader cannot tell apart, and - because the slices were
+        keyed by name - a chart React would drop a slice from. The category
+        comes back with the name so a repeated name can be qualified; a name
+        that is unique is still shown on its own.
+      */
       named(
         typeRows.map((r) => ({ id: r.subcategoryId, count: r._count._all })),
         (ids) =>
-          db.subcategory.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+          db.subcategory.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, name: true, category: { select: { name: true } } },
+          }),
         'No type set',
       ),
     ]);

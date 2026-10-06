@@ -56,8 +56,11 @@ export function DonutChart({
             startAngle={90}
             endAngle={-270}
           >
-            {data.map((d) => (
-              <Cell key={d.name} fill={d.fill} />
+            {/* Keyed by position, not by name: two asset types in different
+                categories can share a name, and React silently drops the
+                second slice when two keys collide. */}
+            {data.map((d, i) => (
+              <Cell key={`${d.name}-${i}`} fill={d.fill} />
             ))}
           </Pie>
           <Tooltip {...tooltipStyle} />
@@ -87,8 +90,11 @@ export function AllocationPie({ data }: { data: Slice[] }) {
             strokeWidth={1}
             stroke="var(--color-surface)"
           >
-            {data.map((d) => (
-              <Cell key={d.name} fill={d.fill} />
+            {/* Keyed by position, not by name: two asset types in different
+                categories can share a name, and React silently drops the
+                second slice when two keys collide. */}
+            {data.map((d, i) => (
+              <Cell key={`${d.name}-${i}`} fill={d.fill} />
             ))}
           </Pie>
           <Tooltip {...tooltipStyle} />
@@ -229,8 +235,10 @@ export function Legend({
 }) {
   return (
     <div className="flex flex-1 flex-col gap-2">
-      {items.map((it) => (
-        <div key={it.name} className="flex items-center gap-2.5 text-[13px]">
+      {/* Position, not name: the legend mirrors the slices, and two asset
+          types in different categories can share a name. */}
+      {items.map((it, i) => (
+        <div key={`${it.name}-${i}`} className="flex items-center gap-2.5 text-[13px]">
           <span className="size-[9px] shrink-0 rounded-[3px]" style={{ background: it.fill }} />
           <span className="text-[var(--color-content-muted)]">{it.name}</span>
           {it.value ? <span className="ml-auto font-semibold tabular-nums">{it.value}</span> : null}
