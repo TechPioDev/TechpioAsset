@@ -6,7 +6,27 @@
  */
 
 export const RLS_APP_PASSWORD = 'rls-lane-local-only';
-export const RLS_APP_URL = `postgresql://techpioasset_app:${RLS_APP_PASSWORD}@localhost:5432/techpioasset?schema=public`;
+
+/**
+ * The same server the admin client talks to, with the app role's credentials
+ * swapped in.
+ *
+ * This used to hardcode `localhost:5432`. On a machine where another project
+ * already owns 5432 - which is why this cluster runs on 5433 - all six tests
+ * in the lane failed with "authentication failed for techpioasset_app": they
+ * had reached a completely different database and been turned away at the
+ * door. The message says credentials, the cause was the address, and the lane
+ * that proves tenant isolation is the worst one to have failing for a reason
+ * nobody reads twice.
+ */
+function appRoleUrl(): string {
+  const admin = new URL(process.env.DATABASE_URL ?? 'postgresql://localhost:5432/techpioasset');
+  admin.username = 'techpioasset_app';
+  admin.password = RLS_APP_PASSWORD;
+  return admin.toString();
+}
+
+export const RLS_APP_URL = appRoleUrl();
 
 interface RawClient {
   $executeRawUnsafe(sql: string): Promise<unknown>;
