@@ -2,14 +2,18 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { z } from 'zod';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  createAssetTypeSchema,
   createDepartmentSchema,
+  updateAssetTypeSchema,
   createOfficeSchema,
   createVendorSchema,
   updateVendorSchema,
   updateDepartmentSchema,
   updateOfficeSchema,
   type AuthUser,
+  type CreateAssetTypeInput,
   type CreateDepartmentInput,
+  type UpdateAssetTypeInput,
   type CreateOfficeInput,
   type CreateVendorInput,
   type UpdateVendorInput,
@@ -199,6 +203,49 @@ export class OrgController {
     @Body(zodBody(updateDepartmentSchema)) body: UpdateDepartmentInput,
   ) {
     return this.org.updateDepartment(actor, id, body);
+  }
+
+  /*
+    v3.4 - asset types, manageable at last.
+
+    The spec makes the type tree the admin's to own (section 11), but until now
+    only a read endpoint existed. Three of the four categories therefore sat
+    empty for the life of the tenant, and anything filed under them could not
+    be typed or filtered.
+  */
+  @Get('asset-types/manage')
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({
+    summary: 'Asset types by category, retired ones included, with how many assets hold each',
+  })
+  assetTypesForManagement(@CurrentUser() actor: AuthUser) {
+    return this.org.assetTypesForManagement(actor);
+  }
+
+  @Post('asset-types')
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({ summary: 'Add an asset type to a category' })
+  createAssetType(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(createAssetTypeSchema)) body: CreateAssetTypeInput,
+  ) {
+    return this.org.createAssetType(actor, body);
+  }
+
+  @Patch('asset-types/:id')
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
+  @ApiOperation({
+    summary: 'Rename or retire an asset type',
+    description:
+      'Retiring removes it from the choices without touching the assets that already hold it. ' +
+      'There is no delete: assets, inventory items and vendor offers point at these.',
+  })
+  updateAssetType(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body(zodBody(updateAssetTypeSchema)) body: UpdateAssetTypeInput,
+  ) {
+    return this.org.updateAssetType(actor, id, body);
   }
 
   @Get('categories')

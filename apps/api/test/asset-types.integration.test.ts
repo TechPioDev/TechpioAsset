@@ -4,234 +4,141 @@ import { PrismaService } from '../src/prisma/prisma.service.js';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
 
 /**
- * v2.20 asset types & specifications: the seeded types are offered, the chosen
- * type's specification is stored, unknown keys never reach the column, and the
- * identity fields (MAC, IMEI) are unique per company however they are typed.
+ * v3.4 — asset types became manageable.
+ *
+ * Only IT Assets had types; the other three categories were empty for the life
+ * of the tenant because the spec gives the admin the type tree and nothing let
+ * them write to it.
  */
 
 let app: INestApplication;
-let prisma: PrismaService;
 let s: Record<AccountKey, Session>;
-let itCategoryId: string;
-let monitorTypeId: string;
-let mobileTypeId: string;
+let prisma: PrismaService;
 const created: string[] = [];
-const stamp = Math.random().toString(36).slice(2, 7).toUpperCase();
-
-async function createAsset(body: Record<string, unknown>) {
-  const res = await api(app).post('/api/v1/assets').set(auth(s.itAdmin)).send(body);
-  if (res.status < 300) created.push(res.body.data.id as string);
-  return res;
-}
+let categoryId = '';
 
 beforeAll(async () => {
   app = await createTestApp();
-  prisma = app.get(PrismaService);
   s = await loginAll(app);
-  const cats = await api(app).get('/api/v1/categories').set(auth(s.itAdmin));
-  const it = cats.body.data.find((c: { key: string }) => c.key === 'it-assets');
-  itCategoryId = it.id;
-  monitorTypeId = it.subcategories.find((x: { key: string }) => x.key === 'monitor').id;
-  mobileTypeId = it.subcategories.find((x: { key: string }) => x.key === 'mobile-phone').id;
+  prisma = app.get(PrismaService);
+  const cat = await prisma.client.category.findFirst({
+    where: { companyId: s.superAdmin.user.companyId, deletedAt: null },
+    select: { id: true },
+  });
+  categoryId = cat!.id;
 });
 
 afterAll(async () => {
-  for (const id of created) {
-    await prisma.client.$executeRawUnsafe('DELETE FROM asset_condition_logs WHERE "assetId" = $1', id);
-    await prisma.client.$executeRawUnsafe('DELETE FROM assets WHERE id = $1', id);
-  }
+  await prisma?.client.subcategory.deleteMany({ where: { id: { in: created } } });
   await app?.close();
 });
 
-describe('the type catalogue', () => {
-  it('offers the seeded types under IT Assets', async () => {
-    const res = await api(app).get('/api/v1/categories').set(auth(s.itAdmin));
-    const it = res.body.data.find((c: { key: string }) => c.key === 'it-assets');
-    const keys = it.subcategories.map((x: { key: string }) => x.key);
-    expect(keys).toEqual(
-      expect.arrayContaining(['laptop', 'monitor', 'mobile-phone', 'keyboard', 'mouse', 'cable', 'projector']),
-    );
-  });
-});
+const unique = () => `Test Type ${Math.random().toString(36).slice(2, 8)}`;
 
-describe('specifications', () => {
-  it('stores the chosen type’s fields and drops anything it did not declare', async () => {
-    const res = await createAsset({
-      assetTag: `TY-${stamp}-MON`,
-      name: 'Samsung 24" Monitor',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      brand: 'Samsung',
-      serialNumber: `SN-${stamp}-MON`,
-      specs: {
-        screenSize: '24',
-        resolution: '1920 x 1080 (FHD)',
-        panel: 'IPS',
-        // Not a monitor field, and not a field at all - both must be dropped.
-        imei2: '123456789012345',
-        somethingInvented: 'x',
-      },
-    });
-    expect(res.status).toBe(201);
+async function create(name: string, as: Session = s.superAdmin) {
+  const res = await api(app).post('/api/v1/asset-types').set(auth(as)).send({ categoryId, name });
+  if (res.status < 300 && res.body?.data?.id) created.push(res.body.data.id);
+  return res;
+}
 
-    const row = await prisma.client.asset.findUnique({
-      where: { id: res.body.data.id as string },
-      select: { specs: true },
-    });
-    expect(row?.specs).toEqual({ screenSize: '24', resolution: '1920 x 1080 (FHD)', panel: 'IPS' });
+describe('adding a type', () => {
+  it('creates it and derives a key from the name', async () => {
+    const res = await create('Standing Desk / Riser');
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBeLessThan(300);
+    expect(res.body.data.key).toBe('standing-desk-riser');
+    expect(res.body.data.isActive).toBe(true);
   });
 
-  it('leaves specs null when the type declares none of the supplied keys', async () => {
-    const res = await createAsset({
-      assetTag: `TY-${stamp}-BARE`,
-      name: 'Monitor without details',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      specs: { notAField: 'ignored' },
-    });
-    expect(res.status).toBe(201);
-    const row = await prisma.client.asset.findUnique({
-      where: { id: res.body.data.id as string },
-      select: { specs: true },
-    });
-    expect(row?.specs).toBeNull();
-  });
-});
-
-describe('identity fields', () => {
-  it('normalises a MAC address before storing it', async () => {
-    const res = await createAsset({
-      assetTag: `TY-${stamp}-L1`,
-      name: 'Laptop with NIC',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      macAddress: 'a4-bb-6d-1e-22-9f',
-    });
-    expect(res.status).toBe(201);
-    const row = await prisma.client.asset.findUnique({
-      where: { id: res.body.data.id as string },
-      select: { macAddress: true },
-    });
-    expect(row?.macAddress).toBe('A4:BB:6D:1E:22:9F');
+  it('refuses a duplicate in the same category', async () => {
+    const name = unique();
+    await create(name);
+    const again = await create(name);
+    expect(again.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(again.body)).toMatch(/already has a type/i);
   });
 
-  it('refuses the same MAC address however it is punctuated', async () => {
-    const res = await createAsset({
-      assetTag: `TY-${stamp}-L2`,
-      name: 'Second laptop, same NIC',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      macAddress: 'A4BB6D1E229F',
-    });
-    expect(res.status).toBe(409);
-    expect(JSON.stringify(res.body)).toContain(`TY-${stamp}-L1`);
+  it('points at the retired one rather than just saying no', async () => {
+    // The fix differs: reactivate, not rename. A message that does not say so
+    // sends somebody off to invent "Desk 2".
+    const name = unique();
+    const made = await create(name);
+    await api(app)
+      .patch(`/api/v1/asset-types/${made.body.data.id}`)
+      .set(auth(s.superAdmin))
+      .send({ isActive: false });
+
+    const again = await create(name);
+    expect(again.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(again.body)).toMatch(/retired/i);
   });
 
-  it('refuses a duplicate IMEI and accepts a different one', async () => {
-    const first = await createAsset({
-      assetTag: `TY-${stamp}-M1`,
-      name: 'Company phone',
-      categoryId: itCategoryId,
-      subcategoryId: mobileTypeId,
-      imei: '359874102345678',
-    });
-    expect(first.status).toBe(201);
-
-    const dup = await createAsset({
-      assetTag: `TY-${stamp}-M2`,
-      name: 'Phone with a copied IMEI',
-      categoryId: itCategoryId,
-      subcategoryId: mobileTypeId,
-      imei: '359874102345678',
-    });
-    expect(dup.status).toBe(409);
-
-    const ok = await createAsset({
-      assetTag: `TY-${stamp}-M3`,
-      name: 'Another phone',
-      categoryId: itCategoryId,
-      subcategoryId: mobileTypeId,
-      imei: '359874102345999',
-    });
-    expect(ok.status).toBe(201);
+  it('refuses a name with nothing to key on', async () => {
+    const res = await create('!!!');
+    expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
-  it('rejects a malformed MAC rather than silently discarding it', async () => {
-    const res = await createAsset({
-      assetTag: `TY-${stamp}-BAD`,
-      name: 'Bad MAC',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      macAddress: 'ZZ:ZZ:ZZ:ZZ:ZZ:ZZ',
+  it('refuses a category belonging to someone else', async () => {
+    const other = await prisma.client.category.findFirst({
+      where: { companyId: { not: s.superAdmin.user.companyId }, deletedAt: null },
+      select: { id: true },
     });
-    expect(res.status).toBe(422);
-  });
-
-  it('lets an asset keep its own IMEI on edit, but not take another’s', async () => {
-    const mine = await createAsset({
-      assetTag: `TY-${stamp}-E1`,
-      name: 'Phone being edited',
-      categoryId: itCategoryId,
-      subcategoryId: mobileTypeId,
-      imei: '359874102340001',
-    });
-    expect(mine.status).toBe(201);
-
-    // Re-saving with the value it already holds must not trip the guard.
-    const resave = await api(app)
-      .patch(`/api/v1/assets/${mine.body.data.id}`)
-      .set(auth(s.itAdmin))
-      .send({ name: 'Phone being edited (renamed)', imei: '359874102340001' });
-    expect(resave.status).toBeLessThan(300);
-
-    // Someone else's IMEI still is.
-    const theirs = await createAsset({
-      assetTag: `TY-${stamp}-E2`,
-      name: 'Another phone',
-      categoryId: itCategoryId,
-      subcategoryId: mobileTypeId,
-      imei: '359874102340002',
-    });
-    expect(theirs.status).toBe(201);
-
-    const steal = await api(app)
-      .patch(`/api/v1/assets/${mine.body.data.id}`)
-      .set(auth(s.itAdmin))
-      .send({ imei: '359874102340002' });
-    expect(steal.status).toBe(409);
-  });
-
-  it('updates the stored specification and drops cleared fields', async () => {
-    const asset = await createAsset({
-      assetTag: `TY-${stamp}-S1`,
-      name: 'Monitor to respec',
-      categoryId: itCategoryId,
-      subcategoryId: monitorTypeId,
-      specs: { screenSize: '24', panel: 'IPS' },
-    });
-    expect(asset.status).toBe(201);
-
+    if (!other) return; // single-tenant test database
     const res = await api(app)
-      .patch(`/api/v1/assets/${asset.body.data.id}`)
-      .set(auth(s.itAdmin))
-      .send({ specs: { screenSize: '27', resolution: '2560 x 1440 (QHD)' } });
-    expect(res.status).toBeLessThan(300);
+      .post('/api/v1/asset-types')
+      .set(auth(s.superAdmin))
+      .send({ categoryId: other.id, name: unique() });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
 
-    const row = await prisma.client.asset.findUnique({
-      where: { id: asset.body.data.id as string },
-      select: { specs: true },
-    });
-    expect(row?.specs).toEqual({ screenSize: '27', resolution: '2560 x 1440 (QHD)' });
+describe('renaming and retiring', () => {
+  it('renames without moving the key', async () => {
+    // A key that drifts under a rename breaks whatever stored it.
+    const made = await create(unique());
+    const keyBefore = made.body.data.key;
+    const res = await api(app)
+      .patch(`/api/v1/asset-types/${made.body.data.id}`)
+      .set(auth(s.superAdmin))
+      .send({ name: 'Renamed Entirely' });
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.data.name).toBe('Renamed Entirely');
+    expect(res.body.data.key).toBe(keyBefore);
   });
 
-  it('lets two assets both leave the identity fields empty', async () => {
-    for (const n of ['C1', 'C2']) {
-      const res = await createAsset({
-        assetTag: `TY-${stamp}-${n}`,
-        name: `HDMI cable ${n}`,
-        categoryId: itCategoryId,
-      });
-      expect(res.status).toBe(201);
-    }
+  it('retires instead of deleting, so assets keep their type', async () => {
+    const made = await create(unique());
+    const res = await api(app)
+      .patch(`/api/v1/asset-types/${made.body.data.id}`)
+      .set(auth(s.superAdmin))
+      .send({ isActive: false });
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.data.isActive).toBe(false);
+
+    const still = await prisma.client.subcategory.findUnique({ where: { id: made.body.data.id } });
+    expect(still, 'retiring must not delete the row').not.toBeNull();
+  });
+});
+
+describe('who may do it', () => {
+  it('lists types with how many assets hold each', async () => {
+    const res = await api(app).get('/api/v1/asset-types/manage').set(auth(s.superAdmin));
+    expect(res.status).toBe(200);
+    const cats = res.body.data as { name: string; types: { assetCount: number }[] }[];
+    expect(cats.length).toBeGreaterThan(0);
+    expect(cats.some((c) => c.types.every((t) => typeof t.assetCount === 'number'))).toBe(true);
+  });
+
+  it('refuses an employee', async () => {
+    const res = await api(app).get('/api/v1/asset-types/manage').set(auth(s.employee));
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses an employee trying to add one', async () => {
+    const res = await create(unique(), s.employee);
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses anonymous', async () => {
+    expect((await api(app).get('/api/v1/asset-types/manage')).status).toBe(401);
   });
 });

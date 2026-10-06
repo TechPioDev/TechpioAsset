@@ -38,6 +38,7 @@ import { Sparkles,
   Wrench,
   X,
   Store,
+  Tags,
 } from 'lucide-react';
 import { Award, IndianRupee, Wallet } from 'lucide-react';
 import { PERMISSIONS, searchGroups } from '@techpioasset/domain';
@@ -234,6 +235,14 @@ const NAV_GROUPS: NavGroup[] = [
         href: '/settings/offices',
         label: 'Offices',
         Icon: Building2,
+        permission: PERMISSIONS.SETTINGS_MANAGE,
+      },
+      {
+        // v3.4 - next to Offices and Departments, the other two trees an admin
+        // owns. It had no screen at all until now.
+        href: '/settings/asset-types',
+        label: 'Asset types',
+        Icon: Tags,
         permission: PERMISSIONS.SETTINGS_MANAGE,
       },
       {

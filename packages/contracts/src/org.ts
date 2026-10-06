@@ -138,3 +138,32 @@ export const updateOwnVendorSchema = z
   .strict();
 
 export type UpdateOwnVendorInput = z.infer<typeof updateOwnVendorSchema>;
+
+/**
+ * Asset types (subcategories) — v3.4.
+ *
+ * The spec says the type tree is the admin's to own, but nothing let them own
+ * it: a read endpoint and no way to write. Three of the four categories sat
+ * empty for the life of the tenant, so anything filed under them could never
+ * be typed or filtered.
+ *
+ * `key` is NOT accepted from the caller. It is derived from the name once, at
+ * creation, and never changes - a rename is a label change, and keys that
+ * drift under a rename break anything that stored one.
+ */
+export const createAssetTypeSchema = z.object({
+  categoryId: z.string().min(1),
+  name: trimmed(80),
+});
+export type CreateAssetTypeInput = z.infer<typeof createAssetTypeSchema>;
+
+export const updateAssetTypeSchema = z.object({
+  name: trimmed(80).optional(),
+  /**
+   * Retiring a type, rather than deleting it. Assets, inventory items and
+   * vendor offers point at it; deleting would orphan them, and a type nobody
+   * can choose any more is what "we stopped buying those" actually means.
+   */
+  isActive: z.boolean().optional(),
+});
+export type UpdateAssetTypeInput = z.infer<typeof updateAssetTypeSchema>;

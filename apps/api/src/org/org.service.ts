@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import type {
   AuthUser,
+  CreateAssetTypeInput,
   CreateDepartmentInput,
+  UpdateAssetTypeInput,
   CreateOfficeInput,
   UpdateDepartmentInput,
   UpdateOfficeInput,
@@ -344,6 +346,127 @@ export class OrgService {
         _count: { select: { profiles: true } },
       },
     });
+  }
+
+  /**
+   * Asset types for the settings page - every category, inactive types included
+   * (v3.4).
+   *
+   * Carries how many assets hold each type, because that is the one fact
+   * somebody needs before retiring one: "Desk, 14 assets" is a different
+   * decision from "Desk, 0 assets".
+   */
+  async assetTypesForManagement(actor: AuthUser) {
+    const categories = await this.prisma.client.category.findMany({
+      where: { ...tenantFilter(actor), deletedAt: null },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        subcategories: {
+          where: { deletedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            isActive: true,
+            _count: { select: { assets: true } },
+          },
+        },
+      },
+    });
+
+    return categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      types: c.subcategories.map((s) => ({
+        id: s.id,
+        name: s.name,
+        key: s.key,
+        isActive: s.isActive,
+        assetCount: s._count.assets,
+      })),
+    }));
+  }
+
+  /** Lower case, non-alphanumerics collapsed to hyphens - as the seed keys them. */
+  private assetTypeKey(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  async createAssetType(actor: AuthUser, input: CreateAssetTypeInput) {
+    const category = await this.prisma.client.category.findFirst({
+      where: { id: input.categoryId, ...tenantFilter(actor), deletedAt: null },
+      select: { id: true, name: true },
+    });
+    // Checked rather than trusted: a categoryId from another tenant would
+    // otherwise plant a type in their tree.
+    if (!category) throw new AppError('NOT_FOUND', 'Category not found');
+
+    const key = this.assetTypeKey(input.name);
+    if (!key) throw new AppError('VALIDATION_FAILED', 'That name has no letters or numbers in it');
+
+    const clash = await this.prisma.client.subcategory.findFirst({
+      where: { categoryId: category.id, key, deletedAt: null },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (clash) {
+      // A retired type coming back is a different message from a live
+      // duplicate, because the fix is different: reactivate, not rename.
+      throw new AppError(
+        'CONFLICT',
+        clash.isActive
+          ? `${category.name} already has a type called ${clash.name}`
+          : `${category.name} has a retired type called ${clash.name} - bring that back instead`,
+      );
+    }
+
+    const type = await this.prisma.client.subcategory.create({
+      data: { categoryId: category.id, key, name: input.name },
+      select: { id: true, name: true, key: true, isActive: true },
+    });
+    await this.audit.record({
+      companyId: actor.companyId,
+      actorId: actor.id,
+      action: AuditAction.SETTING_CHANGED,
+      entityType: 'Subcategory',
+      entityId: type.id,
+      newValues: { ...type, category: category.name, edited: 'asset type created' },
+    });
+    return { ...type, assetCount: 0 };
+  }
+
+  async updateAssetType(actor: AuthUser, typeId: string, input: UpdateAssetTypeInput) {
+    const before = await this.prisma.client.subcategory.findFirst({
+      where: { id: typeId, deletedAt: null, category: { ...tenantFilter(actor), deletedAt: null } },
+      select: { id: true, name: true, key: true, isActive: true, categoryId: true },
+    });
+    if (!before) throw new AppError('NOT_FOUND', 'Asset type not found');
+
+    // The key is deliberately NOT recomputed from a new name. Renaming is a
+    // label change; a key that moves under a rename breaks whatever stored it.
+    const after = await this.prisma.client.subcategory.update({
+      where: { id: typeId },
+      data: { ...(input.name ? { name: input.name } : {}), ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) },
+      select: { id: true, name: true, key: true, isActive: true },
+    });
+    await this.audit.recordChange(
+      {
+        companyId: actor.companyId,
+        actorId: actor.id,
+        action: AuditAction.SETTING_CHANGED,
+        entityType: 'Subcategory',
+        entityId: typeId,
+      },
+      before as unknown as Record<string, unknown>,
+      after as unknown as Record<string, unknown>,
+      ['name', 'isActive'],
+    );
+    return after;
   }
 
   async createDepartment(actor: AuthUser, input: CreateDepartmentInput) {
