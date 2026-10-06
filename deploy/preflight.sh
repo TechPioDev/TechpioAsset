@@ -109,10 +109,34 @@ else
 fi
 
 # ── 5. Off-site copy configured (v2.8 S1) ────────────────────────────────────
-if [[ -n "$(envval BACKUP_S3_BUCKET)" ]]; then
-  ok "backups are shipped off-site" "bucket=$(envval BACKUP_S3_BUCKET)"
-else
+#
+# This used to pass on a non-empty BACKUP_S3_BUCKET alone, and so printed
+# "PASS  backups are shipped off-site" on a server where the bucket name was a
+# placeholder, no credentials existed, and every nightly run had logged
+# "off-site SKIPPED". A green tick on the one failure that loses data for good.
+#
+# The uploader (apps/api/src/backup/backup-storage.ts, targetFromEnv) needs the
+# bucket AND both keys, and returns null - "no destination configured" - if any
+# one is missing. This now asks the same question, then asks the LOG whether
+# last night actually shipped: configuration is a plan, the log is evidence.
+OFFSITE_BUCKET="$(envval BACKUP_S3_BUCKET)"
+OFFSITE_KEY="$(envval BACKUP_S3_ACCESS_KEY_ID)"
+OFFSITE_SECRET="$(envval BACKUP_S3_SECRET_ACCESS_KEY)"
+LAST_OFFSITE="$(grep -E "off-site (ok|SKIPPED|failed)" /var/log/techpioasset-backup.log 2>/dev/null | tail -1)"
+
+if [[ -z "$OFFSITE_BUCKET" && -z "$OFFSITE_KEY" && -z "$OFFSITE_SECRET" ]]; then
   note "no off-site backup destination configured — the local copy is the only copy"
+elif [[ -z "$OFFSITE_BUCKET" || -z "$OFFSITE_KEY" || -z "$OFFSITE_SECRET" ]]; then
+  OFFSITE_STATE="bucket=${OFFSITE_BUCKET:-<unset>}"
+  [[ -n "$OFFSITE_KEY" ]]    && OFFSITE_STATE="$OFFSITE_STATE, access key set" || OFFSITE_STATE="$OFFSITE_STATE, access key MISSING"
+  [[ -n "$OFFSITE_SECRET" ]] && OFFSITE_STATE="$OFFSITE_STATE, secret set"     || OFFSITE_STATE="$OFFSITE_STATE, secret MISSING"
+  warn "off-site backup is HALF configured - nothing is being shipped" \
+       "$OFFSITE_STATE. The uploader needs all three and skips without them, so the local copy is still the only copy."
+elif [[ "$LAST_OFFSITE" == *"off-site ok"* ]]; then
+  ok "backups are shipped off-site" "bucket=$OFFSITE_BUCKET; last run: $LAST_OFFSITE"
+else
+  bad "backups are shipped off-site" \
+      "credentials are present but the last nightly run did not ship: ${LAST_OFFSITE:-<no off-site line in /var/log/techpioasset-backup.log>}"
 fi
 
 # ── 6. Containers healthy right now ──────────────────────────────────────────
