@@ -334,6 +334,9 @@ export class AssetsService {
     total: number;
     byStatus: Record<string, number>;
     byCategory: { name: string; count: number }[];
+    /** By TYPE. The donut that said "category" showed one slice: every asset
+     *  this company owns is an IT Asset. Type is where the shape actually is. */
+    byType: { name: string; count: number }[];
     byOffice: { name: string; count: number }[];
     /** How many of them carry a purchase date, and when. */
     purchase: { dated: number; byMonth: { month: string; count: number }[] };
@@ -343,10 +346,11 @@ export class AssetsService {
     const where = this.listWhere(actor, {} as AssetListQuery);
     const db = this.prisma.client;
 
-    const [statusRows, categoryRows, officeRows] = await Promise.all([
+    const [statusRows, categoryRows, officeRows, typeRows] = await Promise.all([
       db.asset.groupBy({ by: ['status'], where, _count: { _all: true } }),
       db.asset.groupBy({ by: ['categoryId'], where, _count: { _all: true } }),
       db.asset.groupBy({ by: ['officeId'], where, _count: { _all: true } }),
+      db.asset.groupBy({ by: ['subcategoryId'], where, _count: { _all: true } }),
     ]);
 
     const byStatus: Record<string, number> = {};
@@ -361,20 +365,23 @@ export class AssetsService {
     const named = async (
       pairs: { id: string | null; count: number }[],
       lookup: (ids: string[]) => Promise<{ id: string; name: string }[]>,
+      // What a null id means here. An office with none is "Unassigned"; a type
+      // with none is "No type set". Same shape, different sentence.
+      whenNull = 'Unassigned',
     ) => {
       const real = pairs.map((p) => p.id).filter((id): id is string => id !== null);
       const names = new Map((await lookup(real)).map((r) => [r.id, r.name]));
       return pairs
         .map((p) => ({
-          // A null office is "Unassigned" - a real answer, and one worth
-          // seeing, so it is counted rather than dropped.
-          name: p.id === null ? 'Unassigned' : (names.get(p.id) ?? 'Unknown'),
+          // A null is a real answer and worth seeing, so it is counted rather
+          // than dropped.
+          name: p.id === null ? whenNull : (names.get(p.id) ?? 'Unknown'),
           count: p.count,
         }))
         .sort((a, b) => b.count - a.count);
     };
 
-    const [byCategory, byOffice] = await Promise.all([
+    const [byCategory, byOffice, byType] = await Promise.all([
       named(
         categoryRows.map((r) => ({ id: r.categoryId, count: r._count._all })),
         (ids) => db.category.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
@@ -382,6 +389,12 @@ export class AssetsService {
       named(
         officeRows.map((r) => ({ id: r.officeId, count: r._count._all })),
         (ids) => db.office.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      ),
+      named(
+        typeRows.map((r) => ({ id: r.subcategoryId, count: r._count._all })),
+        (ids) =>
+          db.subcategory.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+        'No type set',
       ),
     ]);
 
@@ -418,6 +431,7 @@ export class AssetsService {
       total,
       byStatus,
       byCategory,
+      byType,
       byOffice,
       warranty: warrantyBreakdown(
         warrantyEnds.map((r) => r.warrantyEndDate),

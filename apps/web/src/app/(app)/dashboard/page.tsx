@@ -123,84 +123,12 @@ interface FleetSegment {
   href?: string;
 }
 
-function FleetBar({
-  segments,
-  total,
-}: {
-  segments: FleetSegment[];
-  total: number;
-}) {
-  const visible = segments.filter((seg) => seg.count > 0);
-  if (total === 0 || visible.length === 0) return null;
-  return (
-    <div>
-      <div
-        className="flex h-9 w-full overflow-hidden rounded-lg"
-        role="img"
-        aria-label={visible.map((seg) => `${seg.label} ${seg.count}`).join(', ')}
-      >
-        {visible.map((seg, i) => {
-          const pctOf = (seg.count / total) * 100;
-          const inner =
-            pctOf >= 8 ? (
-              <span className="px-1 text-[11px] font-bold tabular-nums text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]">
-                {Math.round(pctOf)}%
-              </span>
-            ) : null;
-          const style = {
-            flexGrow: seg.count,
-            flexBasis: 0,
-            background: `var(--tone-${seg.tone}-solid)`,
-            marginLeft: i === 0 ? 0 : 2,
-          };
-          const cls =
-            'relative flex items-center justify-center transition-[flex-grow] duration-500';
-          const title = `${seg.label}: ${seg.count} (${Math.round(pctOf)}%)`;
-          return seg.href ? (
-            <Link
-              key={seg.key}
-              href={seg.href}
-              title={`${title} - open this list`}
-              className={`${cls} hover:brightness-110`}
-              style={style}
-            >
-              {inner}
-            </Link>
-          ) : (
-            <div key={seg.key} title={title} className={cls} style={style}>
-              {inner}
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-        {visible.map((seg) => {
-          const swatch = (
-            <>
-              <span
-                aria-hidden="true"
-                className="size-2.5 rounded-[3px]"
-                style={{ background: `var(--tone-${seg.tone}-solid)` }}
-              />
-              <span className="text-[var(--color-content-muted)]">{seg.label}</span>
-              <span className="font-semibold tabular-nums">{seg.count.toLocaleString()}</span>
-            </>
-          );
-          const cls = 'inline-flex items-center gap-1.5 text-xs';
-          return seg.href ? (
-            <Link key={seg.key} href={seg.href} className={`${cls} hover:underline`}>
-              {swatch}
-            </Link>
-          ) : (
-            <span key={seg.key} className={cls}>
-              {swatch}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+/*
+  v3.5 - FleetBar is gone. The five groups are cards above the fold now;
+  keeping both would have been the same five numbers twice, which is the
+  duplication v2.94 cleared off this screen. FleetSegment stays: the cards
+  are built from it.
+*/
 
 /** Section heading with a kicker - the bento grid's typographic voice. */
 function SectionHead({
@@ -442,6 +370,7 @@ export default function DashboardPage() {
         total: number;
         byStatus: Record<string, number>;
         byCategory: { name: string; count: number }[];
+        byType: { name: string; count: number }[];
         byOffice: { name: string; count: number }[];
         purchase: { dated: number; byMonth: { month: string; count: number }[] };
         warranty: Record<string, number> & { total: number };
@@ -572,7 +501,15 @@ export default function DashboardPage() {
   // From the server, not from `assets`. Grouping the fetched page put "169"
   // in the middle of a donut whose slices read 99 and 1, and an office pie
   // whose two slices came to 59%.
-  const byCategory = groupTop(statsQuery.data?.byCategory ?? []);
+  /*
+    v3.5 - the composition donut shows TYPES, not categories.
+
+    Every asset this company owns is an "IT Asset", so the category donut was a
+    single blue circle at 100% - a chart with nothing to say. By type it reads
+    Laptop 52, Monitor 47, Headset 31, Mouse 23, and so on. Same picture the
+    owner's mock drew; the label on it was just wrong.
+  */
+  const byCategory = groupTop(statsQuery.data?.byType ?? []);
   const byOffice = groupTop(statsQuery.data?.byOffice ?? []);
 
   /*
@@ -762,11 +699,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {isFleetViewer ? (
-          <div className="relative mt-6">
-            <FleetBar segments={fleetSegments} total={total} />
-          </div>
-        ) : (
+        {isFleetViewer ? null : (
           <p className="relative mt-3 max-w-xl text-sm text-[var(--color-content-muted)]">
             {isVendor
               ? publishesAtOnce
@@ -776,6 +709,63 @@ export default function DashboardPage() {
           </p>
         )}
       </section>
+
+      {/*
+        v3.5 - the fleet at a glance, one card per group.
+
+        This REPLACES the stacked bar rather than joining it. The owner's mock
+        shows cards and a donut carrying the same five numbers; v2.94 removed a
+        band for exactly that duplication, so the bar goes and the donut beside
+        it now shows TYPES - which is a different question and a chart with
+        something to say.
+
+        No trend arrows and no sparklines. Nothing records what the fleet
+        looked like last month, so "+12%" could only be decoration, and a
+        decoration shaped like a fact is the thing this dashboard has spent a
+        week shedding.
+      */}
+      {isFleetViewer ? (
+        <section aria-label="Fleet at a glance" className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {fleetSegments
+            .filter((seg) => seg.key !== 'other' || seg.count > 0)
+            .slice(0, 5)
+            .map((seg) => {
+              const card = (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl"
+                    style={{ background: `var(--tone-${seg.tone}-bg)` }}
+                  >
+                    <span
+                      className="size-5 rounded-md"
+                      style={{ background: `var(--tone-${seg.tone}-solid)` }}
+                    />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-2xl font-bold leading-none tabular-nums">
+                      {seg.count.toLocaleString()}
+                    </span>
+                    <span className="mt-1 block truncate text-sm text-[var(--color-content-muted)]">
+                      {seg.label}
+                    </span>
+                  </span>
+                </>
+              );
+              const cls =
+                'flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 transition-colors';
+              return seg.href ? (
+                <Link key={seg.key} href={seg.href} className={`${cls} hover:border-[var(--color-brand)]`}>
+                  {card}
+                </Link>
+              ) : (
+                <div key={seg.key} className={cls}>
+                  {card}
+                </div>
+              );
+            })}
+        </section>
+      ) : null}
 
       {/*
         Role-based "what needs me now" tiles (server-scoped).
@@ -857,7 +847,7 @@ export default function DashboardPage() {
               )}
             </Card>
             <Card className="p-5">
-              <SectionHead kicker="Composition" title="By category" />
+              <SectionHead kicker="Composition" title="By type" />
               {byCategory.length === 0 ? (
                 <EmptyState title="No assets" description="Nothing to chart yet." />
               ) : (
