@@ -42,8 +42,22 @@ WHERE p.key IN (SELECT permission FROM hiding)
 \echo 'Withdrawing these grants (the Vendor role is untouched):'
 SELECT role_name, permission FROM removing ORDER BY permission, role_name;
 
+-- The EXACT undo, emitted as SQL you can keep.
+--
+-- restore-hidden-modules.sql grants back to a fixed list of standard roles,
+-- which is close but not identical: this company has two CUSTOM roles
+-- ("Inventory Manager (custom)", "Office Administrator (custom)") that the
+-- fixed list does not name, so 21 grants went out and only 19 would come back.
+-- A rollback that silently returns less than it took is not a rollback.
+--
+-- Capture this block when you run the script:
+--   ... -f deploy/hide-unused-modules.sql > /root/pioassets-modules-undo.sql
 \echo ''
-\echo 'To put them back, run deploy/restore-hidden-modules.sql'
+\echo '-- EXACT UNDO - save this:'
+SELECT format(
+  'INSERT INTO role_permissions ("roleId","permissionId") VALUES (%L,%L) ON CONFLICT DO NOTHING;',
+  "roleId", "permissionId")
+FROM removing ORDER BY role_name, permission;
 
 DELETE FROM role_permissions rp
 USING removing x
