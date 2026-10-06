@@ -18,7 +18,6 @@ import {
   ShoppingBag,
   ShieldCheck,
   Check,
-  Target,
   Upload,
   Users,
   Wrench,
@@ -628,6 +627,7 @@ export default function DashboardPage() {
     It replaces the date kicker, which the banner does not have - and which had
     the same server/client problem with none of the warmth.
   */
+  const showBannerArt = !isVendor;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -742,32 +742,74 @@ export default function DashboardPage() {
     <div className="grid gap-6">
       {/* v2.80 - a handover waiting on this person, before anything else. */}
       <ReceiptPrompt />
-      {/* ── Hero (v3.7, to the owner's banner) ─────────────────────── */}
+      {/* ── Hero (v3.11, to the owner's banner - second pass) ─────────── */}
       {/*
-        Three bands, as drawn: who you are and what you can do, a photograph,
-        and the orange panel.
+        One short row, as drawn: greeting and actions on white, the photograph
+        fading into that white on its left edge, and on the right a WHITE card
+        with dark text sitting on a sweep of orange.
 
-        TWO DELIBERATE DEPARTURES from the artwork, both about text being
-        readable rather than taste:
+        The first pass got the format wrong in three ways. It was nearly twice
+        the height, because role badges and a fleet line were stacked into it
+        and the buttons wrapped. The photograph was a hard-edged tile. And the
+        right-hand side was a dark orange block with white text - which is what
+        forced the orange to be darkened in the first place. The artwork never
+        had that problem: its text is dark, on white, and the orange is only
+        the surround. So the logo orange is used as drawn, and no text sits on
+        it anywhere.
 
-        1. The orange is deeper than the logo's #F88808. White on #F88808 is
-           about 2.2:1 - below the 4.5:1 that body text needs - so the three
-           ticked lines in the banner would be hard to read for anyone, and
-           unreadable for some. #C2410C carries the same orange at 5.4:1. The
-           logo orange still appears, on the icon tile, where it is decoration
-           and no rule applies.
-        2. globals.css records why orange was kept out of the UI entirely: it
-           is 1.14 against the danger tone, so an orange control and an
-           "overdue" badge look alike. The panel is a block of brand colour
-           and states no status, so it does not compete; the primary BUTTON is
-           left in brand blue for that reason, and is the one place this
-           differs visibly from the drawing.
+        What left the banner did not disappear. The fleet line (and the trend,
+        once one exists) now sits directly above the cards that add up to it,
+        which is a better place for a total than a greeting. Read-only stays
+        here, because it is the explanation for buttons that are missing.
+
+        One knowing difference: Add Asset is brand blue, the owner's decision
+        on 6 Oct, because an orange control and an "overdue" badge are the same
+        colour to the eye and this screen is full of the latter.
       */}
       <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)_minmax(0,0.78fr)]">
-          {/* Band 1 — greeting, the fleet in one line, and the actions */}
-          <div className="relative z-10 p-6 sm:p-7">
-            <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[30px]">
+        {showBannerArt ? (
+          <>
+            {/* The photograph. Decoration: empty alt, hidden from assistive
+                technology, and absent below xl - on a narrower screen the fixed-width
+                sweep would run underneath the greeting, and it would only push the
+                actions down a phone screen. */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-y-0 left-[34%] right-[330px] hidden xl:block"
+            >
+              <Image
+                src="/app/dashboard-hero.webp"
+                alt=""
+                fill
+                sizes="(min-width: 1280px) 40vw, 0px"
+                className="object-cover object-center"
+                priority
+              />
+              {/* The fade into the white on the left, as in the drawing. */}
+              <div
+                className="absolute inset-y-0 left-0 w-1/2"
+                style={{
+                  background:
+                    'linear-gradient(90deg, var(--color-surface-raised) 0%, color-mix(in srgb, var(--color-surface-raised) 70%, transparent) 45%, transparent 100%)',
+                }}
+              />
+            </div>
+            {/* The orange sweep, with the slanted edge cutting across the photo. */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-y-0 right-0 hidden w-[440px] xl:block"
+              style={{
+                background: 'linear-gradient(135deg, #FDBA74 0%, #F88808 45%, #F97316 100%)',
+                clipPath: 'polygon(24% 0, 100% 0, 100% 100%, 0 100%)',
+              }}
+            />
+          </>
+        ) : null}
+
+        <div className="relative grid grid-cols-1 items-center xl:grid-cols-[minmax(0,1fr)_auto]">
+          {/* Greeting and the three actions */}
+          <div className="p-6 sm:px-7 sm:py-6">
+            <h1 className="text-[26px] font-bold leading-[1.15] tracking-tight sm:text-[30px]">
               {user?.firstName ? (
                 <>
                   {greeting},
@@ -781,7 +823,7 @@ export default function DashboardPage() {
               )}
             </h1>
 
-            <p className="mt-2 max-w-sm text-sm text-[var(--color-content-muted)]">
+            <p className="mt-1.5 max-w-md text-sm text-[var(--color-content-muted)]">
               {isVendor
                 ? publishesAtOnce
                   ? 'What you are offering this buyer. Add products, keep prices and stock current, and publish - buyers see an offer as soon as you do.'
@@ -791,160 +833,154 @@ export default function DashboardPage() {
                   : "Here's what's assigned to you and where you can help. Confirm equipment you have received, and raise a ticket the moment something misbehaves."}
             </p>
 
-            {/*
-              v3.6 - the fleet in one line, and a trend only when one exists.
-
-              The banner has no number in it. This one stays because it is the
-              sentence the subtitle promises: a reader told "here's what's
-              happening" and given no figure has been told nothing.
-            */}
-            {isFleetViewer ? (
-              <p className="mt-2.5 text-sm font-medium">
-                <span className="tabular-nums">{total.toLocaleString()}</span> assets
-                <span
-                  className="text-[var(--color-content-muted)]"
-                  title="Operational = everything except under repair, damaged, lost, stolen and retired."
-                >
-                  {' '}
-                  · {operational}% operational
-                </span>
-                {trend ? (
-                  <span
-                    /*
-                      Not green-for-up, amber-for-down. A fleet that shrank by
-                      six is six machines retired as often as it is a problem,
-                      and one that grew is more spend as often as it is
-                      progress. The figure and its sign carry the fact; colour
-                      would be a verdict the dashboard cannot support.
-                    */
-                    className="text-[var(--color-content-muted)]"
-                    title={`Compared with ${new Date(trend.since).toLocaleDateString()}`}
-                  >
-                    {' '}
-                    ·{' '}
-                    {trend.direction === 'flat'
-                      ? `no change in ${trend.ageDays} days`
-                      : `${trend.change > 0 ? '+' : ''}${trend.change.toLocaleString()}` +
-                        (trend.changePercent === null
-                          ? ''
-                          : ` (${trend.changePercent > 0 ? '+' : ''}${trend.changePercent}%)`) +
-                        ` in ${trend.ageDays} days`}
-                  </span>
-                ) : null}
-              </p>
+            {isReadOnly ? (
+              <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--tone-warning-fg)]">
+                <Eye aria-hidden="true" className="size-3.5" /> Read-only
+              </span>
             ) : null}
 
-            {/* Who you are and what you can see. Small, but it is the answer
-                to "why can I not edit this" and should not need a support
-                request. */}
-            {roleLabel || scopeLabel || isReadOnly ? (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                {roleLabel ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-brand)] px-2.5 py-1 text-xs font-semibold text-[var(--color-brand-contrast)]">
-                    <Users aria-hidden="true" className="size-3.5" />
-                    {roleLabel}
-                  </span>
-                ) : null}
-                {scopeLabel ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] px-2.5 py-1 text-xs font-medium text-[var(--color-content-muted)]">
-                    <ShieldCheck aria-hidden="true" className="size-3.5" />
-                    {scopeLabel}
-                  </span>
-                ) : null}
-                {isReadOnly ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--tone-warning-fg)]">
-                    <Eye aria-hidden="true" className="size-3.5" /> Read-only
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-
-            {/* The three actions from the banner. Each appears only for
-                someone who may actually do it: an Import button that answers
-                403 is worse than no button. */}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            {/* Each action appears only for someone who may actually do it:
+                an Import button that answers 403 is worse than no button. */}
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
               {!isReadOnly && can(PERMISSIONS.ASSETS_CREATE) ? (
                 <Link
                   href="/assets/new"
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-brand)] px-4 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-md transition hover:-translate-y-0.5 hover:shadow-lg"
+                  className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-xl bg-[var(--color-brand)] px-4 text-sm font-semibold text-[var(--color-brand-contrast)] shadow-md transition hover:-translate-y-0.5 hover:shadow-lg"
                 >
-                  <Plus aria-hidden="true" className="size-4" /> Add asset
+                  <Plus aria-hidden="true" className="size-4" /> Add Asset
                 </Link>
               ) : null}
               {canSeeAssets ? (
                 <Link
                   href="/assets/scan"
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-semibold transition hover:bg-[var(--color-surface-sunken)]"
+                  className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 text-sm font-semibold shadow-sm transition hover:bg-[var(--color-surface-sunken)]"
                 >
-                  <QrCode aria-hidden="true" className="size-4" /> Quick scan
+                  <QrCode aria-hidden="true" className="size-4" /> Quick Scan
                 </Link>
               ) : null}
               {!isReadOnly && can(PERMISSIONS.ASSETS_IMPORT) ? (
                 <Link
                   href="/assets/import"
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-semibold transition hover:bg-[var(--color-surface-sunken)]"
+                  className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 text-sm font-semibold shadow-sm transition hover:bg-[var(--color-surface-sunken)]"
                 >
-                  <Upload aria-hidden="true" className="size-4" /> Import assets
+                  <Upload aria-hidden="true" className="size-4" /> Import Assets
                 </Link>
               ) : null}
             </div>
           </div>
 
-          {/* Band 2 — the photograph. Decoration, so it is hidden from
-              assistive technology and dropped below lg, where it would push
-              the actions off a phone screen for nothing. */}
-          <div className="relative hidden min-h-[13rem] lg:block">
-            <Image
-              src="/app/dashboard-hero.webp"
-              alt=""
-              aria-hidden="true"
-              fill
-              sizes="(min-width: 1024px) 34vw, 0px"
-              className="object-cover object-center"
-              priority
-            />
-          </div>
-
-          {/* Band 3 — the orange panel, with the diagonal edge from the
-              drawing. Full width on a phone, where a diagonal has nothing to
-              cut into. */}
-          <div
-            className="relative flex flex-col justify-center gap-3 p-6 text-white lg:-ml-10 lg:pl-14 lg:[clip-path:polygon(2.75rem_0,100%_0,100%_100%,0_100%)]"
-            style={{ background: 'linear-gradient(135deg, #C2410C 0%, #9A3412 100%)' }}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-base font-bold leading-snug">
-                Keep your IT assets
-                <br />
-                organized and secure
-              </h2>
-              <span
-                aria-hidden="true"
-                className="grid size-10 shrink-0 place-items-center rounded-xl"
-                style={{ background: '#F88808' }}
-              >
-                <Target className="size-5 text-white" />
-              </span>
+          {/* The white card. On a phone there is no sweep behind it, so the
+              wrapper carries the orange itself and the card still sits on it. */}
+          {showBannerArt ? (
+            <div className="p-4 max-xl:bg-[linear-gradient(135deg,#FDBA74,#F88808_45%,#F97316)] xl:py-5 xl:pl-0 xl:pr-5">
+              <div className="rounded-2xl bg-[var(--color-surface)] p-4 shadow-lg xl:w-[290px]">
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-[15px] font-bold leading-snug">
+                    Keep your IT assets
+                    <br />
+                    organized and secure
+                  </h2>
+                  {/* A drawn target, standing in for the 3D one in the artwork. */}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 48 48"
+                    className="size-11 shrink-0 drop-shadow-sm"
+                  >
+                    <circle cx="22" cy="26" r="20" fill="#F88808" />
+                    <circle cx="22" cy="26" r="14.5" fill="#fff" />
+                    <circle cx="22" cy="26" r="9.5" fill="#F97316" />
+                    <circle cx="22" cy="26" r="4.5" fill="#fff" />
+                    <path d="M22 26 L40 8" stroke="#0040b0" strokeWidth="3" strokeLinecap="round" />
+                    <path d="M40 8 l1.5 -6 l4.5 4.5 l-6 1.5 Z" fill="#0040b0" />
+                  </svg>
+                </div>
+                <ul className="mt-2.5 grid gap-1.5 text-[13px] font-medium text-[var(--color-content-muted)]">
+                  {[
+                    'Track hardware & software',
+                    'Monitor warranty & licenses',
+                    'Reduce downtime',
+                  ].map((line) => (
+                    <li key={line} className="flex items-center gap-2">
+                      <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-[#16A34A]">
+                        <Check aria-hidden="true" className="size-3 text-white" strokeWidth={3.5} />
+                      </span>
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <ul className="grid gap-2 text-[13px] font-medium">
-              {['Track hardware & software', 'Monitor warranty & licenses', 'Reduce downtime'].map(
-                (line) => (
-                  <li key={line} className="flex items-center gap-2">
-                    <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-white/95">
-                      <Check
-                        aria-hidden="true"
-                        className="size-3 text-[#15803D]"
-                        strokeWidth={3.5}
-                      />
-                    </span>
-                    {line}
-                  </li>
-                ),
-              )}
-            </ul>
-          </div>
+          ) : null}
         </div>
       </section>
+
+      {/*
+        The fleet in one line, directly above the cards that add up to it.
+
+        This was in the banner. The artwork has no number there, and a total
+        belongs beside its parts: the figure here is the sum of the cards
+        below, and now the reader can see both at once. The trend appears only
+        once the nightly snapshot has a baseline at least twenty days old, and
+        states the real gap in days rather than the word "month".
+      */}
+      {isFleetViewer || roleLabel || scopeLabel ? (
+        <div className="-mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1">
+          {isFleetViewer ? (
+            <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+              <span className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[var(--color-brand)]">
+                Fleet
+              </span>
+              <span className="font-semibold tabular-nums">{total.toLocaleString()} assets</span>
+              <span
+                className="text-[var(--color-content-muted)]"
+                title="Operational = everything except under repair, damaged, lost, stolen and retired."
+              >
+                · {operational}% operational
+              </span>
+              {trend ? (
+                <span
+                  /*
+                Not green-for-up, amber-for-down. A fleet that shrank by six is
+                six machines retired as often as it is a problem; colour would
+                be a verdict the dashboard cannot support.
+              */
+                  className="text-[var(--color-content-muted)]"
+                  title={`Compared with ${new Date(trend.since).toLocaleDateString()}`}
+                >
+                  ·{' '}
+                  {trend.direction === 'flat'
+                    ? `no change in ${trend.ageDays} days`
+                    : `${trend.change > 0 ? '+' : ''}${trend.change.toLocaleString()}` +
+                      (trend.changePercent === null
+                        ? ''
+                        : ` (${trend.changePercent > 0 ? '+' : ''}${trend.changePercent}%)`) +
+                      ` in ${trend.ageDays} days`}
+                </span>
+              ) : null}
+            </p>
+          ) : (
+            <span />
+          )}
+          {/* Who you are and what you can see. Off the banner, where the
+              artwork has no room for it, but still on the page: it is the
+              answer to "why can I not edit this" and that should not need a
+              support request. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {roleLabel ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] px-2.5 py-0.5 text-xs font-medium text-[var(--color-content-muted)]">
+                <Users aria-hidden="true" className="size-3.5" />
+                {roleLabel}
+              </span>
+            ) : null}
+            {scopeLabel ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-strong)] px-2.5 py-0.5 text-xs font-medium text-[var(--color-content-muted)]">
+                <ShieldCheck aria-hidden="true" className="size-3.5" />
+                {scopeLabel}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/*
         v3.5 - the fleet at a glance, one card per group.
@@ -1116,7 +1152,9 @@ export default function DashboardPage() {
               {byCategory.length === 0 ? (
                 <EmptyState title="No assets" description="Nothing to chart yet." />
               ) : (
-                <div className="flex items-center gap-5">
+                <div className="flex flex-wrap items-center gap-5">
+                  {/* Wraps, so in a narrow column the legend drops below the
+                      fixed-size chart rather than being squeezed beside it. */}
                   <DonutChart
                     data={byCategory}
                     centerValue={total.toLocaleString()}
@@ -1155,7 +1193,9 @@ export default function DashboardPage() {
               {byOffice.length === 0 ? (
                 <EmptyState title="No offices" description="No allocation to show." />
               ) : (
-                <div className="flex items-center gap-5">
+                <div className="flex flex-wrap items-center gap-5">
+                  {/* Wraps, so in a narrow column the legend drops below the
+                      fixed-size chart rather than being squeezed beside it. */}
                   <AllocationPie data={byOffice} />
                   <Legend
                     items={byOffice.map((o) => ({

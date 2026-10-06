@@ -598,7 +598,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-hidden="true"
           width={192}
           height={160}
-          className="mx-auto h-auto w-24"
+          className="mx-auto h-auto w-24 rounded-xl"
         />
         <p className="mt-1.5 text-[12.5px] font-bold leading-tight">
           Manage<span className="text-[var(--color-content-subtle)]"> · </span>Track

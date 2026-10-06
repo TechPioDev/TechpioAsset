@@ -234,7 +234,9 @@ export function Legend({
   items: { name: string; value?: string; pct?: string; fill: string }[];
 }) {
   return (
-    <div className="flex flex-1 flex-col gap-2">
+    // min-w so the legend drops below the chart when the column is too narrow
+    // to hold both side by side (the row that holds them wraps).
+    <div className="flex min-w-[9rem] flex-1 flex-col gap-2">
       {/* Position, not name: the legend mirrors the slices, and two asset
           types in different categories can share a name. */}
       {items.map((it, i) => (
