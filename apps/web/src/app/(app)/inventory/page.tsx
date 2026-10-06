@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, PackagePlus, Plus } from 'lucide-react';
 import { PERMISSIONS } from '@techpioasset/domain';
@@ -148,7 +148,6 @@ export default function InventoryPage() {
   });
 
   const canAdjust = can(PERMISSIONS.INVENTORY_ADJUST);
-  const canTransfer = can(PERMISSIONS.INVENTORY_TRANSFER);
   const validForm =
     itemId &&
     locationId &&
@@ -170,6 +169,16 @@ export default function InventoryPage() {
   };
   const noItems = items.isSuccess && items.data.length === 0;
   const noLocations = locations.isSuccess && locations.data.length === 0;
+
+  /*
+    v3.3 - with a single store, "which location?" has one answer, so it is not
+    asked. The field is still sent; it is just filled in rather than chosen.
+    If a second location is ever added the selector returns on its own.
+  */
+  const onlyLocation = locations.data?.length === 1 ? locations.data[0] : undefined;
+  useEffect(() => {
+    if (onlyLocation && !locationId) setLocationId(onlyLocation.id);
+  }, [onlyLocation, locationId]);
 
   return (
     <div className="grid gap-5">
@@ -201,11 +210,12 @@ export default function InventoryPage() {
               Adjust
             </Button>
           ) : null}
-          {canTransfer ? (
-            <Button variant="ghost" onClick={() => setAction(action === 'transfer' ? null : 'transfer')}>
-              Transfer
-            </Button>
-          ) : null}
+          {/*
+            v3.3 - no Transfer button. It moves stock from one location to
+            another, and this company has one store, so it only ever led to a
+            form that could not be completed. The API still supports transfers;
+            what is gone is offering an action with nowhere to go.
+          */}
         </div>
       </header>
 
@@ -315,10 +325,20 @@ export default function InventoryPage() {
       <div role="tablist" aria-label="Inventory sections" className="flex gap-1 border-b border-[var(--color-border)]">
         {(
           [
+            /*
+              v3.3 - two tabs, not four.
+
+              "Lots & expiry" tracks batch numbers and shelf life; "Locations"
+              tracks which shelf stock sits on. Both come from the warehouse
+              layer in blueprint Volume III, and neither fits a company with
+              one office and a supplier who walks in. They were four tabs of
+              questions nobody here is asking.
+
+              "Ledger" is kept, as History: it is what makes a count
+              explainable rather than merely asserted, and it is read-only.
+            */
             ['levels', 'Stock levels'],
-            ['batches', 'Lots & expiry'],
-            ['ledger', 'Ledger'],
-            ['locations', 'Locations'],
+            ['ledger', 'History'],
           ] as const
         ).map(([key, label]) => (
           <button
