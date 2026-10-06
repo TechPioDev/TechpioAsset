@@ -701,6 +701,33 @@ export default function DashboardPage() {
     { key: 'other', domainKey: 'other' as const, label: 'Other', count: other, tone: 'danger' },
   ];
 
+  /*
+    Spend rows that sum to the spend total (v3.8). Top five by value, with
+    everything else gathered into one row - so the list under the headline is
+    always the whole of it, however many categories exist.
+  */
+  const spendAll = spend.data?.rows ?? [];
+  /** What is actually spent. Shown as the headline. */
+  const spendTotal = spendAll.reduce((acc, x) => acc + x.total, 0);
+  /** The same number as a divisor only. The `|| 1` keeps a zero total from
+   *  dividing by nothing; it must never reach the screen, or a fleet with no
+   *  cost on record would report spending 1. */
+  const spendGrand = spendTotal || 1;
+  const spendRows = (() => {
+    const sorted = [...spendAll].sort((a, b) => b.total - a.total);
+    const head = sorted.slice(0, 5);
+    const tail = sorted.slice(5);
+    if (tail.length === 0) return head;
+    return [
+      ...head,
+      {
+        name: `Other (${tail.length} categor${tail.length === 1 ? 'y' : 'ies'})`,
+        count: tail.reduce((n, r) => n + r.count, 0),
+        total: tail.reduce((n, r) => n + r.total, 0),
+      },
+    ];
+  })();
+
   // Which of them to actually render. The domain decides; the page only draws.
   const visibleSegments = domainFleetSegments(fleet).map(({ key }) => {
     const seg = fleetSegments.find((s) => s.domainKey === key);
@@ -1072,15 +1099,24 @@ export default function DashboardPage() {
             <Card className="p-5">
               <SectionHead kicker="Finance" title="Total spend on record" />
               <div className="flex flex-wrap items-start justify-between gap-6">
+                {/* One source for the headline and the rows beneath it. Two
+                    reduces over the same array is how they drift apart. */}
                 <p className="text-[32px] font-bold tracking-tight tabular-nums">
-                  {spend.data.rows
-                    .reduce((sum, r) => sum + r.total, 0)
-                    .toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {spendTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </p>
+                {/*
+                  v3.8 - the rows add up to the figure beside them.
+
+                  The total above sums EVERY row; the list showed the first
+                  five. With up to five categories that agreed, and the sixth
+                  one anybody adds would have made the breakdown quietly short
+                  of its own headline - the same fault the fleet cards had, on
+                  money this time. The tail is rolled into one "Other" row
+                  rather than dropped, exactly as groupTop does for the charts.
+                */}
                 <div className="grid min-w-[260px] flex-1 gap-1.5 sm:max-w-md">
-                  {spend.data.rows.slice(0, 5).map((r) => {
-                    const grand = spend.data.rows.reduce((acc, x) => acc + x.total, 0) || 1;
-                    const pctOf = Math.round((r.total / grand) * 100);
+                  {spendRows.map((r) => {
+                    const pctOf = Math.round((r.total / spendGrand) * 100);
                     return (
                       <div key={r.name} className="grid grid-cols-[1fr_auto] items-center gap-x-3">
                         <div className="flex items-center justify-between text-[13px]">
