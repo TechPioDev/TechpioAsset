@@ -99,3 +99,45 @@ export function isRepeatFailure(input: {
 }): boolean {
   return input.completedRepairCount >= (input.threshold ?? 2);
 }
+
+/**
+ * How many assets sit in each warranty bucket (v3.2).
+ *
+ * The dashboard counted these itself, over the fetched PAGE, and threw away
+ * anything already expired - `days < 0` hit `continue`, so a warranty that
+ * lapsed last month was counted nowhere. The four numbers under "Warranty
+ * expiry timeline" therefore did not add up to the fleet, and the assets
+ * missing from them were the ones most worth seeing.
+ *
+ * Counting here instead means the API and both apps share one definition of
+ * where a boundary falls, and the total is guaranteed: every asset lands in
+ * exactly one bucket, including the ones with no warranty recorded.
+ *
+ * @param ends warranty end dates for the assets that HAVE one.
+ * @param total every asset in scope. The difference is assets with no warranty
+ *   date, which is why the caller need not send a null for each of them.
+ */
+export function warrantyBreakdown(
+  ends: readonly (Date | null | undefined)[],
+  total: number,
+  asOf: Date = new Date(),
+): Record<WarrantyBucket, number> & { total: number } {
+  const counts = {
+    EXPIRED: 0,
+    WITHIN_30: 0,
+    WITHIN_60: 0,
+    WITHIN_90: 0,
+    BEYOND_90: 0,
+    NONE: 0,
+  } as Record<WarrantyBucket, number>;
+
+  for (const end of ends) counts[warrantyBucket(end, asOf)] += 1;
+
+  // Assets with no date never appear in `ends`; they are the remainder. Taking
+  // it as a remainder rather than trusting the caller is what keeps the
+  // buckets summing to the fleet instead of to however many dates arrived.
+  const dated = Object.values(counts).reduce((n, c) => n + c, 0);
+  counts.NONE += Math.max(0, total - dated);
+
+  return { ...counts, total: Math.max(total, dated) };
+}

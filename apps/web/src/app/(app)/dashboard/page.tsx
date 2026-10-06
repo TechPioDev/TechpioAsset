@@ -444,11 +444,32 @@ export default function DashboardPage() {
         byCategory: { name: string; count: number }[];
         byOffice: { name: string; count: number }[];
         purchase: { dated: number; byMonth: { month: string; count: number }[] };
+        warranty: Record<string, number> & { total: number };
       }>('/assets/stats'),
   });
 
   // Total spend by category — server-aggregated, and only ever requested for
   // roles that may see cost (Finance / Super Admin).
+  /*
+    v3.2 - asked for by the server, using the list's own warrantyWithinDays
+    filter, rather than sifted out of the fetched page.
+
+    It sits beside a timeline that now counts across the whole fleet. Left as
+    it was, the band could say "3 expiring within 30 days" while the list under
+    it showed none, because those three were on page two.
+
+    Declared HERE, with the other queries, because the component returns early
+    below for the loading and error states - a hook added further down runs on
+    some renders and not others, and React counts hooks rather than naming
+    them. That is the second time in this file's week; the rule is that a new
+    hook goes with the other hooks, never where its value is used.
+  */
+  const expiringSoonQuery = useQuery({
+    queryKey: ['dashboard-expiring-soon'],
+    enabled: canSeeAssets,
+    queryFn: () => apiFetchPage<AssetRow>('/assets?warrantyWithinDays=30&pageSize=6'),
+  });
+
   const spend = useQuery({
     queryKey: ['dashboard-spend'],
     enabled: canSeeSpend,
@@ -508,22 +529,25 @@ export default function DashboardPage() {
     : 100;
 
   const now = Date.now();
-  let w30 = 0,
-    w60 = 0,
-    w90 = 0,
-    covered = 0;
-  for (const a of assets) {
-    if (!a.warrantyEndDate) {
-      covered += 1;
-      continue;
-    }
-    const days = Math.ceil((new Date(a.warrantyEndDate).getTime() - now) / DAY);
-    if (days < 0) continue;
-    else if (days <= 30) w30 += 1;
-    else if (days <= 60) w60 += 1;
-    else if (days <= 90) w90 += 1;
-    else covered += 1;
-  }
+
+  /*
+    v3.2 - the warranty timeline is counted by the SERVER across the whole
+    fleet. It was counted here over the fetched page, and it did
+    `if (days < 0) continue` - so an already-lapsed warranty was counted
+    nowhere. The four numbers did not add up to the fleet, and the assets
+    missing from them were the ones most worth seeing.
+
+    Six buckets now, and they are exhaustive: expired, 30/60/90, beyond, and
+    none recorded. `warrantyBreakdown` in the domain is tested to prove they
+    sum to the total.
+  */
+  const warranty = statsQuery.data?.warranty;
+  const wExpired = warranty?.EXPIRED ?? 0;
+  const w30 = warranty?.WITHIN_30 ?? 0;
+  const w60 = warranty?.WITHIN_60 ?? 0;
+  const w90 = warranty?.WITHIN_90 ?? 0;
+  const covered = (warranty?.BEYOND_90 ?? 0) + (warranty?.NONE ?? 0);
+
   const inMonths = (m: number) =>
     new Date(now + m * 30 * DAY).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
@@ -624,13 +648,7 @@ export default function DashboardPage() {
     cta: string;
   }[];
 
-  const expiringSoon = assets
-    .filter((a) => {
-      if (!a.warrantyEndDate) return false;
-      const remaining = new Date(a.warrantyEndDate).getTime() - now;
-      return remaining > 0 && remaining <= 30 * DAY;
-    })
-    .slice(0, 6);
+  const expiringSoon = expiringSoonQuery.data?.data ?? [];
 
   const needsAttention = assets
     .filter((a) =>
@@ -1015,6 +1033,15 @@ export default function DashboardPage() {
               />
               <WarrantyTimeline
                 buckets={[
+                  {
+                    // First, because a warranty that has already lapsed is a
+                    // bigger problem than one lapsing next month - and it was
+                    // the one state this timeline could not previously show.
+                    count: wExpired,
+                    label: 'Already expired',
+                    when: 'overdue',
+                    color: 'var(--tone-danger-solid)',
+                  },
                   {
                     count: w30,
                     label: 'Expiring ≤ 30 days',

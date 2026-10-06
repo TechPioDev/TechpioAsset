@@ -32,6 +32,8 @@ import {
   normalizeImei,
   sanitizeAssetSpecs,
   PUSH_CATEGORY,
+  warrantyBreakdown,
+  type WarrantyBucket,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { ensureOpenAssignment } from './custody-record.js';
@@ -335,6 +337,8 @@ export class AssetsService {
     byOffice: { name: string; count: number }[];
     /** How many of them carry a purchase date, and when. */
     purchase: { dated: number; byMonth: { month: string; count: number }[] };
+    /** Warranty expiry, bucketed so the six sum to `total`. */
+    warranty: Record<WarrantyBucket, number> & { total: number };
   }> {
     const where = this.listWhere(actor, {} as AssetListQuery);
     const db = this.prisma.client;
@@ -401,11 +405,24 @@ export class AssetsService {
       months.set(month, (months.get(month) ?? 0) + 1);
     }
 
+    // Warranty ends, for the expiry timeline. Same shape as the purchase dates
+    // above: only the column, only rows that have one, through the same
+    // `where`. The bucketing itself lives in the domain so the API and both
+    // apps cannot disagree about where a boundary falls.
+    const warrantyEnds = await db.asset.findMany({
+      where: { AND: [where, { warrantyEndDate: { not: null } }] },
+      select: { warrantyEndDate: true },
+    });
+
     return {
       total,
       byStatus,
       byCategory,
       byOffice,
+      warranty: warrantyBreakdown(
+        warrantyEnds.map((r) => r.warrantyEndDate),
+        total,
+      ),
       purchase: {
         dated: dates.length,
         byMonth: [...months.entries()]

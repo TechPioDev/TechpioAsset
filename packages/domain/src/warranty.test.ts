@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   warrantyBucket,
+  warrantyBreakdown,
   isWarrantyAlertable,
   warrantyDaysRemaining,
   repairRecommendation,
@@ -80,5 +81,47 @@ describe('isRepeatFailure (spec section 14)', () => {
 
   it('honours a custom threshold', () => {
     expect(isRepeatFailure({ completedRepairCount: 3, threshold: 4 })).toBe(false);
+  });
+});
+
+describe('warrantyBreakdown accounts for every asset (v3.2)', () => {
+  const NOW = new Date('2026-10-05T12:00:00Z');
+  const inDays = (n: number) => new Date(NOW.getTime() + n * 86_400_000);
+
+  it('counts an expired warranty instead of dropping it', () => {
+    // The dashboard did `if (days < 0) continue`, so a lapsed warranty was
+    // counted nowhere - the one state the timeline could not show.
+    const b = warrantyBreakdown([inDays(-5)], 1, NOW);
+    expect(b.EXPIRED).toBe(1);
+  });
+
+  it('sums to the fleet when most assets have no warranty', () => {
+    // 171 assets, 4 dated. The 167 without must still be somewhere.
+    const b = warrantyBreakdown([inDays(-5), inDays(10), inDays(45), inDays(200)], 171, NOW);
+    const summed = b.EXPIRED + b.WITHIN_30 + b.WITHIN_60 + b.WITHIN_90 + b.BEYOND_90 + b.NONE;
+    expect(summed).toBe(171);
+    expect(b.NONE).toBe(167);
+    expect(b.BEYOND_90).toBe(1);
+  });
+
+  it('sums to the fleet when every asset has one', () => {
+    const b = warrantyBreakdown([inDays(-1), inDays(5), inDays(70)], 3, NOW);
+    expect(b.EXPIRED + b.WITHIN_30 + b.WITHIN_60 + b.WITHIN_90 + b.BEYOND_90 + b.NONE).toBe(3);
+  });
+
+  it('puts a whole fleet with no warranties in NONE', () => {
+    expect(warrantyBreakdown([], 171, NOW).NONE).toBe(171);
+  });
+
+  it('is empty for an empty fleet', () => {
+    const b = warrantyBreakdown([], 0, NOW);
+    expect(b.total).toBe(0);
+    expect(b.NONE).toBe(0);
+  });
+
+  it('does not lose assets to a stale total', () => {
+    const b = warrantyBreakdown([inDays(1), inDays(2), inDays(3)], 1, NOW);
+    expect(b.EXPIRED + b.WITHIN_30 + b.WITHIN_60 + b.WITHIN_90 + b.BEYOND_90 + b.NONE).toBe(b.total);
+    expect(b.total).toBe(3);
   });
 });
