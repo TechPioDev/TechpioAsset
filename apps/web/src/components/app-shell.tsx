@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api-client';
-import { Sparkles,
+import {
+  Sparkles,
   BellRing,
   Building2,
   ChevronRight,
@@ -151,7 +153,12 @@ const NAV_GROUPS: NavGroup[] = [
       // Permissioned, because "my workspace" assumes the reader is a colleague
       // with kit and requests. A supplier holds neither, and offering the pages
       // anyway led to two dead ends that only said "you do not have permission".
-      { href: '/my-assets', label: 'My assets', Icon: Package, permission: PERMISSIONS.ASSETS_READ },
+      {
+        href: '/my-assets',
+        label: 'My assets',
+        Icon: Package,
+        permission: PERMISSIONS.ASSETS_READ,
+      },
       // Gated as the phone gates its "My licenses" entry. The endpoint itself
       // needs no permission - it only returns the caller's own seats.
       {
@@ -179,14 +186,24 @@ const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.ASSETS_READ,
         ownScopeHidden: true,
       },
-      { href: '/licenses', label: 'Licenses', Icon: KeyRound, permission: PERMISSIONS.LICENSES_READ },
+      {
+        href: '/licenses',
+        label: 'Licenses',
+        Icon: KeyRound,
+        permission: PERMISSIONS.LICENSES_READ,
+      },
       {
         href: '/maintenance',
         label: 'Maintenance',
         Icon: Wrench,
         permission: PERMISSIONS.MAINTENANCE_READ,
       },
-      { href: '/discovery', label: 'Discovery', Icon: Radar, permission: PERMISSIONS.DISCOVERY_READ },
+      {
+        href: '/discovery',
+        label: 'Discovery',
+        Icon: Radar,
+        permission: PERMISSIONS.DISCOVERY_READ,
+      },
     ],
   },
   {
@@ -210,17 +227,37 @@ const NAV_GROUPS: NavGroup[] = [
         permission: PERMISSIONS.PROCUREMENT_PR_READ,
         ownScopeHidden: true,
       },
-      { href: '/inventory', label: 'Inventory', Icon: Boxes, permission: PERMISSIONS.INVENTORY_READ },
+      {
+        href: '/inventory',
+        label: 'Inventory',
+        Icon: Boxes,
+        permission: PERMISSIONS.INVENTORY_READ,
+      },
       // v2.9 C2: a budget is a money figure, so it follows the cost-read rule.
-      { href: '/budgets', label: 'Budgets', Icon: Wallet, permission: PERMISSIONS.ASSETS_COST_READ },
-      { href: '/invoices', label: 'Invoices', Icon: Receipt, permission: PERMISSIONS.INVOICES_READ },
+      {
+        href: '/budgets',
+        label: 'Budgets',
+        Icon: Wallet,
+        permission: PERMISSIONS.ASSETS_COST_READ,
+      },
+      {
+        href: '/invoices',
+        label: 'Invoices',
+        Icon: Receipt,
+        permission: PERMISSIONS.INVOICES_READ,
+      },
     ],
   },
   {
     key: 'insights',
     label: 'Insights',
     items: [
-      { href: '/analytics', label: 'Analytics', Icon: LineChart, permission: PERMISSIONS.ANALYTICS_READ },
+      {
+        href: '/analytics',
+        label: 'Analytics',
+        Icon: LineChart,
+        permission: PERMISSIONS.ANALYTICS_READ,
+      },
       { href: '/reports', label: 'Reports', Icon: BarChart3, permission: PERMISSIONS.REPORTS_READ },
       { href: '/expenses', label: 'Expenses', Icon: IndianRupee, roles: ['SUPER_ADMIN'] },
       { href: '/audit', label: 'Audit log', Icon: ScrollText, permission: PERMISSIONS.AUDIT_READ },
@@ -270,7 +307,12 @@ const NAV_GROUPS: NavGroup[] = [
         Icon: ListChecks,
         permission: PERMISSIONS.VENDOR_PRODUCTS_REVIEW,
       },
-      { href: '/settings/roles', label: 'Roles', Icon: ShieldCheck, permission: PERMISSIONS.ROLES_MANAGE },
+      {
+        href: '/settings/roles',
+        label: 'Roles',
+        Icon: ShieldCheck,
+        permission: PERMISSIONS.ROLES_MANAGE,
+      },
       {
         href: '/settings/workflows',
         label: 'Approval workflows',
@@ -283,7 +325,12 @@ const NAV_GROUPS: NavGroup[] = [
         Icon: Plug,
         permission: PERMISSIONS.INTEGRATIONS_MANAGE,
       },
-      { href: '/settings/ai', label: 'AI settings', Icon: Cpu, permission: PERMISSIONS.AI_CONFIGURE },
+      {
+        href: '/settings/ai',
+        label: 'AI settings',
+        Icon: Cpu,
+        permission: PERMISSIONS.AI_CONFIGURE,
+      },
       {
         href: '/settings/notifications',
         label: 'Notifications',
@@ -516,6 +563,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const nav = collapsed ? railNav : groupedNav;
 
+  /*
+    "Manage . Track . Secure" at the foot of the sidebar (v3.10).
+
+    Static by design: it says what the product is for, not what today's numbers
+    are, and nothing in it is fetched - the moment a figure appears here it
+    becomes a claim somebody has to keep true.
+
+    Hidden on the collapsed rail, where sixty-four pixels have no room for it
+    and the icons are the whole point of collapsing. The headline is real text
+    rather than part of the picture: the artwork arrived with the words baked
+    into the bitmap, which no screen reader can read, nobody can select or
+    translate, and which blurs on a high-density display - so the illustration
+    is cropped to the character and the words are set in the app's own type.
+  */
+  const navFooter = collapsed ? null : (
+    <div className="mt-auto px-3 pb-1 pt-3">
+      <div className="rounded-[var(--radius-card)] bg-[var(--color-surface-sunken)] p-3 text-center">
+        <Image
+          src="/app/manage-track-secure.png"
+          alt=""
+          aria-hidden="true"
+          width={192}
+          height={160}
+          className="mx-auto h-auto w-24"
+        />
+        <p className="mt-1.5 text-[12.5px] font-bold leading-tight">
+          Manage<span className="text-[var(--color-content-subtle)]"> · </span>Track
+          <span className="text-[var(--color-content-subtle)]"> · </span>Secure
+        </p>
+        <p className="text-[12.5px] font-bold leading-tight">All your IT assets</p>
+        <span
+          aria-hidden="true"
+          className="mx-auto mt-2 block h-1 w-10 rounded-full"
+          style={{ background: '#F88808' }}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen">
       {/* Bypass blocks (WCAG 2.4.1): the first Tab lands here so a keyboard user
@@ -539,7 +625,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* The wordmark needs ~140px it cannot have next to the search field on a
             phone, so the square mark stands in below sm. */}
-        <Link href="/dashboard" className="inline-flex shrink-0 items-center" aria-label="PioAssets home">
+        <Link
+          href="/dashboard"
+          className="inline-flex shrink-0 items-center"
+          aria-label="PioAssets home"
+        >
           <BrandMark size={26} className="sm:hidden" />
           <BrandLockup height={26} className="hidden sm:inline-flex" />
         </Link>
@@ -596,13 +686,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <div className="flex">
+        {/*
+          A column, so the links scroll and the footer stays put. It used to be
+          a plain block with a fixed height and no overflow rule, which meant a
+          long menu simply ran off the bottom of the viewport - and adding
+          anything below the links would have pushed the collapse control out
+          of reach.
+        */}
         <aside
           className={cn(
-            'sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 border-r border-[var(--color-border)] lg:block',
+            'sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col border-r border-[var(--color-border)] lg:flex',
             collapsed ? 'w-16' : 'w-60',
           )}
         >
-          {nav}
+          <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
+          {navFooter}
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -626,8 +724,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               onClick={() => setDrawerOpen(false)}
               className="absolute inset-0 bg-black/40"
             />
-            <div className="relative h-full w-64 border-r border-[var(--color-border)] bg-[var(--color-surface)]">
-              <div className="flex h-14 items-center justify-between px-3">
+            <div className="relative flex h-full w-64 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
+              <div className="flex h-14 shrink-0 items-center justify-between px-3">
                 <span className="font-semibold">Menu</span>
                 <button
                   type="button"
@@ -638,7 +736,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <X aria-hidden="true" className="size-5" />
                 </button>
               </div>
-              {nav}
+              <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
+              {navFooter}
             </div>
           </div>
         ) : null}
@@ -655,8 +754,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               }}
             >
               <span>
-                Viewing as <span className="font-semibold">{user.displayName ?? user.email}</span>{' '}
-                — you are {impersonating.adminName}. This session ends by itself within 15 minutes.
+                Viewing as <span className="font-semibold">{user.displayName ?? user.email}</span> —
+                you are {impersonating.adminName}. This session ends by itself within 15 minutes.
               </span>
               <button
                 type="button"

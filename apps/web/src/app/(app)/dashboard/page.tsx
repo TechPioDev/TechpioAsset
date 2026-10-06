@@ -946,54 +946,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── "Manage · Track · Secure", the card from the design ─────────── */}
-      {/*
-        Static by design: this says what the product is for, not what today's
-        numbers are. Nothing here is fetched, and nothing here should ever
-        start being fetched - the moment a figure appears in it, it becomes a
-        claim that has to be kept true.
-
-        The headline is TEXT, not part of the picture. The artwork arrived with
-        the words baked into the bitmap, which would have meant a heading that
-        no screen reader can read, no one can select or translate, and that
-        blurs on a high-density display. The illustration was cropped to just
-        the character and the words set in the page's own type.
-      */}
-      <section
-        aria-label="What PioAssets is for"
-        className="overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]"
-      >
-        <div className="flex flex-col items-center gap-5 p-5 sm:flex-row sm:gap-7 sm:p-6">
-          <Image
-            src="/app/manage-track-secure.png"
-            alt=""
-            aria-hidden="true"
-            width={192}
-            height={160}
-            className="h-auto w-36 shrink-0 sm:w-44"
-          />
-          <div className="min-w-0 text-center sm:text-left">
-            <h2 className="text-xl font-bold leading-tight tracking-tight sm:text-2xl">
-              Manage
-              <span className="text-[var(--color-content-subtle)]"> · </span>
-              Track
-              <span className="text-[var(--color-content-subtle)]"> · </span>
-              Secure
-              <br />
-              All your IT assets
-            </h2>
-            {/* The orange rule from the drawing. Decoration, so the logo
-                orange is free to be itself here - no text sits on it and no
-                status is being signalled. */}
-            <span
-              aria-hidden="true"
-              className="mt-3 inline-block h-1 w-14 rounded-full"
-              style={{ background: '#F88808' }}
-            />
-          </div>
-        </div>
-      </section>
-
       {/*
         v3.5 - the fleet at a glance, one card per group.
 
