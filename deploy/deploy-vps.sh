@@ -24,10 +24,34 @@
 # happen as part of step 4 and are covered by the health check in step 5.
 set -euo pipefail
 
+# Was APP_DIR chosen, or defaulted? Captured BEFORE the default is applied.
+APP_DIR_WAS_EXPLICIT="${APP_DIR+yes}"
+
 APP_DIR="${APP_DIR:-/opt/techpioasset}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.vps.yml}"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 SITE="${SITE:-https://pioassets.com}"
+
+# Standing in one checkout does NOT mean you are deploying it.
+#
+# The script cds to APP_DIR, and APP_DIR defaults to production. So
+# `cd /opt/techpioasset-staging && ./deploy/deploy-vps.sh` reads like a staging
+# deploy, says nothing, and rebuilds PRODUCTION. That happened on 6 Oct: the
+# command looked right, the output said "now at e634ca1", and the containers it
+# restarted were the ones 52 people use. Nothing unreviewed shipped - the prod
+# checkout was on its own branch and had nothing to pull - but it was luck, not
+# design, and the next time the two branches differ it would not be.
+#
+# So: if you are standing in a DIFFERENT checkout of this repo and have not
+# said which one to deploy, stop and say so. Running it by absolute path from
+# elsewhere (the documented production route, from root's home) is untouched,
+# because that directory is not a checkout.
+if [[ -z "$APP_DIR_WAS_EXPLICIT" && -f "$PWD/deploy/deploy-vps.sh" && "$PWD" != "$APP_DIR" ]]; then
+  echo "deploy: you are in $PWD but APP_DIR defaults to $APP_DIR - that would deploy the wrong one." >&2
+  echo "deploy: pass APP_DIR=$PWD (with its COMPOSE_FILE/ENV_FILE/SITE/HEALTH_* - see docs/STAGING.md)," >&2
+  echo "deploy: or run $APP_DIR/deploy/deploy-vps.sh by path if production is what you meant." >&2
+  exit 2
+fi
 # Which line this checkout follows. Defaults to the branch it is ON - the
 # production checkout sits on `prod`, staging sits on `main` - so neither needs
 # a flag. Defaulting to a literal instead would mean one forgotten variable
