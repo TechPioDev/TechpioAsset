@@ -611,6 +611,7 @@ model Company {
 
   @@index([deletedAt])
   @@map("companies")
+  fleetSnapshots FleetSnapshot[]
 }
 
 model User {
@@ -4282,4 +4283,40 @@ model ProcurementSelection {
   @@index([companyId, purchaseRequestId])
   @@index([companyId, assetRequestId])
   @@map("procurement_selections")
+}
+
+/// One row per company per day: what the fleet looked like that morning (v3.6).
+///
+/// Nothing recorded history, so "+12% vs last month" on the dashboard could
+/// only ever have been decoration. A trend is a comparison, and there was
+/// nothing to compare against.
+///
+/// Counts are stored rather than derived, because the question is "what did it
+/// look like THEN" and the assets have since changed status, been retired or
+/// been deleted. Recomputing from today's rows would answer a different
+/// question and look like the same one.
+model FleetSnapshot {
+  id        String   @id @default(cuid())
+  companyId String
+  /// The day this describes, in UTC. One row per company per day.
+  takenOn   DateTime @db.Date
+
+  total       Int
+  assigned    Int
+  available   Int
+  inStock     Int
+  onOrder     Int
+  underRepair Int
+  critical    Int
+  retired     Int
+  other       Int
+
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // No separate @@index on the same pair: @@unique already creates one, and
+  // Postgres will happily use a unique index for the range scan the trend does.
+  @@unique([companyId, takenOn])
+  @@map("fleet_snapshots")
 }

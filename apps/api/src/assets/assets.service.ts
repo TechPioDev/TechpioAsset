@@ -32,6 +32,9 @@ import {
   normalizeImei,
   sanitizeAssetSpecs,
   PUSH_CATEGORY,
+  fleetBreakdown,
+  fleetTrend,
+  type FleetTrend,
   warrantyBreakdown,
   type WarrantyBucket,
 } from '@techpioasset/domain';
@@ -342,6 +345,13 @@ export class AssetsService {
     purchase: { dated: number; byMonth: { month: string; count: number }[] };
     /** Warranty expiry, bucketed so the six sum to `total`. */
     warranty: Record<WarrantyBucket, number> & { total: number };
+    /**
+     * Against a snapshot 20-45 days old. Null until one exists, and null for
+     * any caller whose scope is narrower than the whole company - the baseline
+     * is company-wide, so there is nothing honest to compare a personal total
+     * against.
+     */
+    trend: FleetTrend | null;
   }> {
     const where = this.listWhere(actor, {} as AssetListQuery);
     const db = this.prisma.client;
@@ -384,11 +394,13 @@ export class AssetsService {
     const [byCategory, byOffice, byType] = await Promise.all([
       named(
         categoryRows.map((r) => ({ id: r.categoryId, count: r._count._all })),
-        (ids) => db.category.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+        (ids) =>
+          db.category.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
       ),
       named(
         officeRows.map((r) => ({ id: r.officeId, count: r._count._all })),
-        (ids) => db.office.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+        (ids) =>
+          db.office.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
       ),
       named(
         typeRows.map((r) => ({ id: r.subcategoryId, count: r._count._all })),
@@ -427,8 +439,34 @@ export class AssetsService {
       select: { warrantyEndDate: true },
     });
 
+    // The freshest snapshot that is still old enough to be worth comparing
+    // against: newest-first inside a 20-to-45-day window. Ordering the other
+    // way would compare today with six weeks ago while the nightly job has
+    // five fresher rows. fleetTrend refuses a baseline outside the window
+    // rather than comparing against whatever happens to be nearest, and
+    // reports how old the one it accepted really is.
+    //
+    // ONLY for a caller who sees the whole company. The snapshot is a
+    // company-wide count, while `total` above is scoped: for an employee with
+    // OWN scope it is the three assets they hold. Comparing those two numbers
+    // would report "-166 in 30 days" to someone whose fleet never changed -
+    // the same mistake as the breakdown that summed to the page size, with a
+    // month's distance hiding it.
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - 45 * 86_400_000);
+    const windowEnd = new Date(now.getTime() - 20 * 86_400_000);
+    const baseline =
+      actor.scope === 'ALL'
+        ? await db.fleetSnapshot.findFirst({
+            where: { companyId: actor.companyId, takenOn: { gte: windowStart, lte: windowEnd } },
+            orderBy: { takenOn: 'desc' },
+            select: { takenOn: true, total: true },
+          })
+        : null;
+
     return {
       total,
+      trend: fleetTrend(total, baseline, now),
       byStatus,
       byCategory,
       byType,
@@ -444,6 +482,68 @@ export class AssetsService {
           .sort((a, b) => a.month.localeCompare(b.month)),
       },
     };
+  }
+
+  /**
+   * Record what every company's fleet looks like today (v3.6).
+   *
+   * Run once a night by the sweep. One row per company per day, upserted, so a
+   * restart or a manual re-run cannot produce two rows for the same morning and
+   * cannot make a day's history disappear either.
+   *
+   * It counts across the WHOLE company rather than through `listWhere`: this is
+   * a fact about the fleet, not about whoever happens to be asking, and a
+   * background job has no actor whose scope could narrow it.
+   */
+  async recordFleetSnapshots(): Promise<{ companies: number }> {
+    const db = this.prisma.client;
+    const companies = await db.company.findMany({
+      where: { deletedAt: null },
+      select: { id: true },
+    });
+
+    // Midnight UTC: the row describes a DAY, so the time of night the sweep
+    // happens to run must not change which day it lands on.
+    const takenOn = new Date();
+    takenOn.setUTCHours(0, 0, 0, 0);
+
+    for (const company of companies) {
+      const rows = await db.asset.groupBy({
+        by: ['status'],
+        where: { companyId: company.id, deletedAt: null },
+        _count: { _all: true },
+      });
+
+      const byStatus: Record<string, number> = {};
+      let total = 0;
+      for (const r of rows) {
+        byStatus[r.status] = r._count._all;
+        total += r._count._all;
+      }
+
+      // The same grouping the dashboard shows, so a card and its trend are
+      // never counting different things.
+      const f = fleetBreakdown(byStatus, total);
+      const counts = {
+        total: f.total,
+        assigned: f.assigned,
+        available: f.available,
+        inStock: f.inStock,
+        onOrder: f.onOrder,
+        underRepair: f.underRepair,
+        critical: f.critical,
+        retired: f.retired,
+        other: f.other,
+      };
+
+      await db.fleetSnapshot.upsert({
+        where: { companyId_takenOn: { companyId: company.id, takenOn } },
+        create: { companyId: company.id, takenOn, ...counts },
+        update: counts,
+      });
+    }
+
+    return { companies: companies.length };
   }
 
   /**
@@ -1211,7 +1311,10 @@ export class AssetsService {
       action: AuditAction.ASSET_STATUS_CHANGED,
       entityType: 'Asset',
       entityId: id,
-      previousValues: { status: before.status, ...(regrade ? { condition: before.condition } : {}) },
+      previousValues: {
+        status: before.status,
+        ...(regrade ? { condition: before.condition } : {}),
+      },
       newValues: { status, ...(regrade ? { condition: regrade } : {}) },
       reason,
     });

@@ -17,6 +17,7 @@ import { AuditAction, Prisma } from '@prisma/client';
 import { AppConfig } from '../config/config.module.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AssetHealthService } from '../asset-health/asset-health.service.js';
+import { AssetsService } from '../assets/assets.service.js';
 import { LenovoWarrantyService } from '../assets/lenovo-warranty.service.js';
 import { MaintenanceService } from '../maintenance/maintenance.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -66,6 +67,7 @@ export class AlertSweepService implements OnModuleInit {
     private readonly audit: AuditService,
     private readonly maintenance: MaintenanceService,
     private readonly assetHealth: AssetHealthService,
+    private readonly assets: AssetsService,
     private readonly tokens: TokenService,
     private readonly auth: AuthService,
     private readonly lenovoWarranty: LenovoWarrantyService,
@@ -89,6 +91,9 @@ export class AlertSweepService implements OnModuleInit {
         void this.runExpirySweep();
         void this.runWorkOrderSweep();
         void this.runHealthSweep();
+        // v3.6 - record what the fleet looks like today, so that in a month
+        // "vs last month" is a measurement rather than a decoration.
+        void this.runFleetSnapshot();
         void this.runDiscoveryStalenessSweep();
         void this.runReceiptSweep();
         void this.runReturnOverdueSweep();
@@ -787,6 +792,26 @@ export class AlertSweepService implements OnModuleInit {
   }
 
   /** v2.5 H4 - daily recompute keeps every cached health score honest. */
+  /**
+   * Today's fleet counts, for tomorrow's trends (v3.6).
+   *
+   * Logged rather than silent: a trend that stops updating is invisible on the
+   * dashboard - the arrow simply goes on showing an older comparison - so the
+   * only place a failure would surface is here.
+   */
+  async runFleetSnapshot(): Promise<number> {
+    try {
+      const { companies } = await this.assets.recordFleetSnapshots();
+      this.logger.log(
+        `Fleet snapshot recorded for ${companies} compan${companies === 1 ? 'y' : 'ies'}`,
+      );
+      return companies;
+    } catch (error) {
+      this.logger.error(`Fleet snapshot failed: ${(error as Error).message}`);
+      return 0;
+    }
+  }
+
   async runHealthSweep(now: Date = new Date()): Promise<number> {
     return this.assetHealth.recomputeAll(now);
   }
