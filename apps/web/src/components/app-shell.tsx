@@ -564,6 +564,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = collapsed ? railNav : groupedNav;
 
   /*
+    The phone drawer always shows the FULL menu.
+
+    It used to render `nav`, which follows the desktop `collapsed` preference -
+    so someone who had collapsed the sidebar on their laptop then opened the
+    drawer on their phone got the sixty-four-pixel icon rail, labels and all
+    marked sr-only, inside a 256-pixel panel. The rail exists to save width in
+    a sidebar; a drawer has already taken the width it needs, and collapsing is
+    a choice about one screen, not a statement about the menu.
+  */
+  const drawerNav = groupedNav;
+
+  /*
     "Manage . Track . Secure" at the foot of the sidebar (v3.10).
 
     Static by design: it says what the product is for, not what today's numbers
@@ -577,7 +589,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     translate, and which blurs on a high-density display - so the illustration
     is cropped to the character and the words are set in the app's own type.
   */
-  const navFooter = collapsed ? null : (
+  const brandCard = (
     <div className="mt-auto px-3 pb-1 pt-3">
       <div className="rounded-[var(--radius-card)] bg-[var(--color-surface-sunken)] p-3 text-center">
         <Image
@@ -601,6 +613,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+
+  /** Hidden on the icon rail: sixty-four pixels have no room for it. */
+  const navFooter = collapsed ? null : brandCard;
+  /** The drawer is never a rail, so it always carries it. */
+  const drawerFooter = brandCard;
 
   return (
     <div className="min-h-screen">
@@ -736,8 +753,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <X aria-hidden="true" className="size-5" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
-              {navFooter}
+              <div className="min-h-0 flex-1 overflow-y-auto">{drawerNav}</div>
+              {drawerFooter}
             </div>
           </div>
         ) : null}
