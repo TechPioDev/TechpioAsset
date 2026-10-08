@@ -608,10 +608,11 @@ model Company {
   stockChanges          VendorProductStockChange[]
   assetVerifications    AssetVerification[]
   offlineReceipts       OfflineOperationReceipt[]
+  fleetSnapshots        FleetSnapshot[]
+  m365Connection        M365Connection?
 
   @@index([deletedAt])
   @@map("companies")
-  fleetSnapshots FleetSnapshot[]
 }
 
 model User {
@@ -2280,8 +2281,8 @@ model RequestComment {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  request AssetRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  author  User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  request     AssetRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  author      User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
   /// v2.60 - images sent inline with the message; they share its visibility.
   attachments Attachment[]
 
@@ -2935,6 +2936,22 @@ model SoftwareLicense {
   status LicenseStatus @default(ACTIVE)
   notes  String?
 
+  /// v3.12 - set when the licence is mirrored from an outside system ("M365").
+  /// Null for everything entered by hand. A mirrored licence has its name,
+  /// seats, dates and seat counter written by the sync, so the service refuses
+  /// to assign, revoke, renew or remove it here - there would be two sources
+  /// of truth and the next sync would overwrite whichever one was typed.
+  externalSource    String?
+  /// The id in that system. For Microsoft 365, the SKU id - NOT the product
+  /// name, which Microsoft changes.
+  externalId        String?
+  /// Seats that system says are in use. Kept beside the pool counter because
+  /// the counter is capped at the seats owned (DB CHECK) and this is not.
+  externalSeatsUsed Int?
+  /// That system's own word for the subscription's state.
+  externalStatus    String?
+  externalSyncedAt  DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -2949,10 +2966,43 @@ model SoftwareLicense {
   keys        LicenseKey[]
   renewals    LicenseRenewal[]
 
+  // One row per outside product per company. Hand-entered licences have both
+  // columns null, and Postgres treats nulls as distinct, so they never collide.
+  @@unique([companyId, externalSource, externalId])
   @@index([companyId, status])
   @@index([companyId, expiryDate])
   @@index([deletedAt])
   @@map("software_licenses")
+}
+
+/// v3.12 - a company's connection to its Microsoft 365 tenant, for reading the
+/// subscriptions it owns. One per company: the credentials are entered on the
+/// Integrations screen, never on the server, and the client secret is
+/// encrypted with the same scheme as MFA secrets and never returned.
+model M365Connection {
+  id        String @id @default(cuid())
+  companyId String @unique
+
+  tenantId              String
+  clientId              String
+  clientSecretEncrypted String
+
+  /// The outcome of the most recent sync, shown on the Integrations screen so
+  /// a failure is visible to the person who can fix it.
+  lastSyncAt      DateTime?
+  /// "ok" | "failed"
+  lastSyncStatus  String?
+  lastSyncMessage String?
+  /// Counts from the last successful run (created/updated/retired/skipped).
+  lastSyncSummary Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("m365_connections")
 }
 
 model SeatPool {
@@ -3655,12 +3705,12 @@ model OperatingSystemInfo {
   companyId String
   assetId   String @unique
 
-  osName      String?
-  osVersion   String?
-  osBuild     String?
-  osSupported Boolean?
-  osActivated Boolean?
-  lastBootAt  DateTime?
+  osName       String?
+  osVersion    String?
+  osBuild      String?
+  osSupported  Boolean?
+  osActivated  Boolean?
+  lastBootAt   DateTime?
   /// v2.76 - the console account at the last report, from agent 1.2.0; null
   /// when nobody was signed in. `activeUserAt` is the time of the report that
   /// carried the field at all, so an older agent reads as "not reported".
@@ -3849,19 +3899,19 @@ model AgentEnrolmentToken {
   id        String @id @default(cuid())
   companyId String @unique
 
-  tokenHash   String
+  tokenHash       String
   /// AES-256-GCM ciphertext of the token (LICENSE_KEY_SECRET, licence-key
   /// layout) so an admin can show it again. Null = hash-only: created before
   /// tokens were revealable, or while no key was configured.
   tokenCiphertext String?
-  createdAt   DateTime  @default(now())
-  createdById String?
-  lastUsedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  createdById     String?
+  lastUsedAt      DateTime?
   /// The token this one replaced. It keeps ENROLLING (never anything else)
   /// until graceExpiresAt, so installers already handed out do not break the
   /// moment someone replaces the token.
-  graceTokenHash String?
-  graceExpiresAt DateTime?
+  graceTokenHash  String?
+  graceExpiresAt  DateTime?
 
   @@map("agent_enrolment_tokens")
 }
@@ -3895,8 +3945,8 @@ model DeviceAgent {
   /// previous one is refused after a maximum age from this moment.
   previousTokenRotatedAt DateTime?
   /// Last refused report attributed to this laptop (rate-limited writes).
-  lastRejectedAt DateTime?
-  rejectCount    Int       @default(0)
+  lastRejectedAt         DateTime?
+  rejectCount            Int       @default(0)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 

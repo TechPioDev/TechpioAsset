@@ -1,13 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   createWebhookSchema,
+  saveM365ConnectionSchema,
   setTeamAlertsSchema,
   updateWebhookSchema,
   WEBHOOK_EVENTS,
   type AuthUser,
   type CreateWebhookInput,
+  type SaveM365ConnectionInput,
   type SetTeamAlertsInput,
   type UpdateWebhookInput,
 } from '@techpioasset/contracts';
@@ -22,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { ChatProvider } from '../providers/chat/chat.provider.js';
 import { MailProvider } from '../providers/mail/mail.provider.js';
 import { WebhooksService } from './webhooks.service.js';
+import { M365LicenseSyncService } from './m365-license-sync.service.js';
 
 /**
  * v2.6 A3 — the integrations hub. Everything here needs integrations:manage
@@ -37,6 +40,7 @@ export class IntegrationsController {
     private readonly audit: AuditService,
     private readonly chat: ChatProvider,
     private readonly mail: MailProvider,
+    private readonly m365: M365LicenseSyncService,
   ) {}
 
   @Get()
@@ -70,6 +74,50 @@ export class IntegrationsController {
       teamAlerts: { webhookUrl: company?.teamAlertWebhookUrl ?? null },
       mail: { provider: this.config.get('MAIL_PROVIDER'), from: this.config.get('MAIL_FROM') },
     };
+  }
+
+  // ── Microsoft 365 licences (v3.12) ────────────────────────────────────────
+  // One connection per company. The client secret goes in and never comes
+  // back out: reads say only that one is stored.
+
+  @Get('m365-licences')
+  @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
+  @ApiOperation({ summary: 'Microsoft 365 licence sync: connection and last result' })
+  m365Status(@CurrentUser() actor: AuthUser) {
+    return this.m365.status(actor.companyId);
+  }
+
+  @Put('m365-licences')
+  @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
+  @ApiOperation({ summary: 'Connect or update the Microsoft 365 tenant' })
+  m365Save(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(saveM365ConnectionSchema)) body: SaveM365ConnectionInput,
+  ) {
+    return this.m365.save(actor, body);
+  }
+
+  @Delete('m365-licences')
+  @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
+  @ApiOperation({ summary: 'Stop syncing (licences already recorded are kept)' })
+  m365Disconnect(@CurrentUser() actor: AuthUser) {
+    return this.m365.disconnect(actor);
+  }
+
+  @Post('m365-licences/test')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
+  @ApiOperation({ summary: 'Read from Microsoft and show what a sync would record' })
+  m365Test(@CurrentUser() actor: AuthUser) {
+    return this.m365.test(actor);
+  }
+
+  @Post('m365-licences/sync')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
+  @ApiOperation({ summary: 'Sync Microsoft 365 subscriptions into Licences now' })
+  m365Sync(@CurrentUser() actor: AuthUser) {
+    return this.m365.syncNow(actor);
   }
 
   // ── team alerts (v2.12) ───────────────────────────────────────────────────
@@ -123,7 +171,8 @@ export class IntegrationsController {
   @RequirePermissions(PERMISSIONS.INTEGRATIONS_MANAGE)
   @ApiOperation({
     summary: 'Send a test email to yourself',
-    description: 'Reports which mail provider handled it - "mock" means email is simulated and nothing was actually delivered.',
+    description:
+      'Reports which mail provider handled it - "mock" means email is simulated and nothing was actually delivered.',
   })
   async testMail(@CurrentUser() actor: AuthUser) {
     const provider = this.config.get('MAIL_PROVIDER');

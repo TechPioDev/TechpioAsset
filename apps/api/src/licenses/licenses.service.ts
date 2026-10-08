@@ -219,11 +219,42 @@ export class LicensesService {
   async update(actor: AuthUser, id: string, input: UpdateLicenseInput) {
     const existing = await this.prisma.client.softwareLicense.findFirst({
       where: { id, companyId: actor.companyId },
-      select: { id: true, status: true, expiryDate: true },
+      select: {
+        id: true,
+        status: true,
+        expiryDate: true,
+        externalSource: true,
+        name: true,
+        edition: true,
+        renewalDate: true,
+      },
     });
     if (!existing) throw AppError.notFound('License', id);
     if (input.costAmount != null && !this.canSeeCost(actor)) {
       throw new AppError('FORBIDDEN', 'Only Finance can record licence cost');
+    }
+    // v3.12 - on a synced licence the name, edition, renewal date and retired
+    // flag are Microsoft's to say. Accepting an edit to them would look saved
+    // and be gone after the next sync, which is worse than refusing it.
+    if (existing.externalSource) {
+      // Only a real CHANGE is refused. A form that sends every field back
+      // unchanged alongside a new cost is saving the cost, not renaming
+      // anything, and must not be turned away for it.
+      const changes: Record<'name' | 'edition' | 'renewalDate' | 'retired', boolean> = {
+        name: input.name !== undefined && input.name !== existing.name,
+        edition: input.edition !== undefined && (input.edition ?? null) !== existing.edition,
+        renewalDate:
+          input.renewalDate !== undefined &&
+          (input.renewalDate?.getTime() ?? null) !== (existing.renewalDate?.getTime() ?? null),
+        retired: input.retired !== undefined && input.retired !== (existing.status === 'RETIRED'),
+      };
+      const owned = (Object.keys(changes) as (keyof typeof changes)[]).filter((f) => changes[f]);
+      if (owned.length > 0) {
+        throw new AppError(
+          'CONFLICT',
+          `This licence is synced from Microsoft 365, which sets its ${owned.join(', ')}. Cost, vendor, notes and the order number can still be changed here.`,
+        );
+      }
     }
 
     await this.prisma.client.softwareLicense.update({
@@ -267,6 +298,7 @@ export class LicensesService {
 
   /** Soft delete. A licence with active seats cannot silently disappear. */
   async remove(actor: AuthUser, id: string) {
+    await this.refuseIfSynced(actor, id, 'removing it');
     const license = await this.prisma.client.softwareLicense.findFirst({
       where: { id, companyId: actor.companyId },
       select: { id: true, name: true, _count: { select: { assignments: { where: { status: 'ACTIVE' } } } } },
@@ -297,6 +329,7 @@ export class LicensesService {
   // ── the flagship: seat assignment ──────────────────────────────────────────
 
   async assign(actor: AuthUser, licenseId: string, input: AssignSeatInput) {
+    await this.refuseIfSynced(actor, licenseId, 'assigning seats');
     const license = await this.prisma.client.softwareLicense.findFirst({
       where: { id: licenseId, companyId: actor.companyId },
       select: {
@@ -469,6 +502,7 @@ export class LicensesService {
    * silent partial success: either mode tells the caller precisely what it did.
    */
   async bulkAssign(actor: AuthUser, licenseId: string, input: BulkAssignInput) {
+    await this.refuseIfSynced(actor, licenseId, 'assigning seats');
     const license = await this.loadAssignableLicense(actor, licenseId);
     const pool = license.pools[0];
     if (!pool) throw AppError.notFound('Seat pool');
@@ -606,6 +640,7 @@ export class LicensesService {
    * where a free seat is needed).
    */
   async transfer(actor: AuthUser, licenseId: string, input: TransferSeatInput) {
+    await this.refuseIfSynced(actor, licenseId, 'moving a seat');
     const license = await this.loadAssignableLicense(actor, licenseId);
     const assignment = await this.prisma.client.licenseAssignment.findFirst({
       where: { id: input.assignmentId, licenseId, companyId: actor.companyId, status: 'ACTIVE' },
@@ -803,6 +838,7 @@ export class LicensesService {
   // ── renewals & keys ────────────────────────────────────────────────────────
 
   async renew(actor: AuthUser, licenseId: string, input: CreateRenewalInput) {
+    await this.refuseIfSynced(actor, licenseId, 'renewing it or changing its seats');
     const license = await this.prisma.client.softwareLicense.findFirst({
       where: { id: licenseId, companyId: actor.companyId },
       select: {
@@ -925,6 +961,32 @@ export class LicensesService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /**
+   * A licence mirrored from Microsoft 365 is changed THERE (v3.12).
+   *
+   * Its seats, dates and seat counter are written by the sync. Assigning a
+   * seat here would not give anyone the product - Microsoft decides who has
+   * it - and it would move a counter the next sync puts straight back. Renewing
+   * it here would record a renewal that did not happen, and removing it would
+   * collide with the sync recreating it. So these are refused, with a sentence
+   * that says where to go instead.
+   *
+   * Cost, vendor, notes and the invoice stay editable: Microsoft knows none of
+   * those, and the sync never touches them.
+   */
+  private async refuseIfSynced(actor: AuthUser, licenseId: string, doing: string): Promise<void> {
+    const license = await this.prisma.client.softwareLicense.findFirst({
+      where: { id: licenseId, companyId: actor.companyId },
+      select: { externalSource: true },
+    });
+    if (license?.externalSource) {
+      throw new AppError(
+        'CONFLICT',
+        `This licence is synced from Microsoft 365, so ${doing} is done in the Microsoft 365 admin centre. The change appears here after the next sync.`,
+      );
+    }
+  }
+
   private canSeeCost(actor: AuthUser): boolean {
     return actor.permissions.includes(PERMISSIONS.LICENSES_COST_READ);
   }
@@ -956,6 +1018,14 @@ export class LicensesService {
       status: true,
       vendor: { select: { id: true, name: true } },
       createdAt: true,
+      // v3.12 - where the licence came from. Null for one entered by hand;
+      // "M365" for one mirrored from Microsoft, whose seats and dates the sync
+      // owns. Sent on every read so a screen can say so instead of offering
+      // an Assign button the server would refuse.
+      externalSource: true,
+      externalSeatsUsed: true,
+      externalStatus: true,
+      externalSyncedAt: true,
       ...(this.canSeeCost(actor)
         ? { costAmount: true, costCurrency: true, costModel: true }
         : {}),

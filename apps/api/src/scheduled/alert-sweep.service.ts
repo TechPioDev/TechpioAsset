@@ -24,6 +24,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { PrismaService } from '../prisma/prisma.service.js';
 import { IMPORT_BACKFILL_METHOD } from '../assets/custody-record.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
+import { M365LicenseSyncService } from '../integrations/m365-license-sync.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { TokenService } from '../auth/token.service.js';
 import { withSpan } from '../observability/tracing.js';
@@ -73,6 +74,7 @@ export class AlertSweepService implements OnModuleInit {
     private readonly lenovoWarranty: LenovoWarrantyService,
     private readonly webhooks: WebhooksService,
     private readonly vendorNotifications: VendorNotificationsService,
+    private readonly m365: M365LicenseSyncService,
   ) {}
 
   onModuleInit(): void {
@@ -94,6 +96,9 @@ export class AlertSweepService implements OnModuleInit {
         // v3.6 - record what the fleet looks like today, so that in a month
         // "vs last month" is a measurement rather than a decoration.
         void this.runFleetSnapshot();
+        // Before the licence sweep below reads expiry dates and seat counts, so
+        // tonight's alerts are about tonight's numbers.
+        void this.runM365LicenseSync();
         void this.runDiscoveryStalenessSweep();
         void this.runReceiptSweep();
         void this.runReturnOverdueSweep();
@@ -391,6 +396,7 @@ export class AlertSweepService implements OnModuleInit {
         seatsPurchased: true,
         createdById: true,
         updatedById: true,
+        externalSource: true,
         pools: { select: { id: true, seatsAllocated: true, seatsReserved: true } },
       },
     });
@@ -434,7 +440,11 @@ export class AlertSweepService implements OnModuleInit {
         const active = await this.prisma.client.licenseAssignment.count({
           where: { seatPoolId: pool.id, status: 'ACTIVE' },
         });
-        if (active !== pool.seatsReserved) {
+        // A licence mirrored from Microsoft 365 has a counter and no assignment
+        // rows BY DESIGN - Microsoft holds who has which seat, and the counter
+        // is its tally. Warning about that every night would bury the drift
+        // warnings that mean a real bug.
+        if (!license.externalSource && active !== pool.seatsReserved) {
           drift += 1;
           this.logger.warn(
             `Seat counter drift on license ${license.id} pool ${pool.id}: reserved=${pool.seatsReserved}, active=${active}`,
@@ -799,6 +809,26 @@ export class AlertSweepService implements OnModuleInit {
    * dashboard - the arrow simply goes on showing an older comparison - so the
    * only place a failure would surface is here.
    */
+  /**
+   * v3.12 - refresh Microsoft 365 subscriptions for every company that has
+   * connected. Failures are recorded on that company's connection, where the
+   * person who can fix an expired secret will see them; here they are counted.
+   */
+  async runM365LicenseSync(): Promise<number> {
+    try {
+      const { companies, failed } = await this.m365.syncAllConnected();
+      if (companies > 0) {
+        this.logger.log(
+          `Microsoft 365 licence sync: ${companies - failed} of ${companies} compan${companies === 1 ? 'y' : 'ies'} synced`,
+        );
+      }
+      return companies - failed;
+    } catch (error) {
+      this.logger.error('Microsoft 365 licence sync failed', error as Error);
+      return 0;
+    }
+  }
+
   async runFleetSnapshot(): Promise<number> {
     try {
       const { companies } = await this.assets.recordFleetSnapshots();
