@@ -17,6 +17,8 @@ import {
   expiryLabel,
   inputCls,
   type LicenseRow,
+  isSyncedLicense,
+  SyncedBadge,
 } from '@/components/licenses/shared';
 
 interface Assignment {
@@ -118,11 +120,28 @@ export default function LicenseDetailPage() {
 
   const l = data;
   const activeSeats = l.assignments.filter((a) => a.status === 'ACTIVE');
-  const canAssign = can(PERMISSIONS.LICENSES_ASSIGN) && l.status !== 'RETIRED' && l.status !== 'EXPIRED';
+  /*
+    v3.12 - a licence synced from Microsoft 365 is changed THERE.
+
+    Its seats are assigned in the Microsoft 365 admin centre and its dates come
+    from Microsoft, so the server refuses to assign, renew or delete it here.
+    Offering those buttons anyway would mean every one of them ends in an
+    error, so they are not offered, and the page says where to go instead.
+  */
+  const synced = isSyncedLicense(l);
+  const seatsInUse = synced ? (l.externalSeatsUsed ?? l.seatsReserved) : activeSeats.length;
+  const canAssign =
+    !synced &&
+    can(PERMISSIONS.LICENSES_ASSIGN) &&
+    l.status !== 'RETIRED' &&
+    l.status !== 'EXPIRED';
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
-    { key: 'seats', label: `Seats (${activeSeats.length})` },
+    // For a synced licence the count is Microsoft's: "Seats (0)" over a
+    // subscription with 42 people on it would be this page contradicting its
+    // own meter.
+    { key: 'seats', label: `Seats (${seatsInUse})` },
     { key: 'keys', label: `Keys (${l.keys.length})` },
     { key: 'renewals', label: `Renewals (${l.renewals.length})` },
   ];
@@ -139,6 +158,7 @@ export default function LicenseDetailPage() {
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--color-content-muted)]">
             <LicenseStatusPill status={l.status} />
+            {synced ? <SyncedBadge /> : null}
             <span>{l.edition ?? ''}</span>
             <span>· {l.unitOfAssignment === 'USER' ? 'per user' : 'per device'}</span>
             <span>· {expiryLabel(l.expiryDate)}</span>
@@ -149,6 +169,27 @@ export default function LicenseDetailPage() {
           <SeatsMeter purchased={l.seatsPurchased} reserved={l.seatsReserved} />
         </div>
       </header>
+
+      {synced ? (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-sunken)] p-4 text-sm">
+          <p className="font-semibold">Synced from Microsoft 365</p>
+          <p className="mt-1 text-[var(--color-content-muted)]">
+            The seats, dates and status on this page come from Microsoft and refresh every night
+            {l.externalSyncedAt
+              ? ` (last read ${new Date(l.externalSyncedAt).toLocaleString()})`
+              : ''}
+            . To give or take away a seat, or to change the subscription, use the Microsoft 365
+            admin centre; the change appears here after the next sync. Cost, vendor and notes are
+            kept here and are never overwritten.
+          </p>
+          {(l.externalSeatsUsed ?? 0) > l.seatsPurchased ? (
+            <p className="mt-2 font-medium" style={{ color: 'var(--tone-warning-fg)' }}>
+              Microsoft reports {l.externalSeatsUsed} seats in use against {l.seatsPurchased} owned
+              - {(l.externalSeatsUsed ?? 0) - l.seatsPurchased} more than the subscription covers.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* The refusal banner: honest numbers, no override. */}
       {seatLimitError ? (
@@ -193,7 +234,7 @@ export default function LicenseDetailPage() {
           destructive: true,
         });
         if (ok) remove.mutate();
-      }} canDelete={can(PERMISSIONS.LICENSES_DELETE)} /> : null}
+      }} canDelete={!synced && can(PERMISSIONS.LICENSES_DELETE)} /> : null}
 
       {tab === 'seats' ? (
         <SeatsTab
@@ -201,6 +242,7 @@ export default function LicenseDetailPage() {
           unit={l.unitOfAssignment}
           assignments={l.assignments}
           canAssign={canAssign}
+          syncedSeats={synced ? { used: seatsInUse, purchased: l.seatsPurchased } : null}
           canRevoke={can(PERMISSIONS.LICENSES_REVOKE)}
           onRevoke={(aid) => revoke.mutate(aid)}
           onAssigned={() => {
@@ -216,7 +258,7 @@ export default function LicenseDetailPage() {
       ) : null}
 
       {tab === 'renewals' ? (
-        <RenewalsTab licenseId={l.id} renewals={l.renewals} canRenew={can(PERMISSIONS.LICENSES_RENEW)} onChanged={() => void refresh()} />
+        <RenewalsTab licenseId={l.id} renewals={l.renewals} canRenew={!synced && can(PERMISSIONS.LICENSES_RENEW)} onChanged={() => void refresh()} />
       ) : null}
     </div>
   );
@@ -227,9 +269,22 @@ function OverviewTab({ l, onDelete, canDelete }: { l: LicenseDetail; onDelete: (
     ['Family', l.family.replace(/_/g, ' ').toLowerCase()],
     ['Subscription', l.subscriptionType.toLowerCase()],
     ['Purchased', fmtDate(l.purchaseDate)],
-    ['Expiry', l.expiryDate ? fmtDate(l.expiryDate) : 'Perpetual'],
+    // "Perpetual" is what a missing date means for a licence somebody entered.
+    // For a synced one it means Microsoft sent no date, which is not the same
+    // claim and must not be dressed up as it.
+    [
+      'Expiry',
+      l.expiryDate ? fmtDate(l.expiryDate) : isSyncedLicense(l) ? 'No date from Microsoft' : 'Perpetual',
+    ],
     ['Renewal date', fmtDate(l.renewalDate)],
-    ['Auto-renew', l.autoRenewal ? 'Yes' : 'No'],
+    // Microsoft does not say whether a subscription renews by itself, so for a
+    // synced licence the row is left out rather than answering "No".
+    ...(isSyncedLicense(l)
+      ? ([
+          ['In use (Microsoft 365)', `${l.externalSeatsUsed ?? 0} / ${l.seatsPurchased} seats`],
+          ['Microsoft status', l.externalStatus ?? '—'],
+        ] as [string, string][])
+      : ([['Auto-renew', l.autoRenewal ? 'Yes' : 'No']] as [string, string][])),
     ['PO number', l.purchaseOrderNumber ?? '—'],
     ...(l.costAmount ? ([['Cost', `${Number(l.costAmount).toLocaleString()} ${l.costCurrency ?? ''}`]] as [string, string][]) : []),
   ];
@@ -273,6 +328,7 @@ function SeatsTab({
   unit,
   assignments,
   canAssign,
+  syncedSeats,
   canRevoke,
   onRevoke,
   onAssigned,
@@ -282,6 +338,8 @@ function SeatsTab({
   unit: 'USER' | 'DEVICE';
   assignments: Assignment[];
   canAssign: boolean;
+  /** Set when Microsoft 365 holds the seat list; null for a licence managed here. */
+  syncedSeats: { used: number; purchased: number } | null;
   canRevoke: boolean;
   onRevoke: (assignmentId: string) => void;
   onAssigned: () => void;
@@ -355,7 +413,15 @@ function SeatsTab({
 
       <Card className="p-0">
         {active.length === 0 ? (
-          <EmptyState title="No active seats" description="Assigned seats appear here." />
+          syncedSeats ? (
+            // Not "no active seats": there are, and Microsoft knows who has them.
+            <EmptyState
+              title={`${syncedSeats.used} of ${syncedSeats.purchased} seats in use`}
+              description="Who holds each seat is managed in the Microsoft 365 admin centre, so the list is not kept here."
+            />
+          ) : (
+            <EmptyState title="No active seats" description="Assigned seats appear here." />
+          )
         ) : (
           <ul className="divide-y divide-[var(--color-border)]">
             {active.map((a) => (

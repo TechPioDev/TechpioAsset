@@ -8,6 +8,7 @@ import { useToast } from '@/providers/toast-provider';
 import { useConfirm } from '@/providers/confirm-provider';
 import { Button, Card, EmptyState, ErrorState, Field, Input, Skeleton } from '@/components/ui';
 import { Tone } from '@/components/assets/discovery-tabs';
+import { M365LicencesCard } from '@/components/integrations/m365-licences-card';
 
 /**
  * v2.6 A5 — the integrations hub. Secrets and tokens are shown exactly once,
@@ -231,6 +232,10 @@ export default function IntegrationsPage() {
           </p>
         </Card>
       </div>
+
+      {/* v3.12 - its own component with its own queries, so a Microsoft outage
+          cannot stop the rest of this page from loading. */}
+      <M365LicencesCard />
 
       <Card className="grid gap-3 p-5">
         <h2 className="text-sm font-semibold">SCIM token</h2>

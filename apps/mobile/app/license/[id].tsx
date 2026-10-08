@@ -141,7 +141,12 @@ export default function LicenseDetailScreen() {
   const tone = palette[LICENSE_TONE[license.status]];
   const active = license.assignments.filter((a) => a.status === 'ACTIVE');
   const full = license.seatsPurchased > 0 && license.seatsReserved >= license.seatsPurchased;
-  const assignable = canAssign && license.status !== 'RETIRED' && license.status !== 'EXPIRED';
+  // v3.12 - a licence synced from Microsoft 365 has its seats assigned in the
+  // Microsoft 365 admin centre. The server refuses an assignment here, so the
+  // button is not offered and the screen says where to go - same as the web.
+  const synced = license.externalSource === 'M365';
+  const assignable =
+    !synced && canAssign && license.status !== 'RETIRED' && license.status !== 'EXPIRED';
 
   return (
     <Screen scroll fade>
@@ -176,7 +181,16 @@ export default function LicenseDetailScreen() {
       <SectionTitle>Seats in use</SectionTitle>
       <Card style={{ padding: 0, marginBottom: spacing.xl }}>
         {active.length === 0 ? (
-          <EmptyState icon="key-outline" title="No seats assigned" message="Assigned seats appear here." />
+          synced ? (
+            // Not "no seats assigned": there are, and Microsoft knows who has them.
+            <EmptyState
+              icon="key-outline"
+              title={`${license.externalSeatsUsed ?? license.seatsReserved} of ${license.seatsPurchased} seats in use`}
+              message="Synced from Microsoft 365. Seats are assigned in the Microsoft 365 admin centre."
+            />
+          ) : (
+            <EmptyState icon="key-outline" title="No seats assigned" message="Assigned seats appear here." />
+          )
         ) : (
           active.map((a, i) => (
             <View

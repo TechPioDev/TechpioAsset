@@ -14,6 +14,8 @@ import {
   SeatsMeter,
   expiryLabel,
   type LicenseRow,
+  isSyncedLicense,
+  SyncedBadge,
 } from '@/components/licenses/shared';
 
 export default function LicensesPage() {
@@ -110,9 +112,12 @@ export default function LicensesPage() {
               {data.data.map((l) => (
                 <tr key={l.id} className="hover:bg-[var(--color-surface-sunken)]">
                   <td className="px-4 py-3">
-                    <Link href={`/licenses/${l.id}`} className="font-medium hover:underline">
-                      {l.name}
-                    </Link>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Link href={`/licenses/${l.id}`} className="font-medium hover:underline">
+                        {l.name}
+                      </Link>
+                      {isSyncedLicense(l) ? <SyncedBadge /> : null}
+                    </span>
                     <p className="text-xs text-[var(--color-content-subtle)]">
                       {[l.edition, l.unitOfAssignment === 'USER' ? 'per user' : 'per device']
                         .filter(Boolean)

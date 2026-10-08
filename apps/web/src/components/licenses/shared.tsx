@@ -15,6 +15,35 @@ export interface LicenseRow {
   seatsReserved: number;
   seatsAvailable: number;
   vendor: { id: string; name: string } | null;
+  /** "M365" when mirrored from Microsoft 365; null when entered by hand. */
+  externalSource?: string | null;
+  /** Seats Microsoft says are in use. Can exceed seatsPurchased. */
+  externalSeatsUsed?: number | null;
+  externalStatus?: string | null;
+  externalSyncedAt?: string | null;
+}
+
+/** True for a licence whose seats and dates Microsoft 365 owns (v3.12). */
+export const isSyncedLicense = (l: Pick<LicenseRow, 'externalSource'>) =>
+  l.externalSource === 'M365';
+
+/**
+ * Says where a licence comes from, wherever one is listed.
+ *
+ * Without it a synced licence looks like any other and offers the same
+ * actions - which the server refuses, because its seats are assigned in
+ * Microsoft 365. The label is the difference between "why won't it let me"
+ * and knowing where to go.
+ */
+export function SyncedBadge() {
+  return (
+    <span
+      className="inline-flex items-center rounded-full border border-[var(--color-border-strong)] px-1.5 py-px text-[10.5px] font-semibold text-[var(--color-content-muted)]"
+      title="Synced from Microsoft 365. Seats and dates are managed there."
+    >
+      Microsoft 365
+    </span>
+  );
 }
 
 const STATUS_TONE: Record<LicenseRow['status'], string> = {

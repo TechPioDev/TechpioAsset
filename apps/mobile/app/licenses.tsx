@@ -17,6 +17,10 @@ export interface LicenseRow {
   seatsReserved: number;
   seatsAvailable: number;
   vendor: { name: string } | null;
+  /** "M365" when mirrored from Microsoft 365; null when entered by hand. */
+  externalSource?: string | null;
+  /** Seats Microsoft says are in use. */
+  externalSeatsUsed?: number | null;
 }
 
 export const LICENSE_TONE: Record<LicenseRow['status'], Tone> = {
