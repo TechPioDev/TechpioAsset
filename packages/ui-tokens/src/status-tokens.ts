@@ -34,7 +34,11 @@ export const ASSET_STATUS_TOKENS: Readonly<Record<AssetStatus, StatusToken>> = {
   RECEIVED: { label: 'Received', tone: 'progress', icon: 'PackageCheck' },
   AVAILABLE: { label: 'Available', tone: 'success', icon: 'CircleCheck' },
   RESERVED: { label: 'Reserved', tone: 'progress', icon: 'BookmarkCheck' },
-  ASSIGNED: { label: 'Assigned', tone: 'info', icon: 'UserCheck' },
+  // v3.13 - "Assigned" sat next to "In use" on the same list and read as the
+  // same thing twice. The difference is real and worth keeping: ASSIGNED is a
+  // device handed over that the employee has not yet confirmed receiving in
+  // the app; IN_USE is one they have. So the label now says what it means.
+  ASSIGNED: { label: 'Awaiting confirmation', tone: 'info', icon: 'UserCheck' },
   IN_USE: { label: 'In use', tone: 'info', icon: 'Laptop' },
   IN_STORAGE: { label: 'In storage', tone: 'neutral', icon: 'Archive' },
   IN_TRANSIT: { label: 'In transit', tone: 'progress', icon: 'Truck' },
@@ -197,6 +201,8 @@ export const ASSET_STATUS_GROUP_LABELS: Readonly<Record<AssetStatusGroup, string
   onOrder: 'On order',
   underRepair: 'Under repair',
   critical: 'Damaged / lost',
-  // RETIRED + DISPOSED + DONATED. Not "Retired", for the same reason.
-  retired: 'Retired or disposed',
+  // RETIRED only, since v3.13: still on the premises, waiting to go.
+  retired: 'Retired',
+  // DISPOSED + DONATED - gone from the company, outside "Total assets".
+  disposed: 'Disposed or donated',
 };

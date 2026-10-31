@@ -17,6 +17,7 @@ import type {
 import {
   assertTransition,
   IllegalTransitionError,
+  describeAssetStatusRefusal,
   assetStatusMachine,
   reconcileConditionAndStatus,
   type AssetCondition,
@@ -33,6 +34,7 @@ import {
   sanitizeAssetSpecs,
   PUSH_CATEGORY,
   fleetBreakdown,
+  OUT_OF_FLEET_STATUSES,
   disambiguateNames,
   fleetTrend,
   type FleetTrend,
@@ -301,7 +303,16 @@ export class AssetsService {
           }
         : {}),
     };
-    return { AND: [assetScopeFilter(actor), filters] };
+    // v3.13 - disposed and donated assets have left the company. They stay
+    // out of the list, the export and every total UNLESS the caller asks for a
+    // status or lifecycle explicitly - which is how the "Disposed assets" list
+    // and a link to one still reach them. Filtering by status is a question
+    // about those statuses; no filter at all is a question about the fleet.
+    const outOfFleet: Prisma.AssetWhereInput =
+      query.status?.length || query.lifecycleState
+        ? {}
+        : { status: { notIn: [...OUT_OF_FLEET_STATUSES] } };
+    return { AND: [assetScopeFilter(actor), filters, outOfFleet] };
   }
 
   async list(actor: AuthUser, query: AssetListQuery) {
@@ -353,6 +364,8 @@ export class AssetsService {
      * against.
      */
     trend: FleetTrend | null;
+    /** Disposed or donated: gone from the company, so not part of `total`. */
+    disposed: number;
   }> {
     const where = this.listWhere(actor, {} as AssetListQuery);
     const db = this.prisma.client;
@@ -488,7 +501,14 @@ export class AssetsService {
     const baseline =
       actor.scope === 'ALL'
         ? await db.fleetSnapshot.findFirst({
-            where: { companyId: actor.companyId, takenOn: { gte: windowStart, lte: windowEnd } },
+            where: {
+              companyId: actor.companyId,
+              takenOn: { gte: windowStart, lte: windowEnd },
+              // Snapshots taken before v3.13 counted disposed assets in the
+              // total. Comparing one of those with today's total would report
+              // every past disposal as the fleet shrinking.
+              excludesDisposed: true,
+            },
             orderBy: { takenOn: 'desc' },
             select: { takenOn: true, total: true },
           })
@@ -497,6 +517,11 @@ export class AssetsService {
     return {
       total,
       trend: fleetTrend(total, baseline, now),
+      // Through the same scope as everything else, with only the status
+      // filter swapped - so a manager sees their own department's disposals.
+      disposed: await db.asset.count({
+        where: this.listWhere(actor, { status: [...OUT_OF_FLEET_STATUSES] } as AssetListQuery),
+      }),
       byStatus,
       byCategory,
       byType,
@@ -540,7 +565,12 @@ export class AssetsService {
     for (const company of companies) {
       const rows = await db.asset.groupBy({
         by: ['status'],
-        where: { companyId: company.id, deletedAt: null },
+        // The same fleet the dashboard counts: disposed and donated excluded.
+        where: {
+          companyId: company.id,
+          deletedAt: null,
+          status: { notIn: [...OUT_OF_FLEET_STATUSES] },
+        },
         _count: { _all: true },
       });
 
@@ -568,8 +598,10 @@ export class AssetsService {
 
       await db.fleetSnapshot.upsert({
         where: { companyId_takenOn: { companyId: company.id, takenOn } },
-        create: { companyId: company.id, takenOn, ...counts },
-        update: counts,
+        // Set on update too: a row for today written before v3.13 is being
+        // recounted on the new definition, so it must say so.
+        create: { companyId: company.id, takenOn, ...counts, excludesDisposed: true },
+        update: { ...counts, excludesDisposed: true },
       });
     }
 
@@ -1395,9 +1427,11 @@ export class AssetsService {
         failed.push({
           id,
           reason:
-            error instanceof AppError || error instanceof IllegalTransitionError
-              ? error.message
-              : 'Could not update this asset',
+            error instanceof IllegalTransitionError && error.machine === 'AssetStatus'
+              ? describeAssetStatusRefusal(error.from as AssetStatus, error.to as AssetStatus)
+              : error instanceof AppError || error instanceof IllegalTransitionError
+                ? error.message
+                : 'Could not update this asset',
         });
       }
     }

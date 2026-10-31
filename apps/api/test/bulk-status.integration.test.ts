@@ -70,7 +70,10 @@ describe('bulk status change', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.succeeded).toHaveLength(0);
     expect(res.body.data.failed).toHaveLength(2);
-    expect(res.body.data.failed[0].reason).toMatch(/transition/i);
+    // v3.13: the reason is a sentence a person can act on, not the rule's
+    // name ("Illegal AssetStatus transition: RETIRED -> AVAILABLE").
+    expect(res.body.data.failed[0].reason).toMatch(/Retired cannot change straight to Available/);
+    expect(res.body.data.failed[0].reason).not.toMatch(/Illegal|->/);
   });
 
   it('forbids a role without assets:update', async () => {

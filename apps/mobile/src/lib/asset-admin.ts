@@ -1,8 +1,4 @@
-import {
-  ASSET_STATUSES,
-  ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
-  type AssetStatus,
-} from '@techpioasset/domain';
+import { manualStatusOptions, type AssetStatus } from '@techpioasset/domain';
 
 /**
  * Asset administration on the phone: edit, office transfer, disposal and the
@@ -176,14 +172,13 @@ export function buildUpdatePayload(
 }
 
 /**
- * Statuses offered on edit. Custody statuses are earned through Assign, not
- * declared - but the asset's current one always stays listed so an untouched
- * form round-trips. Same filter as the web select.
+ * Statuses offered on edit (v3.13): only the moves this asset can make, from
+ * the same shared rule as the web's menu. It used to list every status, so a
+ * held laptop offered "Available" and the save was refused. The current status
+ * stays first so an untouched form round-trips.
  */
 export function editableStatuses(current: AssetStatus): AssetStatus[] {
-  return ASSET_STATUSES.filter(
-    (s) => s === current || !ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(s),
-  );
+  return manualStatusOptions(current);
 }
 
 /**

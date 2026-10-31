@@ -66,7 +66,18 @@ export type OwnershipType = (typeof OWNERSHIP_TYPES)[number];
 /** The full status of an asset, expressed as an independent tuple. */
 export interface AssetDimensions {
   readonly lifecycle: LifecycleState;
-  readonly availability: AvailabilityState;
+  /**
+   * Null for an asset that has left service - retired, disposed or donated.
+   *
+   * Until v3.13 those three mapped to AVAILABLE, so every scrapped laptop was
+   * stored as available to hand out, and the asset list printed "Disposed"
+   * and "Available" side by side on the same row. Nothing gave one out - the
+   * assignment rules block a retired lifecycle - but the label was a false
+   * statement, and any filter on availability would have counted the scrap
+   * heap as stock. Availability is a question about equipment in circulation;
+   * for equipment out of it, the honest answer is that there is none.
+   */
+  readonly availability: AvailabilityState | null;
   readonly condition: ConditionGrade;
   readonly ownership: OwnershipType;
 }
@@ -192,19 +203,19 @@ const LEGACY_MAP: Readonly<Record<AssetStatus, BaseDims>> = {
   },
   RETIRED: {
     lifecycle: 'RETIRED',
-    availability: 'AVAILABLE',
+    availability: null,
     condition: 'END_OF_LIFE',
     ownership: 'OWNED',
   },
   DISPOSED: {
     lifecycle: 'DISPOSED',
-    availability: 'AVAILABLE',
+    availability: null,
     condition: 'END_OF_LIFE',
     ownership: 'OWNED',
   },
   DONATED: {
     lifecycle: 'DISPOSED',
-    availability: 'AVAILABLE',
+    availability: null,
     condition: 'END_OF_LIFE',
     ownership: 'OWNED',
   },

@@ -8,10 +8,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  ASSET_STATUSES,
   ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
+  manualStatusOptions,
   ASSET_CONDITIONS,
   ASSET_TYPES_BY_KEY,
+  type AssetStatus,
 } from '@techpioasset/domain';
 import { ASSET_STATUS_TOKENS, CONDITION_TOKENS } from '@techpioasset/ui-tokens';
 import { apiFetch, ApiError } from '@/lib/api-client';
@@ -146,7 +147,9 @@ function EditAssetForm({
   // record. Changing type keeps nothing from the old one, since the fields mean
   // different things.
   const selectedSubcategoryId = form.watch('subcategoryId');
-  const selectedType = selectedCategory?.subcategories.find((sub) => sub.id === selectedSubcategoryId);
+  const selectedType = selectedCategory?.subcategories.find(
+    (sub) => sub.id === selectedSubcategoryId,
+  );
   const typeDef = selectedType ? ASSET_TYPES_BY_KEY[selectedType.key] : undefined;
   const [specs, setSpecs] = useState<Record<string, string>>(asset.specs ?? {});
   const originalTypeId = asset.subcategory?.id ?? '';
@@ -353,7 +356,8 @@ function EditAssetForm({
 
             {/* v2.20 - identity fields for this type. Unique per company, so a
                 value already on another asset is refused with its tag named. */}
-            {typeDef && (typeDef.identity.includes('macAddress') || typeDef.identity.includes('imei')) ? (
+            {typeDef &&
+            (typeDef.identity.includes('macAddress') || typeDef.identity.includes('imei')) ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {typeDef.identity.includes('imei') ? (
                   <FormField
@@ -400,14 +404,18 @@ function EditAssetForm({
                       <label htmlFor={`spec-${f.key}`} className="text-sm font-medium">
                         {f.label}
                         {f.unit ? (
-                          <span className="ml-1 font-normal text-[var(--color-content-muted)]">({f.unit})</span>
+                          <span className="ml-1 font-normal text-[var(--color-content-muted)]">
+                            ({f.unit})
+                          </span>
                         ) : null}
                       </label>
                       {f.kind === 'select' ? (
                         <select
                           id={`spec-${f.key}`}
                           value={specs[f.key] ?? ''}
-                          onChange={(e) => setSpecs((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          onChange={(e) =>
+                            setSpecs((prev) => ({ ...prev, [f.key]: e.target.value }))
+                          }
                           className="mt-1.5 h-10 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 text-sm"
                         >
                           <option value="">—</option>
@@ -424,7 +432,9 @@ function EditAssetForm({
                           inputMode={f.kind === 'number' ? 'decimal' : undefined}
                           placeholder={f.placeholder}
                           value={specs[f.key] ?? ''}
-                          onChange={(e) => setSpecs((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          onChange={(e) =>
+                            setSpecs((prev) => ({ ...prev, [f.key]: e.target.value }))
+                          }
                         />
                       )}
                     </div>
@@ -524,21 +534,30 @@ function EditAssetForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {/* Custody statuses are earned through Assign, not
-                            declared here - offering "Assigned" on an edit
-                            created assets that were "Assigned" to nobody. The
-                            asset's current status always stays listed so an
-                            untouched form round-trips. */}
-                        {ASSET_STATUSES.filter(
-                          (s) =>
-                            s === asset.status || !ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(s),
-                        ).map((s) => (
+                        {/* v3.13 - only the moves this asset can make. The
+                            menu listed every status, so "In use" to
+                            "Available" looked selectable and was refused on
+                            save. Custody statuses still come only from Assign,
+                            Returned only from Return, and the current status
+                            stays first so an untouched form saves unchanged. */}
+                        {manualStatusOptions(asset.status as AssetStatus).map((s) => (
                           <SelectItem key={s} value={s}>
                             {ASSET_STATUS_TOKENS[s].label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* Why the menu is short, when it is: the next step. */}
+                    {ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(asset.status as AssetStatus) ? (
+                      <p className="text-xs text-[var(--color-content-muted)]">
+                        This asset is with a person. To make it available, use Return on the asset
+                        page - that also closes their record.
+                      </p>
+                    ) : asset.status === 'DISPOSED' || asset.status === 'DONATED' ? (
+                      <p className="text-xs text-[var(--color-content-muted)]">
+                        Disposed is final; the record is kept for history.
+                      </p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}

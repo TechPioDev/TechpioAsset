@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '@techpioasset/contracts';
 import {
+  OUT_OF_FLEET_STATUSES,
   agingDistribution,
   cycleStats,
   daysBetween,
@@ -51,9 +52,10 @@ export class AnalyticsService {
         activeAssets,
         discoveredAssets,
       ] = await Promise.all([
+        // The same fleet as the total below, so the breakdown adds up to it.
         this.prisma.client.asset.groupBy({
           by: ['status'],
-          where: { companyId, deletedAt: null },
+          where: { companyId, deletedAt: null, status: { notIn: [...OUT_OF_FLEET_STATUSES] } },
           _count: { _all: true },
         }),
         this.prisma.client.user.count({ where: { companyId, deletedAt: null, status: 'ACTIVE' } }),
@@ -86,9 +88,18 @@ export class AnalyticsService {
           where: { companyId },
           _count: { _all: true },
         }),
-        this.prisma.client.asset.count({ where: { companyId, deletedAt: null } }),
+        // v3.13 - the fleet, as the dashboard counts it: disposed and donated
+        // assets have left the company and are not part of either number.
         this.prisma.client.asset.count({
-          where: { companyId, deletedAt: null, hardwareProfile: { isNot: null } },
+          where: { companyId, deletedAt: null, status: { notIn: [...OUT_OF_FLEET_STATUSES] } },
+        }),
+        this.prisma.client.asset.count({
+          where: {
+            companyId,
+            deletedAt: null,
+            status: { notIn: [...OUT_OF_FLEET_STATUSES] },
+            hardwareProfile: { isNot: null },
+          },
         }),
       ]);
 
@@ -363,9 +374,18 @@ export class AnalyticsService {
           _count: { _all: true },
         }),
         this.prisma.client.assetHealth.count({ where: { companyId, capped: true } }),
-        this.prisma.client.asset.count({ where: { companyId, deletedAt: null } }),
+        // v3.13 - the fleet, as the dashboard counts it: disposed and donated
+        // assets have left the company and are not part of either number.
         this.prisma.client.asset.count({
-          where: { companyId, deletedAt: null, hardwareProfile: { isNot: null } },
+          where: { companyId, deletedAt: null, status: { notIn: [...OUT_OF_FLEET_STATUSES] } },
+        }),
+        this.prisma.client.asset.count({
+          where: {
+            companyId,
+            deletedAt: null,
+            status: { notIn: [...OUT_OF_FLEET_STATUSES] },
+            hardwareProfile: { isNot: null },
+          },
         }),
         this.prisma.client.hardwareProfile.count({
           where: { companyId, lastDiscoveredAt: { lt: staleCutoff }, asset: { deletedAt: null } },

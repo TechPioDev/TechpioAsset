@@ -15,7 +15,12 @@ import {
   type FieldError,
   type ProblemDetails,
 } from '@techpioasset/contracts';
-import { IllegalTransitionError, AutomatedApprovalError } from '@techpioasset/domain';
+import {
+  IllegalTransitionError,
+  AutomatedApprovalError,
+  describeAssetStatusRefusal,
+  type AssetStatus,
+} from '@techpioasset/domain';
 import { AppError } from '../errors/app-error.js';
 import { getRequestContext } from '../request-context.js';
 import { redactSecrets } from '../logging/redact.js';
@@ -146,8 +151,13 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       return {
         code: 'ILLEGAL_STATE_TRANSITION',
         status: ERROR_STATUS.ILLEGAL_STATE_TRANSITION,
-        title: 'Illegal state transition',
-        detail: exception.message,
+        title: 'That status change is not allowed',
+        // v3.13 - for an asset, the next step in words ("Use Return first")
+        // instead of "Illegal AssetStatus transition: IN_USE -> AVAILABLE".
+        detail:
+          exception.machine === 'AssetStatus'
+            ? describeAssetStatusRefusal(exception.from as AssetStatus, exception.to as AssetStatus)
+            : exception.message,
         logLevel: 'warn',
       };
     }

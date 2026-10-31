@@ -109,3 +109,89 @@ export const ASSET_STATUSES_BLOCKING_OFFBOARDING: readonly AssetStatus[] = [
   'IN_USE',
   'IN_TRANSIT',
 ];
+
+// ── changing a status by hand (v3.13) ────────────────────────────────────────
+
+/** How a status reads in a sentence. Kept here so refusals need no UI package. */
+const STATUS_WORDS: Record<AssetStatus, string> = {
+  DRAFT: 'Draft',
+  REQUESTED: 'Requested',
+  ORDERED: 'Ordered',
+  RECEIVED: 'Received',
+  AVAILABLE: 'Available',
+  RESERVED: 'Reserved',
+  ASSIGNED: 'Awaiting confirmation',
+  IN_USE: 'In use',
+  IN_STORAGE: 'In storage',
+  IN_TRANSIT: 'In transit',
+  UNDER_REPAIR: 'Under repair',
+  DAMAGED: 'Damaged',
+  LOST: 'Lost',
+  STOLEN: 'Stolen',
+  RETURNED: 'Returned',
+  RETIRED: 'Retired',
+  DISPOSED: 'Disposed',
+  DONATED: 'Donated',
+};
+
+/**
+ * The statuses a person may pick by hand for an asset in `current`.
+ *
+ * The edit form and the bulk menu used to list every status there is. Most of
+ * them were moves the rules refuse - a laptop somebody holds cannot jump to
+ * Available, a disposed one cannot change at all - so choosing one looked like
+ * it did nothing, because the refusal came back as "Illegal AssetStatus
+ * transition: IN_USE -> AVAILABLE" or not at all. Offering only what will work
+ * is the fix; the plain-English refusal below is for what is left.
+ *
+ * Never offered here, whatever the rules allow:
+ *   - "Awaiting confirmation" and "In use": earned through Assign and the
+ *     employee's confirmation, which record WHO has it. Declared by hand they
+ *     produce an asset with a status and no holder.
+ *   - "Returned": the Return action, which also closes the employee's record.
+ *
+ * The current status is always first, so an untouched form saves unchanged.
+ */
+export function manualStatusOptions(current: AssetStatus): AssetStatus[] {
+  const next = assetStatusMachine.transitions[current].filter(
+    (s) => !ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(s) && s !== 'RETURNED',
+  );
+  return [current, ...next];
+}
+
+/** Statuses an asset in employee custody leaves only by being returned first. */
+const NEEDS_RETURN_FIRST: readonly AssetStatus[] = [
+  'AVAILABLE',
+  'IN_STORAGE',
+  'RESERVED',
+  'RETIRED',
+  'DISPOSED',
+  'DONATED',
+];
+
+/**
+ * Why `from` cannot become `to`, in a sentence a person can act on.
+ *
+ * Replaces "Illegal AssetStatus transition: IN_USE -> AVAILABLE" wherever a
+ * status change is refused, so the reason is the next step, not the rule.
+ */
+export function describeAssetStatusRefusal(from: AssetStatus, to: AssetStatus): string {
+  const fromWord = STATUS_WORDS[from];
+  const toWord = STATUS_WORDS[to];
+  if (from === 'DISPOSED' || from === 'DONATED') {
+    return `This asset is ${fromWord.toLowerCase()}, which is final. Its record is kept for history and can no longer be changed.`;
+  }
+  if (ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(from) && NEEDS_RETURN_FIRST.includes(to)) {
+    return `This asset is with a person. Use Return on the asset page first - it closes their record - then set it to ${toWord}.`;
+  }
+  if (ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(to)) {
+    return `"${toWord}" cannot be set by hand. Use Assign on the asset page, so the record says who has it.`;
+  }
+  if (to === 'RETURNED') {
+    return "Use Return on the asset page, so the employee's record is closed as well.";
+  }
+  const allowed = manualStatusOptions(from).slice(1);
+  return allowed.length > 0
+    ? `An asset that is ${fromWord} cannot change straight to ${toWord}. From ${fromWord} it can go to: ${allowed.map((s) => STATUS_WORDS[s]).join(', ')}.`
+    : `An asset that is ${fromWord} cannot change straight to ${toWord}.`;
+}

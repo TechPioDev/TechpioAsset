@@ -33,15 +33,33 @@ describe('the parts add up to the whole', () => {
     );
     expect(b.total).toBe(169);
     const parts =
-      b.assigned + b.available + b.inStock + b.onOrder + b.underRepair + b.critical + b.retired + b.other;
+      b.assigned +
+      b.available +
+      b.inStock +
+      b.onOrder +
+      b.underRepair +
+      b.critical +
+      b.retired +
+      b.other;
     expect(parts).toBe(169);
   });
 
   it('adds up for every possible single-status fleet', () => {
     for (const s of ASSET_STATUSES) {
       const b = fleetBreakdown({ [s]: 7 }, 7);
+      // The partition stays complete: every status lands in exactly one group,
+      // including the disposed one, which sits outside "Total assets" but is
+      // still a group so nothing can fall through.
       const parts =
-        b.assigned + b.available + b.inStock + b.onOrder + b.underRepair + b.critical + b.retired + b.other;
+        b.assigned +
+        b.available +
+        b.inStock +
+        b.onOrder +
+        b.underRepair +
+        b.critical +
+        b.retired +
+        b.disposed +
+        b.other;
       expect(parts, s).toBe(7);
       expect(b.other, `${s} should be in a named group`).toBe(0);
     }
@@ -84,7 +102,9 @@ describe('the groups mean what they say', () => {
   it('does not count retired kit as available', () => {
     const b = fleetBreakdown({ RETIRED: 4, DISPOSED: 1, DONATED: 1 });
     expect(b.available).toBe(0);
-    expect(b.retired).toBe(6);
+    // v3.13: retired is what is still on the premises; disposed and donated
+    // have left the company and are counted apart.
+    expect(b.retired).toBe(4);
+    expect(b.disposed).toBe(2);
   });
 });
-

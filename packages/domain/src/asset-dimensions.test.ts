@@ -62,7 +62,13 @@ describe('deriveDimensionsFromLegacy — totality & correctness', () => {
     for (const status of ASSET_STATUSES) {
       const d = deriveDimensionsFromLegacy(status);
       expect(LIFECYCLE_STATES).toContain(d.lifecycle);
-      expect(AVAILABILITY_STATES).toContain(d.availability);
+      // v3.13: an asset that has left service has no availability at all -
+      // before, all three said AVAILABLE and a disposed laptop read as stock.
+      if (['RETIRED', 'DISPOSED', 'DONATED'].includes(status)) {
+        expect(d.availability, status).toBeNull();
+      } else {
+        expect(AVAILABILITY_STATES).toContain(d.availability);
+      }
       expect(CONDITION_GRADES).toContain(d.condition);
       expect(OWNERSHIP_TYPES).toContain(d.ownership);
     }
@@ -103,9 +109,9 @@ describe('deriveDimensionsFromLegacy — totality & correctness', () => {
     expect(deriveDimensionsFromLegacy('AVAILABLE', { existingCondition: 'FAIR' }).condition).toBe(
       'FAIR',
     );
-    expect(deriveDimensionsFromLegacy('AVAILABLE', { existingCondition: 'UNUSABLE' }).condition).toBe(
-      'END_OF_LIFE',
-    );
+    expect(
+      deriveDimensionsFromLegacy('AVAILABLE', { existingCondition: 'UNUSABLE' }).condition,
+    ).toBe('END_OF_LIFE');
   });
 
   it('preserves existing ownership when supplied', () => {

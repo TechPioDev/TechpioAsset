@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fleetBreakdown } from './fleet-breakdown';
+import { fleetBreakdown, OUT_OF_FLEET_STATUSES } from './fleet-breakdown';
 import { fleetSegments, fleetSegmentsTotal, FLEET_SEGMENT_ORDER } from './fleet-segments';
 import { ASSET_STATUSES } from './asset-status';
 
@@ -62,6 +62,15 @@ describe('which groups the dashboard shows', () => {
     // counted it.
     for (const status of ASSET_STATUSES) {
       const b = breakdownOf({ [status]: 7 });
+      if (OUT_OF_FLEET_STATUSES.includes(status)) {
+        // v3.13: disposed and donated have left the company. They are not on
+        // a card BY DESIGN - and the server leaves them out of the total, so
+        // the cards still add up to it. What must never happen is the reverse:
+        // an in-fleet status on no card.
+        expect(fleetSegmentsTotal(fleetSegments(b)), `${status} must not be a card`).toBe(0);
+        expect(b.disposed, `${status} is counted as disposed`).toBe(7);
+        continue;
+      }
       expect(fleetSegmentsTotal(fleetSegments(b)), `${status} is not on any card`).toBe(7);
     }
   });
@@ -78,11 +87,13 @@ describe('which groups the dashboard shows', () => {
     expect(fleetSegmentsTotal(fleetSegments(b))).toBe(0);
   });
 
-  it('covers every group the breakdown defines', () => {
+  it('covers every group the breakdown defines, except the disposed one', () => {
     // If a group is added to fleetBreakdown and not to the order, it would
-    // never be rendered - silently, and only on fleets that have one.
+    // never be rendered - silently, and only on fleets that have one. The
+    // single deliberate exception is "disposed", which is outside the total.
     const b = breakdownOf({ ASSIGNED: 1 });
-    const groupKeys = Object.keys(b).filter((k) => k !== 'total');
+    const groupKeys = Object.keys(b).filter((k) => k !== 'total' && k !== 'disposed');
     expect([...FLEET_SEGMENT_ORDER].sort()).toEqual(groupKeys.sort());
+    expect(FLEET_SEGMENT_ORDER).not.toContain('disposed');
   });
 });

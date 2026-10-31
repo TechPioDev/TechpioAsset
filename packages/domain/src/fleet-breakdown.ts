@@ -38,8 +38,17 @@ export const ASSET_STATUS_GROUPS = {
   underRepair: ['UNDER_REPAIR'],
   /** Gone or broken - the set worth chasing. */
   critical: ['DAMAGED', 'LOST', 'STOLEN'],
-  /** End of life. */
-  retired: ['RETIRED', 'DISPOSED', 'DONATED'],
+  /** Taken out of service but still on the premises, waiting to be disposed of. */
+  retired: ['RETIRED'],
+  /**
+   * Gone from the company: scrapped, sold or given away (v3.13).
+   *
+   * Kept as a group so the partition stays complete - every status belongs
+   * somewhere - but it is NOT part of the fleet. The asset list and the
+   * dashboard total leave it out, and it has its own list. A laptop sold last
+   * year inside "Total assets" was the number the owner could not reconcile.
+   */
+  disposed: ['DISPOSED', 'DONATED'],
 } as const satisfies Record<string, readonly AssetStatus[]>;
 
 export type AssetStatusGroup = keyof typeof ASSET_STATUS_GROUPS;
@@ -84,3 +93,15 @@ export function assetStatusGroups(): Map<AssetStatus, AssetStatusGroup> {
   return m;
 }
 
+/**
+ * Statuses that mean the asset has left the company (v3.13).
+ *
+ * The single place that decides what "Total assets" leaves out, read by the
+ * asset list's default, the dashboard counts and the nightly snapshot - so the
+ * three can never disagree about what the fleet is.
+ */
+export const OUT_OF_FLEET_STATUSES: readonly AssetStatus[] = ASSET_STATUS_GROUPS.disposed;
+
+export function isInFleet(status: AssetStatus): boolean {
+  return !OUT_OF_FLEET_STATUSES.includes(status);
+}

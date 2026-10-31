@@ -140,6 +140,13 @@ describe('edit', () => {
     expect(inUse).toContain('IN_USE');
     expect(inUse).not.toContain('ASSIGNED');
   });
+
+  it('offers only the moves the asset can make (v3.13)', () => {
+    // A held laptop goes back through Return, so Available is not offered -
+    // it used to be, and the save was refused.
+    expect(editableStatuses('IN_USE')).not.toContain('AVAILABLE');
+    expect(editableStatuses('DISPOSED')).toEqual(['DISPOSED']);
+  });
 });
 
 describe('create extras', () => {

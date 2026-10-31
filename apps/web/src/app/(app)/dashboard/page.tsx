@@ -383,6 +383,8 @@ export default function DashboardPage() {
         byOffice: { name: string; count: number }[];
         purchase: { dated: number; byMonth: { month: string; count: number }[] };
         warranty: Record<string, number> & { total: number };
+        /** Disposed or donated - left the company, so not part of `total`. */
+        disposed: number;
         trend: {
           change: number;
           changePercent: number | null;
@@ -957,6 +959,17 @@ export default function DashboardPage() {
                       ` in ${trend.ageDays} days`}
                 </span>
               ) : null}
+              {/* v3.13 - disposed and donated assets have left the company.
+                  They are not in the total above; this says how many there
+                  are and opens their own list, so nothing is hidden. */}
+              {(statsQuery.data?.disposed ?? 0) > 0 ? (
+                <Link
+                  href="/assets?status=DISPOSED,DONATED"
+                  className="text-[var(--color-content-muted)] underline-offset-2 hover:underline"
+                >
+                  · {statsQuery.data!.disposed.toLocaleString()} disposed, not counted
+                </Link>
+              ) : null}
             </p>
           ) : (
             <span />
@@ -1032,6 +1045,14 @@ export default function DashboardPage() {
                   <span className="mt-1 block truncate text-sm text-[var(--color-content-muted)]">
                     {seg.label}
                   </span>
+                  {/* v3.13 - "With people" counts both handed-over states.
+                      This says how many the employee has not yet confirmed
+                      receiving, which is the half somebody may need to chase. */}
+                  {seg.domainKey === 'assigned' && (byStatus.ASSIGNED ?? 0) > 0 ? (
+                    <span className="mt-0.5 block text-xs leading-tight text-[var(--color-content-subtle)]">
+                      {(byStatus.ASSIGNED ?? 0).toLocaleString()} awaiting confirmation
+                    </span>
+                  ) : null}
                 </span>
               </>
             );

@@ -38,7 +38,14 @@ export type FleetSegmentKey =
   | 'retired'
   | 'other';
 
-/** Most actionable first; the tail is still shown, just last. */
+/**
+ * Most actionable first; the tail is still shown, just last.
+ *
+ * "disposed" is deliberately absent (v3.13). Disposed and donated assets have
+ * left the company: they are counted beside the total and have their own list,
+ * but they are not a part of "Total assets", so they are not one of the cards
+ * that add up to it.
+ */
 export const FLEET_SEGMENT_ORDER: readonly FleetSegmentKey[] = [
   'assigned',
   'available',

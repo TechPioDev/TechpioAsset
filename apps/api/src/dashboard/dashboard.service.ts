@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthUser } from '@techpioasset/contracts';
-import { DEFAULT_VENDOR_OFFER_POLICY, PERMISSIONS } from '@techpioasset/domain';
+import {
+  OUT_OF_FLEET_STATUSES,
+  DEFAULT_VENDOR_OFFER_POLICY,
+  PERMISSIONS,
+} from '@techpioasset/domain';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { assetScopeFilter, tenantFilter } from '../common/scope.js';
 import { awaitingMeFilter } from '../requests/awaiting-me.js';
@@ -221,7 +225,11 @@ export class DashboardService {
       tiles.push({
         key: 'assets-total',
         label: 'Assets',
-        value: await db.asset.count({ where: { ...scope, deletedAt: null } }),
+        // v3.13 - the same count the list it links to shows: disposed and
+        // donated assets have left the company and have their own list.
+        value: await db.asset.count({
+          where: { ...scope, deletedAt: null, status: { notIn: [...OUT_OF_FLEET_STATUSES] } },
+        }),
         href: '/assets',
         icon: 'Layers',
         tone: 'info',

@@ -23,7 +23,7 @@ import {
 } from '@techpioasset/ui-tokens';
 import {
   ASSET_STATUSES,
-  ASSET_STATUSES_IN_EMPLOYEE_CUSTODY,
+  manualStatusOptions,
   PERMISSIONS,
   assetHolderName,
   assetListEmptyState,
@@ -146,6 +146,9 @@ function AssetsTable() {
   const toast = useToast();
   const confirm = useConfirm();
   const [status, setStatus] = useState<string>(arriving.status ?? '');
+  // v3.13 - the "Disposed assets" list is the status filter set to exactly the
+  // two statuses that mean an asset has left the company.
+  const viewingDisposed = status === 'DISPOSED,DONATED';
   // v2.1 Workstream A — the four-dimension filters.
   const [lifecycle, setLifecycle] = useState<string>(arriving.lifecycle ?? '');
   const [availability, setAvailability] = useState<string>(arriving.availability ?? '');
@@ -275,7 +278,7 @@ function AssetsTable() {
   // about how many assets exist.
   const fleetSize = useQuery({
     queryKey: ['dashboard-asset-stats'],
-    queryFn: () => apiFetch<{ total: number }>('/assets/stats'),
+    queryFn: () => apiFetch<{ total: number; disposed?: number }>('/assets/stats'),
     staleTime: 60_000,
   });
 
@@ -359,18 +362,35 @@ function AssetsTable() {
       setSelected(new Set());
       setBulkStatus('');
       const label = ASSET_STATUS_TOKENS[bulkStatus as AssetStatus]?.label ?? 'updated';
+      // v3.13 - say WHY, not just how many. "1 couldn't change" read as the
+      // button doing nothing; the reason ("This asset is with a person. Use
+      // Return first") is the step that gets it done.
+      const why = result.failed[0]?.reason;
       if (result.failed.length === 0) {
         toast.success(`${result.succeeded.length} asset(s) set to ${label}`);
       } else if (result.succeeded.length === 0) {
-        toast.error(`None updated — ${result.failed.length} couldn’t change to ${label}`);
+        toast.error(
+          `None changed to ${label}.${why ? ` ${why}` : ''}${
+            result.failed.length > 1 ? ` (${result.failed.length} assets)` : ''
+          }`,
+        );
       } else {
         toast.info(
-          `${result.succeeded.length} set to ${label}; ${result.failed.length} skipped (invalid change)`,
+          `${result.succeeded.length} set to ${label}; ${result.failed.length} skipped.${why ? ` ${why}` : ''}`,
         );
       }
     },
     onError: () => toast.error('Bulk update failed'),
   });
+
+  // The statuses worth offering for the current selection: any that at least
+  // one selected asset can move to by hand. Read from the rows on screen,
+  // which is where every selected asset comes from.
+  const bulkOptions = ASSET_STATUSES.filter((value) =>
+    (data?.data ?? []).some(
+      (a) => selected.has(a.id) && manualStatusOptions(a.status).slice(1).includes(value),
+    ),
+  );
 
   const applyBulk = async () => {
     if (!bulkStatus || selected.size === 0) return;
@@ -460,7 +480,45 @@ function AssetsTable() {
     <div className="grid gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Assets</h1>
+          {/*
+            v3.13 - disposed and donated assets have their own list. The main
+            list and every total leave them out; this heading says which list
+            is open, and the link beside it switches between the two.
+          */}
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">
+              {viewingDisposed ? 'Disposed assets' : 'Assets'}
+            </h1>
+            {viewingDisposed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatus('');
+                  setPage(1);
+                  dropLinkFilters();
+                }}
+                className="text-sm font-medium text-[var(--color-brand)] hover:underline"
+              >
+                ← Back to assets
+              </button>
+            ) : (fleetSize.data?.disposed ?? 0) > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  // All types: a disposed list narrowed to laptops would hide
+                  // the disposed chair somebody is looking for.
+                  setTypeChosen(true);
+                  setType('');
+                  setStatus('DISPOSED,DONATED');
+                  setPage(1);
+                  dropLinkFilters();
+                }}
+                className="text-sm font-medium text-[var(--color-brand)] hover:underline"
+              >
+                Disposed assets ({fleetSize.data!.disposed!.toLocaleString()}) →
+              </button>
+            ) : null}
+          </div>
           <p className="mt-1 text-sm text-[var(--color-content-muted)]">
             {/*
               v2.99 - this said "Everything you are permitted to see." while
@@ -577,7 +635,9 @@ function AssetsTable() {
               }}
               className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
             >
-              <option value="">All statuses</option>
+              {/* Not "All statuses": disposed and donated are left out unless
+                  chosen below, and the label must not claim otherwise. */}
+              <option value="">All except disposed</option>
               {/* v2.91 - a status that arrived as a LIST ("Damaged, lost or
                   stolen", from the dashboard's Critical tile) matched no
                   option below, so the control had nothing to show for it: the
@@ -714,14 +774,20 @@ function AssetsTable() {
                   a bulk dropdown can only declare them, and a declared one is an
                   asset assigned to nobody. RETURNED likewise belongs to the
                   Return action, which closes the assignment it ends. */}
-              {ASSET_STATUSES.filter(
-                (value) =>
-                  value !== 'RETURNED' && !ASSET_STATUSES_IN_EMPLOYEE_CUSTODY.includes(value),
-              ).map((value) => (
-                <option key={value} value={value}>
-                  {ASSET_STATUS_TOKENS[value].label}
+              {/* v3.13 - only statuses at least one selected asset can
+                  actually move to. Offering the rest is how "I changed it and
+                  nothing happened" happens: the move is refused. */}
+              {bulkOptions.length === 0 ? (
+                <option value="" disabled>
+                  No status change is possible for this selection
                 </option>
-              ))}
+              ) : (
+                bulkOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {ASSET_STATUS_TOKENS[value].label}
+                  </option>
+                ))
+              )}
             </select>
             <Button
               size="sm"

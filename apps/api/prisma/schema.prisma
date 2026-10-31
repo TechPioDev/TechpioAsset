@@ -4346,10 +4346,14 @@ model ProcurementSelection {
 /// been deleted. Recomputing from today's rows would answer a different
 /// question and look like the same one.
 model FleetSnapshot {
-  id        String   @id @default(cuid())
-  companyId String
+  id               String   @id @default(cuid())
+  companyId        String
   /// The day this describes, in UTC. One row per company per day.
-  takenOn   DateTime @db.Date
+  takenOn          DateTime @db.Date
+  /// v3.13 - true when `total` leaves out disposed and donated assets, as the
+  /// dashboard has since then. Rows written before are false; the trend only
+  /// ever compares rows that counted the same thing.
+  excludesDisposed Boolean  @default(true)
 
   total       Int
   assigned    Int
