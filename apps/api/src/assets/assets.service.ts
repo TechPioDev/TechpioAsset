@@ -2203,13 +2203,18 @@ export class AssetsService {
           [field]: value,
           ...(excludeAssetId ? { id: { not: excludeAssetId } } : {}),
         },
-        select: { assetTag: true, name: true },
+        select: { id: true, assetTag: true, name: true },
       });
       if (clash) {
-        throw new AppError('CONFLICT', `${label} ${value} is already on ${clash.assetTag}`, {
+        const named = await this.nameable(actor, clash);
+        throw new AppError('CONFLICT', `${label} ${value} is already on another asset`, {
           // The tag belongs in the detail too: it is what the reader needs to go
-          // and find the other asset, and only the detail reaches the screen.
-          detail: `${clash.name} (${clash.assetTag}) already carries this ${label}. Every ${label} identifies exactly one asset.`,
+          // and find the other asset, and only the detail reaches the screen -
+          // when the reader is allowed to see that asset at all.
+          detail: named
+            ? `${named.name} (${named.assetTag}) already carries this ${label}. Every ${label} identifies exactly one asset.`
+            : `Another asset in your company already carries this ${label}. Every ${label} identifies exactly one asset.`,
+          fieldErrors: [{ path: field, message: 'Already used by another asset' }],
         });
       }
     }
@@ -2249,10 +2254,16 @@ export class AssetsService {
     if (!existing) return;
 
     if (!exceptionReason) {
-      throw identityClash('serialNumber', 'Serial number', serialNumber, existing, {
-        afterwards:
-          'If two units really do carry the same serial, an administrator can record a documented exception.',
-      });
+      throw identityClash(
+        'serialNumber',
+        'Serial number',
+        serialNumber,
+        await this.nameable(actor, existing),
+        {
+          afterwards:
+            'If two units really do carry the same serial, an administrator can record a documented exception.',
+        },
+      );
     }
 
     if (!actor.permissions.includes(PERMISSIONS.ASSETS_UPDATE)) {
@@ -2283,9 +2294,26 @@ export class AssetsService {
       select: { id: true, assetTag: true, name: true, status: true },
     });
     if (!existing) return;
-    throw identityClash('assetTag', 'Asset tag', assetTag, existing, {
+    throw identityClash('assetTag', 'Asset tag', assetTag, await this.nameable(actor, existing), {
       afterwards: 'Choose a different tag for this one.',
     });
+  }
+
+  /**
+   * The clashing asset, if the caller is allowed to see it - otherwise null,
+   * and the refusal says "another asset" without naming it. Uniqueness is
+   * per company but reading is per scope; a department-scoped user must not
+   * be able to list another department's equipment by guessing tags.
+   */
+  private async nameable<T extends { id: string }>(
+    actor: AuthUser,
+    existing: T,
+  ): Promise<T | null> {
+    const visible = await this.prisma.client.asset.findFirst({
+      where: { id: existing.id, ...assetScopeFilter(actor) },
+      select: { id: true },
+    });
+    return visible ? existing : null;
   }
 
   private async recordConditionLog(
@@ -2319,19 +2347,24 @@ function identityClash(
   path: 'assetTag' | 'serialNumber',
   label: string,
   value: string,
-  existing: { assetTag: string; name: string; status: string },
+  /** Null when the caller may not see the clashing asset: it stays unnamed. */
+  existing: { assetTag: string; name: string; status: string } | null,
   options: { afterwards: string },
 ): AppError {
-  const left =
-    existing.status === 'DISPOSED' || existing.status === 'DONATED'
+  const left = !existing
+    ? ''
+    : existing.status === 'DISPOSED' || existing.status === 'DONATED'
       ? ', which has been disposed of'
       : existing.status === 'RETIRED'
         ? ', which is retired'
         : '';
   const code = path === 'assetTag' ? 'DUPLICATE_ASSET_TAG' : 'DUPLICATE_SERIAL_NUMBER';
-  const message = `${label} ${value} is already used by ${existing.name} (${existing.assetTag})`;
+  const who = existing
+    ? `${existing.name} (${existing.assetTag})`
+    : 'another asset in your company';
+  const message = `${label} ${value} is already used by ${who}`;
   return new AppError(code, message, {
     detail: `${message}${left}. ${options.afterwards}`,
-    fieldErrors: [{ path, message: `Already used by ${existing.name} (${existing.assetTag})` }],
+    fieldErrors: [{ path, message: `Already used by ${who}` }],
   });
 }

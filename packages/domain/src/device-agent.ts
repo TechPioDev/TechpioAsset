@@ -8,7 +8,7 @@
  */
 
 /** The version the portal currently ships. Older agents get "Update available". */
-export const LATEST_AGENT_VERSION = '1.3.0';
+export const LATEST_AGENT_VERSION = '1.3.1';
 
 /** Seen within this many days counts as reporting. The agent runs daily. */
 export const AGENT_ACTIVE_WINDOW_DAYS = 3;

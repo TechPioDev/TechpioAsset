@@ -56,6 +56,9 @@
     reported as null rather than guessed.
 
     CHANGELOG
+    1.3.1  Check-ins are spread over the five minutes instead of every
+           laptop calling in the same second. Each install picks a random
+           offset once, so a hundred laptops arrive as a trickle, not a wave.
     1.3.0  Online/Offline and Refresh now.
            * A second scheduled task, "TechpioAsset Agent Check-in", runs
              every five minutes as SYSTEM and tells the portal the laptop is
@@ -119,7 +122,7 @@ try {
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
 
-$script:AgentVersion = '1.3.0'
+$script:AgentVersion = '1.3.1'
 $script:TaskName     = 'TechpioAsset Inventory Agent'
 $script:HeartbeatTaskName = 'TechpioAsset Agent Check-in'
 $script:HeartbeatMinutes  = 5
@@ -875,7 +878,11 @@ function Install-Task {
     # keeps the rhythm across sleep and reboot by itself.
     $hbArgs   = "-NoProfile -ExecutionPolicy Bypass -File `"$self`" -PortalUrl `"$PortalUrl`" -Heartbeat"
     $hbAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $hbArgs
-    $hbTrigger = New-ScheduledTaskTrigger -Daily -At 12am
+    # 1.3.1 - RandomDelay shifts the START of the series by up to four minutes
+    # (chosen once, at registration); every repetition keeps that offset, so
+    # the fleet's check-ins spread across the interval instead of all landing
+    # on the same second and tripping the portal's per-address limit.
+    $hbTrigger = New-ScheduledTaskTrigger -Daily -At 12am -RandomDelay (New-TimeSpan -Minutes 4)
     $hbTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At 12am `
         -RepetitionInterval (New-TimeSpan -Minutes $script:HeartbeatMinutes) `
         -RepetitionDuration (New-TimeSpan -Days 1)).Repetition

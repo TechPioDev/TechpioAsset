@@ -23,6 +23,17 @@ export const HELMET_OPTIONS = {
 
 /** Applies cookie parsing and security headers. Used by main.ts and the harness. */
 export function applySecurityMiddleware(app: INestApplication): void {
+  // v3.17 - the API only ever sits behind nginx on the same host, which
+  // appends the real client address to X-Forwarded-For. Without this, every
+  // request's `req.ip` was nginx's own 127.0.0.1, so the per-IP limits on
+  // login, password reset and agent enrolment were ONE bucket shared by the
+  // whole internet: one noisy client could lock everybody out of signing in
+  // for a minute, and a hundred laptops checking in read as one address.
+  // Trusting the loopback hop only means a client cannot forge its address:
+  // whatever it puts in the header, nginx appends the real one last and that
+  // is the one Express reads.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+  app.getHttpAdapter().getInstance().set('trust proxy', 'loopback');
   // Refresh tokens travel as httpOnly cookies; this reads them back.
   app.use(cookieParser());
   app.use(helmet(HELMET_OPTIONS));
