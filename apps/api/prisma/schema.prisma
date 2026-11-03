@@ -1337,10 +1337,12 @@ model Asset {
   maintenanceSchedules  MaintenanceSchedule[]
   assessmentsSuggesting RequestAssessment[]     @relation("AssessmentSuitableAsset")
 
-  @@unique([companyId, assetTag])
-  @@unique([companyId, serialNumber])
-  @@unique([companyId, macAddress])
-  @@unique([companyId, imei])
+  /// Asset tag, serial number, MAC and IMEI are unique per company among LIVE
+  /// rows only (v3.16): partial unique indexes in migration
+  /// 20261104100000_identity_frees_on_delete, like the default office. A
+  /// deleted asset keeps its values for the history but no longer blocks them.
+  @@index([companyId, assetTag])
+  @@index([companyId, serialNumber])
   /// v2.9 C1 — the idempotency backstop. Both columns are null for every asset
   /// not born of a receipt, and Postgres treats NULLs as distinct, so those rows
   /// coexist freely while receipt-born units stay one-per-unit.

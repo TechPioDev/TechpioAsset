@@ -237,11 +237,27 @@ export class ProblemDetailsFilter implements ExceptionFilter {
               : targetText?.includes('sha256')
                 ? 'DUPLICATE_DOCUMENT'
                 : 'CONFLICT';
+        // v3.16 - name the value when the constraint says which it was. The
+        // services check tags and serials by name before saving, so reaching
+        // this is rare; when it happens the reader still deserves a noun.
+        const detail = targetText?.includes('assetTag')
+          ? 'This asset tag is already used by another asset in your company. Choose a different tag.'
+          : targetText?.includes('serialNumber')
+            ? 'This serial number is already recorded on another asset in your company.'
+            : targetText?.includes('macAddress')
+              ? 'This MAC address is already recorded on another asset.'
+              : targetText?.includes('imei')
+                ? 'This IMEI is already recorded on another asset.'
+                : 'A record with these values already exists.';
+        const field = ['assetTag', 'serialNumber', 'macAddress', 'imei'].find((f) =>
+          targetText?.includes(f),
+        );
         return {
           code,
           status: ERROR_STATUS[code],
           title: 'Conflict',
-          detail: 'A record with these values already exists.',
+          detail,
+          ...(field ? { errors: [{ path: field, message: 'Already used by another asset' }] } : {}),
           logLevel: 'warn',
           internal: { prismaCode: error.code, target: targetText },
         };

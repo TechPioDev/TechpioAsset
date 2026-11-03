@@ -931,6 +931,9 @@ export class AssetsService {
   // ───────────────────────────────────────────────────────────────────────────
 
   async create(actor: AuthUser, input: CreateAssetInput) {
+    // v3.16 - the tag is checked here, by name, before the database has to
+    // refuse it with a message that named nothing.
+    await this.assertAssetTagFree(actor, input.assetTag, null);
     if (requiresSerialNumber(input.trackingType) && input.serialNumber) {
       await this.assertSerialAvailable(actor, input.serialNumber, input.duplicateExceptionReason);
     }
@@ -1144,6 +1147,9 @@ export class AssetsService {
       );
     }
 
+    if (input.assetTag && input.assetTag !== before.assetTag) {
+      await this.assertAssetTagFree(actor, input.assetTag, before.id);
+    }
     if (input.serialNumber && input.serialNumber !== before.serialNumber) {
       await this.assertSerialAvailable(actor, input.serialNumber, input.duplicateExceptionReason);
     }
@@ -2234,26 +2240,52 @@ export class AssetsService {
     serialNumber: string,
     exceptionReason: string | undefined,
   ): Promise<void> {
+    // Live rows only (the default read filter): a deleted asset no longer
+    // reserves its serial - see migration 20261104100000.
     const existing = await this.prisma.client.asset.findFirst({
       where: { companyId: actor.companyId, serialNumber },
-      select: { id: true, assetTag: true },
+      select: { id: true, assetTag: true, name: true, status: true },
     });
     if (!existing) return;
 
     if (!exceptionReason) {
-      throw new AppError(
-        'DUPLICATE_SERIAL_NUMBER',
-        `Serial number ${serialNumber} is already recorded on asset ${existing.assetTag}`,
-        {
-          detail:
-            'Supply duplicateExceptionReason to record a documented exception (spec section 6).',
-        },
-      );
+      throw identityClash('serialNumber', 'Serial number', serialNumber, existing, {
+        afterwards:
+          'If two units really do carry the same serial, an administrator can record a documented exception.',
+      });
     }
 
     if (!actor.permissions.includes(PERMISSIONS.ASSETS_UPDATE)) {
       throw AppError.forbidden('You are not authorised to record a duplicate-serial exception');
     }
+  }
+
+  /**
+   * v3.16 - the asset tag, checked by name before the database refuses it.
+   *
+   * The owner's report: "A record with these values already exists" on a new
+   * webcam, because its tag was on another asset. The database knew which
+   * value clashed and the screen could not say. Now the message names the
+   * other asset and the form highlights the box. Live rows only: a deleted
+   * asset's tag is free again.
+   */
+  private async assertAssetTagFree(
+    actor: AuthUser,
+    assetTag: string,
+    excludeAssetId: string | null,
+  ): Promise<void> {
+    const existing = await this.prisma.client.asset.findFirst({
+      where: {
+        companyId: actor.companyId,
+        assetTag,
+        ...(excludeAssetId ? { id: { not: excludeAssetId } } : {}),
+      },
+      select: { id: true, assetTag: true, name: true, status: true },
+    });
+    if (!existing) return;
+    throw identityClash('assetTag', 'Asset tag', assetTag, existing, {
+      afterwards: 'Choose a different tag for this one.',
+    });
   }
 
   private async recordConditionLog(
@@ -2274,4 +2306,32 @@ export class AssetsService {
       },
     });
   }
+}
+
+/**
+ * The refusal when an identity value (tag, serial) is already on another
+ * asset: the code the clients key on, a message naming the other asset, and
+ * the field to highlight. An asset that has left service still holds its
+ * values - the message says so, because "already used by a laptop we
+ * scrapped" is a different thing to do about than "used by Banti's camera".
+ */
+function identityClash(
+  path: 'assetTag' | 'serialNumber',
+  label: string,
+  value: string,
+  existing: { assetTag: string; name: string; status: string },
+  options: { afterwards: string },
+): AppError {
+  const left =
+    existing.status === 'DISPOSED' || existing.status === 'DONATED'
+      ? ', which has been disposed of'
+      : existing.status === 'RETIRED'
+        ? ', which is retired'
+        : '';
+  const code = path === 'assetTag' ? 'DUPLICATE_ASSET_TAG' : 'DUPLICATE_SERIAL_NUMBER';
+  const message = `${label} ${value} is already used by ${existing.name} (${existing.assetTag})`;
+  return new AppError(code, message, {
+    detail: `${message}${left}. ${options.afterwards}`,
+    fieldErrors: [{ path, message: `Already used by ${existing.name} (${existing.assetTag})` }],
+  });
 }
