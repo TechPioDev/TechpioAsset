@@ -40,6 +40,8 @@ import {
   type LifecycleState,
   type OwnershipType,
   assetHealth,
+  HOLDER_LEFT_TAG,
+  holderHasLeft,
 } from '@techpioasset/domain';
 import { CONDITION_TOKENS, TONE_PALETTE_DARK, TONE_PALETTE_LIGHT } from '@techpioasset/ui-tokens';
 import { assetPills } from '../../src/asset-pills';
@@ -102,6 +104,8 @@ import { HealthStars } from '../../src/components/health-stars';
 interface Person {
   id?: string;
   email: string;
+  /** v3.15 - DEACTIVATED marks a holder who has left. */
+  status?: string | null;
   profile: { firstName: string; lastName: string; employeeNumber?: string | null } | null;
 }
 
@@ -473,6 +477,7 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
     model: asset.model,
     typeName: asset.subcategory?.name,
     holderName,
+    holderLeft: holderHasLeft(asset.assignedUser),
   });
   const lastReport = latestAgentReport(asset.hardwareProfile, asset.osInfo);
   const agent = lastReport ? agentPill(reportFreshness(lastReport.at), lastReport.at) : null;
@@ -787,6 +792,12 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
                       style={{ color: c.text, fontWeight: '600', fontSize: 14, textAlign: 'right' }}
                     >
                       {holderName}
+                      {holderHasLeft(asset.assignedUser) ? (
+                        <Text style={{ color: c.subtle, fontSize: 11, fontWeight: '700' }}>
+                          {'  '}
+                          {HOLDER_LEFT_TAG.toUpperCase()}
+                        </Text>
+                      ) : null}
                       {asset.assignedUser?.profile?.employeeNumber ? (
                         <Text style={{ color: c.subtle, fontSize: 12, fontWeight: '400' }}>
                           {' '}

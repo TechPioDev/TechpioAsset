@@ -212,6 +212,8 @@ export class AssetsService {
         select: {
           id: true,
           email: true,
+          // v3.15 - so a holder who has left can be marked wherever named.
+          status: true,
           profile: { select: { firstName: true, lastName: true, avatarKey: true } },
         },
       },
@@ -282,6 +284,9 @@ export class AssetsService {
           }
         : {}),
       ...(query.assignedUserId ? { assignedUserId: query.assignedUserId } : {}),
+      // v3.15 - still with somebody who has left. Soft-deleted accounts are
+      // DEACTIVATED too, so status alone covers both ways of leaving.
+      ...(query.holder === 'left' ? { assignedUser: { status: 'DEACTIVATED' as const } } : {}),
       ...(query.condition ? { condition: query.condition } : {}),
       ...(query.vendorId ? { vendorId: query.vendorId } : {}),
       ...(query.vendorProductId ? { vendorProductId: query.vendorProductId } : {}),

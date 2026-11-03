@@ -13,6 +13,7 @@ import {
   LATEST_AGENT_VERSION,
   buildAgentInstallCommand,
   coverageSummary,
+  holderHasLeft,
   notEnrolledDevices,
   agentChecksIn,
   agentRefreshRefusal,
@@ -502,7 +503,11 @@ export class AgentEnrolmentService {
           serialNumber: true,
           subcategory: { select: { key: true } },
           assignedUser: {
-            select: { email: true, profile: { select: { firstName: true, lastName: true } } },
+            select: {
+              email: true,
+              status: true,
+              profile: { select: { firstName: true, lastName: true } },
+            },
           },
         },
       }),
@@ -523,6 +528,7 @@ export class AgentEnrolmentService {
             ? `${a.assignedUser.profile.firstName} ${a.assignedUser.profile.lastName}`
             : a.assignedUser.email
           : null,
+        holderLeft: holderHasLeft(a.assignedUser),
       })),
       agents,
     );

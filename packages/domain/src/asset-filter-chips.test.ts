@@ -41,13 +41,19 @@ describe('a filter that is set is always visible', () => {
       lifecycle: 'IN_SERVICE',
       availability: 'ASSIGNED',
       ownership: 'OWNED',
+      holder: 'left',
       warrantyWithinDays: '90',
       vendorProductId: 'vp1',
     }, names);
     expect(chips.map((c) => c.key)).toEqual([
-      'q', 'type', 'status', 'lifecycle', 'availability', 'ownership',
+      'q', 'type', 'status', 'lifecycle', 'availability', 'ownership', 'holder',
       'warrantyWithinDays', 'vendorProductId',
     ]);
+  });
+
+  it('reads the holder filter in words (v3.15)', () => {
+    const [chip] = assetFilterChips({ holder: 'left' });
+    expect(chip).toEqual({ key: 'holder', label: 'Held by', value: 'people who left' });
   });
 });
 

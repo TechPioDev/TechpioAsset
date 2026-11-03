@@ -14,6 +14,7 @@ import {
   type AgentStatus,
 } from '@techpioasset/domain';
 import { apiFetch, apiBaseUrl, ApiError } from '@/lib/api-client';
+import { LeftTag } from '@/components/people/left-tag';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { useConfirm } from '@/providers/confirm-provider';
@@ -42,6 +43,8 @@ interface NotEnrolled {
     assetTag: string;
     serialNumber: string | null;
     holder: string | null;
+    /** v3.15 - the holder's account is deactivated; the laptop is still out. */
+    holderLeft?: boolean;
     reason: 'no-agent' | 'no-serial';
   }[];
 }
@@ -601,6 +604,7 @@ export function AgentsTab() {
                       <td className="px-4 py-2.5 font-mono text-xs">{row.serialNumber ?? '—'}</td>
                       <td className="px-4 py-2.5 text-xs text-[var(--color-content-muted)]">
                         {row.holder ?? 'Unassigned'}
+                        {row.holderLeft ? <LeftTag /> : null}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-[var(--color-content-muted)]">
                         {row.reason === 'no-serial'

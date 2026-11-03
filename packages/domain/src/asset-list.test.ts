@@ -3,6 +3,7 @@ import {
   ASSET_LIST_SORT_FIELDS,
   ASSET_LIST_SORT_LABELS,
   assetHolderName,
+  holderHasLeft,
   assetListEmptyState,
   assetListFilterParams,
   assetListSortFields,
@@ -26,6 +27,7 @@ describe('the asset list query', () => {
   it('names every filter as the API does, in a fixed order', () => {
     expect(
       assetListFilterParams({
+        holder: 'left',
         vendorProductId: 'vp1',
         warrantyWithinDays: '30',
         type: 'sub:t1',
@@ -44,6 +46,7 @@ describe('the asset list query', () => {
       ['subcategoryId', 't1'],
       ['warrantyWithinDays', '30'],
       ['vendorProductId', 'vp1'],
+      ['holder', 'left'],
     ]);
   });
 
@@ -97,6 +100,27 @@ describe('who holds it', () => {
     expect(assetHolderName({ email: 'a@x.com', profile: null })).toBe('a@x.com');
     expect(assetHolderName(null)).toBe('—');
     expect(assetHolderName(undefined)).toBe('—');
+  });
+});
+
+describe('a holder who has left (v3.15)', () => {
+  it('is anyone deactivated or removed, and nobody else', () => {
+    expect(holderHasLeft({ status: 'DEACTIVATED' })).toBe(true);
+    expect(holderHasLeft({ status: 'ACTIVE', deletedAt: '2026-10-01T00:00:00Z' })).toBe(true);
+    expect(holderHasLeft({ status: 'ACTIVE' })).toBe(false);
+    expect(holderHasLeft({ status: 'SUSPENDED' })).toBe(false);
+    expect(holderHasLeft({ status: 'INVITED' })).toBe(false);
+    expect(holderHasLeft({})).toBe(false);
+    expect(holderHasLeft(null)).toBe(false);
+    expect(holderHasLeft(undefined)).toBe(false);
+  });
+
+  it('keeps the name - the marker is added, the holder is never blanked', () => {
+    // The owner's instinct was to hide such people. The laptop is still with
+    // them, so the list must keep saying who to go and ask.
+    expect(assetHolderName({ email: 'x@y.z', profile: { firstName: 'Anish', lastName: 'P' } })).toBe(
+      'Anish P',
+    );
   });
 });
 
@@ -158,6 +182,7 @@ describe('filters carried on a link into the asset list', () => {
       ownershipType: 'OWNED',
       warrantyWithinDays: '30',
       vendorProductId: 'vp1',
+      holder: 'left',
     });
     expect(f).toMatchObject({
       q: 'dell',
@@ -166,6 +191,7 @@ describe('filters carried on a link into the asset list', () => {
       ownership: 'OWNED',
       warrantyWithinDays: '30',
       vendorProductId: 'vp1',
+      holder: 'left',
     });
   });
 
@@ -200,6 +226,7 @@ describe('whether a link named any filter', () => {
       { type: 'sub:1' },
       { warrantyWithinDays: '30' },
       { vendorProductId: 'vp1' },
+      { holder: 'left' },
     ];
     for (const c of cases) expect(assetListArrivedFiltered(c), JSON.stringify(c)).toBe(true);
   });

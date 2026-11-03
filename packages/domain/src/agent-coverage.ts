@@ -20,6 +20,8 @@ export interface CoverageAsset {
   serialNumber?: string | null;
   subcategoryKey?: string | null;
   holder?: string | null;
+  /** v3.15 - the holder's account is deactivated; the laptop is still out. */
+  holderLeft?: boolean;
 }
 
 export interface CoverageAgent {

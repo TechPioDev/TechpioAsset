@@ -15,6 +15,8 @@ import {
   type AvailabilityState,
   type LifecycleState,
   type OwnershipType,
+  HOLDER_FILTER_LABELS,
+  HOLDER_FILTER_LEFT,
 } from '@techpioasset/domain';
 
 /**
@@ -38,6 +40,8 @@ export interface SheetFilters {
   lifecycle: string;
   availability: string;
   ownership: string;
+  /** v3.15 - 'left': still with somebody whose account is deactivated. */
+  holder: string;
 }
 
 export const NO_FILTERS: SheetFilters = {
@@ -46,6 +50,7 @@ export const NO_FILTERS: SheetFilters = {
   lifecycle: '',
   availability: '',
   ownership: '',
+  holder: '',
 };
 
 export interface ChipOption {
@@ -93,6 +98,9 @@ export const OWNERSHIP_OPTIONS: ChipOption[] = OWNERSHIP_TYPES.map((v) => ({
   id: v,
   name: OWNERSHIP_TYPE_TOKENS[v].label,
 }));
+export const HOLDER_OPTIONS: ChipOption[] = [
+  { id: HOLDER_FILTER_LEFT, name: HOLDER_FILTER_LABELS[HOLDER_FILTER_LEFT]! },
+];
 
 /**
  * What is switched on, one short label each, for the summary row under the
@@ -116,6 +124,7 @@ export function activeFilterLabels(f: SheetFilters, categories: readonly Categor
   if (f.ownership) {
     out.push(OWNERSHIP_TYPE_TOKENS[f.ownership as OwnershipType]?.label ?? f.ownership);
   }
+  if (f.holder) out.push(`Held by ${(HOLDER_FILTER_LABELS[f.holder] ?? f.holder).toLowerCase()}`);
   return out;
 }
 

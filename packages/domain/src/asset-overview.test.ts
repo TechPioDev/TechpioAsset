@@ -221,6 +221,15 @@ describe('overview card helpers', () => {
     ]);
   });
 
+  it('says when the holder has left the company (v3.15)', () => {
+    expect(
+      headerMeta({ brand: null, model: null, typeName: 'Laptop', holderName: 'Priya', holderLeft: true }),
+    ).toEqual(['Laptop', 'Assigned to Priya (left)']);
+    expect(
+      headerMeta({ brand: null, model: null, typeName: null, holderName: 'Priya', holderLeft: false }),
+    ).toEqual(['Assigned to Priya']);
+  });
+
   it('summarises the notes to their first non-empty line', () => {
     expect(noteSummary('\n  Warranty out · Problem noted: hinge loose\nmore')).toBe(
       'Warranty out · Problem noted: hinge loose',

@@ -181,6 +181,12 @@ export const assetListQuerySchema = z.object({
    */
   warrantyWithinDays: z.coerce.number().int().min(1).max(3650).optional(),
   assignedUserId: z.string().optional(),
+  /**
+   * v3.15 - `left`: assets still recorded against people whose account is
+   * deactivated (or removed). The equipment is out with somebody who no
+   * longer works here; this is the list to clear.
+   */
+  holder: z.enum(['left']).optional(),
   condition: assetConditionEnum.optional(),
   vendorId: z.string().optional(),
   /// v2.53 - the units bought against one catalogue listing, so the rollup on

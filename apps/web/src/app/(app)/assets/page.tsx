@@ -43,10 +43,14 @@ import {
   type LifecycleState,
   type AvailabilityState,
   type OwnershipType,
+  HOLDER_FILTER_LABELS,
+  HOLDER_FILTER_LEFT,
+  holderHasLeft,
 } from '@techpioasset/domain';
 import type { BulkActionResult } from '@techpioasset/contracts';
 import { apiFetch, apiFetchPage } from '@/lib/api-client';
 import { downloadCsv } from '@/lib/download-csv';
+import { LeftTag } from '@/components/people/left-tag';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { useConfirm } from '@/providers/confirm-provider';
@@ -81,6 +85,8 @@ interface AssetRow {
   assignedUser: {
     id: string;
     email: string;
+    /** v3.15 - DEACTIVATED marks a holder who has left. */
+    status?: string | null;
     profile: { firstName: string; lastName: string } | null;
   } | null;
   /** v2.76 - the agent's last report, for uptime and the signed-in user. */
@@ -153,6 +159,9 @@ function AssetsTable() {
   const [lifecycle, setLifecycle] = useState<string>(arriving.lifecycle ?? '');
   const [availability, setAvailability] = useState<string>(arriving.availability ?? '');
   const [ownership, setOwnership] = useState<string>(arriving.ownership ?? '');
+  // v3.15 - "Held by people who left": equipment still out with somebody
+  // whose account is deactivated.
+  const [holder, setHolder] = useState<string>(arriving.holder ?? '');
   // v2.70 - phone only: the filters and the occasional actions start folded away.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -201,6 +210,7 @@ function AssetsTable() {
       'lifecycleState',
       'availabilityState',
       'ownershipType',
+      'holder',
       'subcategoryId',
       'categoryId',
       'warrantyWithinDays',
@@ -245,6 +255,7 @@ function AssetsTable() {
         lifecycle,
         availability,
         ownership,
+        holder,
         type,
         warrantyWithinDays,
         vendorProductId,
@@ -309,6 +320,7 @@ function AssetsTable() {
       lifecycle,
       availability,
       ownership,
+      holder,
       type,
       warrantyWithinDays,
       vendorProductId,
@@ -339,7 +351,7 @@ function AssetsTable() {
   const canBulk = can(PERMISSIONS.ASSETS_UPDATE);
   useEffect(() => {
     setSelected(new Set());
-  }, [q, status, lifecycle, availability, ownership, page, pageSize]);
+  }, [q, status, lifecycle, availability, ownership, holder, page, pageSize]);
 
   const rows = data?.data ?? [];
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
@@ -408,7 +420,9 @@ function AssetsTable() {
   };
 
   // How many filters are on, for the phone's Filters button.
-  const activeFilters = [type, status, lifecycle, availability, ownership].filter(Boolean).length;
+  const activeFilters = [type, status, lifecycle, availability, ownership, holder].filter(
+    Boolean,
+  ).length;
 
   /**
    * v2.96 - every applied filter, as something you can read and remove.
@@ -426,6 +440,7 @@ function AssetsTable() {
     lifecycle,
     availability,
     ownership,
+    holder,
     warrantyWithinDays,
     vendorProductId,
   };
@@ -457,6 +472,7 @@ function AssetsTable() {
         lifecycle: setLifecycle,
         availability: setAvailability,
         ownership: setOwnership,
+        holder: setHolder,
         warrantyWithinDays: setWarrantyWithinDays,
         vendorProductId: setVendorProductId,
       }[key];
@@ -659,6 +675,24 @@ function AssetsTable() {
                   {ASSET_STATUS_TOKENS[value].label}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs">
+            <span className="font-medium text-[var(--color-content-muted)]">Held by</span>
+            {/* v3.15 - the one question the owner asks after someone leaves:
+                whose equipment is still out? One choice, so it reads as a
+                switch rather than a people picker. */}
+            <select
+              value={holder}
+              onChange={(e) => {
+                setHolder(e.target.value);
+                setPage(1);
+                dropLinkFilters();
+              }}
+              className="h-9 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm"
+            >
+              <option value="">Anyone</option>
+              <option value={HOLDER_FILTER_LEFT}>{HOLDER_FILTER_LABELS[HOLDER_FILTER_LEFT]}</option>
             </select>
           </label>
           {/*
@@ -913,6 +947,7 @@ function AssetsTable() {
                   <span className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[var(--color-content-muted)]">
                     <span className="min-w-0 truncate">
                       {asset.assignedUser ? assetHolderName(asset.assignedUser) : 'Unassigned'}
+                      {holderHasLeft(asset.assignedUser) ? <LeftTag /> : null}
                       {asset.osInfo
                         ? ` · ${activityOf(asset).uptime.label} · ${activityOf(asset).user.label}`
                         : ''}
@@ -1088,6 +1123,7 @@ function AssetsTable() {
                     </td>
                     <td className="px-4 py-2.5 text-[var(--color-content-muted)]">
                       {assetHolderName(asset.assignedUser)}
+                      {holderHasLeft(asset.assignedUser) ? <LeftTag /> : null}
                     </td>
                     {showActivity ? (
                       <>

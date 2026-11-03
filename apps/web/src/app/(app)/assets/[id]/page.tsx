@@ -63,6 +63,7 @@ import {
   type LifecycleState,
   type AvailabilityState,
   type OwnershipType,
+  holderHasLeft,
 } from '@techpioasset/domain';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import {
@@ -77,6 +78,7 @@ import {
   type AssetDetailNavKey,
   type HealthTile,
 } from '@/lib/asset-overview';
+import { LeftTag } from '@/components/people/left-tag';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { Button, Card, ErrorState, NativeSelect, Skeleton } from '@/components/ui';
@@ -157,6 +159,8 @@ interface AssetDetail {
   assignedUser: {
     id: string;
     email: string;
+    /** v3.15 - DEACTIVATED marks a holder who has left. */
+    status?: string | null;
     profile: { firstName: string; lastName: string; employeeNumber: string | null } | null;
   } | null;
   assignmentDate: string | null;
@@ -496,6 +500,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
     model: data.model,
     typeName: data.subcategory?.name,
     holderName,
+    holderLeft: holderHasLeft(holder),
   });
   const lastReport = latestAgentReport(data.hardwareProfile, data.osInfo);
   const freshness = lastReport ? reportFreshness(lastReport.at) : null;
@@ -1147,6 +1152,7 @@ function OverviewTab({
                   holderName ? (
                     <>
                       {holderName}
+                      {holderHasLeft(holder) ? <LeftTag /> : null}
                       {holder?.profile?.employeeNumber ? (
                         <span className="text-xs text-[var(--color-content-subtle)]">
                           {' '}

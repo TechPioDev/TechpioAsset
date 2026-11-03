@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthUser, ReportType } from '@techpioasset/contracts';
-import { computeDepreciation, warrantyBucket, type DepreciationMethod } from '@techpioasset/domain';
+import {
+  computeDepreciation,
+  holderHasLeft,
+  warrantyBucket,
+  type DepreciationMethod,
+} from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { canSeeCost, tenantFilter } from '../common/scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -410,6 +415,9 @@ export class ReportsService {
         { key: 'employee', label: 'Employee' },
         { key: 'employeeNumber', label: 'Emp #' },
         { key: 'email', label: 'Email' },
+        // v3.15 - "Yes" when the account is deactivated: this equipment is
+        // out with somebody who no longer works here.
+        { key: 'leftCompany', label: 'Left company' },
         { key: 'jobTitle', label: 'Job title' },
         { key: 'department', label: 'Department' },
         { key: 'location', label: 'Location' },
@@ -453,6 +461,7 @@ export class ReportsService {
           select: {
             id: true,
             email: true,
+            status: true,
             profile: {
               select: {
                 firstName: true,
@@ -511,6 +520,7 @@ export class ReportsService {
             employee: `${holder.profile?.firstName ?? ''} ${holder.profile?.lastName ?? ''}`.trim(),
             employeeNumber: holder.profile?.employeeNumber ?? '',
             email: holder.email,
+            leftCompany: holderHasLeft(holder) ? 'Yes' : '',
             jobTitle: holder.profile?.jobTitle ?? '',
             department: holder.profile?.department?.name ?? '',
             // The person's own office, then the asset's, then the company

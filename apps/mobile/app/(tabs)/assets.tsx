@@ -34,6 +34,8 @@ import {
   type AvailabilityState,
   type LifecycleState,
   type OwnershipType,
+  HOLDER_LEFT_TAG,
+  holderHasLeft,
 } from '@techpioasset/domain';
 import { assetPills } from '../../src/asset-pills';
 import { assetIcon } from '../../src/lib/asset-icon';
@@ -59,6 +61,7 @@ import { AssetDetailView } from '../asset/[id]';
 import {
   AVAILABILITY_OPTIONS,
   LIFECYCLE_OPTIONS,
+  HOLDER_OPTIONS,
   NO_FILTERS,
   OWNERSHIP_OPTIONS,
   STATUS_OPTIONS,
@@ -102,6 +105,8 @@ interface AssetRow {
   assignedUser: {
     id: string;
     email: string;
+    /** v3.15 - DEACTIVATED marks a holder who has left. */
+    status?: string | null;
     profile: { firstName: string; lastName: string } | null;
   } | null;
 }
@@ -143,6 +148,7 @@ export default function AssetsScreen() {
     ownershipType?: string;
     subcategoryId?: string;
     categoryId?: string;
+    holder?: string;
   }>();
   /**
    * v2.87 - what the link asked for, read the same way the web reads it.
@@ -177,6 +183,7 @@ export default function AssetsScreen() {
     availability: arriving.availability ?? '',
     ownership: arriving.ownership ?? '',
     type: arriving.type ?? '',
+    holder: arriving.holder ?? '',
   });
   const [sort, setSort] = useState<AssetListSortField | null>(null);
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
@@ -599,6 +606,12 @@ export default function AssetsScreen() {
                   <Ionicons name="person-outline" size={13} color={c.muted} />
                   <Text style={{ flex: 1, color: c.muted, fontSize: 12 }} numberOfLines={1}>
                     {assetHolderName(item.assignedUser)}
+                    {holderHasLeft(item.assignedUser) ? (
+                      <Text style={{ color: c.subtle, fontSize: 10, fontWeight: '700' }}>
+                        {'  '}
+                        {HOLDER_LEFT_TAG.toUpperCase()}
+                      </Text>
+                    ) : null}
                   </Text>
                   {canSeeCost && 'purchaseCost' in item ? (
                     <Text variant="caption" weight="700" numeric numberOfLines={1}>
@@ -729,6 +742,15 @@ export default function AssetsScreen() {
                 onChange={(ownership) => setDraft((d) => ({ ...d, ownership }))}
                 allowNone
                 noneLabel="Any ownership"
+              />
+              {sectionTitle('Held by')}
+              <ChipPicker
+                label="Held by"
+                options={HOLDER_OPTIONS}
+                value={draft.holder}
+                onChange={(holder) => setDraft((d) => ({ ...d, holder }))}
+                allowNone
+                noneLabel="Anyone"
               />
 
               {sectionTitle('Sort by')}

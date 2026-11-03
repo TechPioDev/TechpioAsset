@@ -55,7 +55,19 @@ export interface AssetListFilters {
   type?: string;
   warrantyWithinDays?: string;
   vendorProductId?: string;
+  /**
+   * v3.15 - `left`: assets still recorded against people whose account is
+   * deactivated. The one filter that answers "whose laptop is still out
+   * after they left?" in one click instead of a person-by-person search.
+   */
+  holder?: string;
 }
+
+/** The only value the holder filter takes, and how the controls name it. */
+export const HOLDER_FILTER_LEFT = 'left';
+export const HOLDER_FILTER_LABELS: Readonly<Record<string, string>> = {
+  [HOLDER_FILTER_LEFT]: 'People who left',
+};
 
 /**
  * The filters as query parameters, in a fixed order. Returned as pairs so each
@@ -74,6 +86,7 @@ export function assetListFilterParams(f: AssetListFilters): [string, string][] {
   if (type.startsWith('cat:')) p.push(['categoryId', type.slice(4)]);
   if (f.warrantyWithinDays) p.push(['warrantyWithinDays', f.warrantyWithinDays]);
   if (f.vendorProductId) p.push(['vendorProductId', f.vendorProductId]);
+  if (f.holder) p.push(['holder', f.holder]);
   return p;
 }
 
@@ -107,6 +120,23 @@ export function assetHolderName(
     ? `${holder.profile.firstName} ${holder.profile.lastName}`
     : (holder?.email ?? '—');
 }
+
+/**
+ * Whether the person holding an asset has left (v3.15): their account is
+ * deactivated or removed. The asset is still theirs on paper - which is
+ * exactly why every place that names a holder marks this rather than hiding
+ * the name. Hiding it would hide the laptop that most needs collecting.
+ */
+export function holderHasLeft(
+  holder: { status?: string | null; deletedAt?: string | Date | null } | null | undefined,
+): boolean {
+  return Boolean(holder && (holder.status === 'DEACTIVATED' || holder.deletedAt));
+}
+
+/** The marker beside such a holder's name, and what it means when asked. */
+export const HOLDER_LEFT_TAG = 'Left';
+export const HOLDER_LEFT_HINT =
+  'This person\'s account is deactivated. The equipment is still recorded against them: return it or hand it over.';
 
 /**
  * What an empty asset list says.
@@ -195,6 +225,7 @@ export function assetListFiltersFromLink(
     type,
     warrantyWithinDays: value('warrantyWithinDays'),
     vendorProductId: value('vendorProductId'),
+    holder: value('holder'),
   };
 }
 
@@ -216,7 +247,8 @@ export function assetListArrivedFiltered(f: AssetListFilters): boolean {
       f.ownership ||
       f.type ||
       f.warrantyWithinDays ||
-      f.vendorProductId,
+      f.vendorProductId ||
+      f.holder,
   );
 }
 

@@ -1,4 +1,4 @@
-import type { AssetListFilters } from './asset-list';
+import { HOLDER_FILTER_LABELS, type AssetListFilters } from './asset-list';
 
 /**
  * Every filter currently applied, as something you can read and remove (v2.96).
@@ -49,6 +49,7 @@ const ORDER: (keyof AssetListFilters)[] = [
   'lifecycle',
   'availability',
   'ownership',
+  'holder',
   'warrantyWithinDays',
   'vendorProductId',
 ];
@@ -60,6 +61,7 @@ const LABELS: Record<keyof AssetListFilters, string> = {
   lifecycle: 'Lifecycle',
   availability: 'Availability',
   ownership: 'Ownership',
+  holder: 'Held by',
   warrantyWithinDays: 'Warranty',
   vendorProductId: 'Product',
 };
@@ -99,6 +101,9 @@ export function assetFilterChips(
         break;
       case 'vendorProductId':
         value = names.vendorProduct?.(raw) ?? raw;
+        break;
+      case 'holder':
+        value = (HOLDER_FILTER_LABELS[raw] ?? raw).toLowerCase();
         break;
       default:
         value = names[key]?.(raw) ?? raw;

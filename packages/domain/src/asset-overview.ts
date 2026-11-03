@@ -307,18 +307,27 @@ export function quickSpecs(input: {
   return rows;
 }
 
-/** "Lenovo ThinkPad P14s | Laptop | Assigned to Gurpreet Singh" */
+/**
+ * "Lenovo ThinkPad P14s | Laptop | Assigned to Gurpreet Singh"
+ *
+ * v3.15 - "(left)" after a holder whose account is deactivated: the header
+ * is the one line everybody reads, and a laptop still out with somebody who
+ * has gone is the first thing it should say.
+ */
 export function headerMeta(input: {
   brand: string | null;
   model: string | null;
   typeName: string | null | undefined;
   holderName: string | null;
+  holderLeft?: boolean;
 }): string[] {
   const make = [input.brand, input.model].filter(Boolean).join(' ');
   return [
     make || null,
     input.typeName ?? null,
-    input.holderName ? `Assigned to ${input.holderName}` : 'Unassigned',
+    input.holderName
+      ? `Assigned to ${input.holderName}${input.holderLeft ? ' (left)' : ''}`
+      : 'Unassigned',
   ].filter((s): s is string => Boolean(s));
 }
 
