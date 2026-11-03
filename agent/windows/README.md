@@ -4,6 +4,9 @@ Reports a laptop's hardware, operating system and installed software to your
 TechpioAsset portal, so asset records stay current without anyone typing them in.
 
 It is **report-only**. The agent POSTs; the portal never pushes anything back.
+From 1.3.0 it also checks in every five minutes ("I am on"), which is how the
+portal shows **Online / Offline**. The only answer a check-in can get is "send a
+full report now", when someone pressed **Refresh now** in the portal.
 
 ---
 
@@ -76,9 +79,15 @@ the direct form works too:
     -Install
 ```
 
-`-Install` registers a scheduled task that runs as SYSTEM: **daily at 12:00
-(±30 min jitter)** and **at start-up**, so a laptop that was closed overnight
-still reports. The jitter stops 500 laptops hitting the API in the same second.
+`-Install` registers two scheduled tasks that run as SYSTEM:
+
+- **TechpioAsset Inventory Agent** — the full report, **daily at 12:00 (±30 min
+  jitter)** and **at start-up**, so a laptop that was closed overnight still
+  reports. The jitter stops 500 laptops hitting the API in the same second.
+- **TechpioAsset Agent Check-in** (1.3.0+) — every **5 minutes**, a few bytes
+  (agent version and machine id). It keeps the laptop **Online** in the portal
+  and picks up **Refresh now**. It never enrols and never repairs a credential;
+  that stays with the daily run.
 
 **Run elevated.** TPM, BitLocker and patch state are not readable as a standard
 user; unelevated those fields are reported as `null` rather than guessed, and
@@ -93,6 +102,13 @@ the review queue for a human.
 ---
 
 ## Deploying to a fleet
+
+**Datto RMM** — use [`datto-rmm-component.ps1`](datto-rmm-component.ps1) as a
+PowerShell component. Set two component variables, `PortalUrl` and
+`EnrolmentToken` (masked), and push it to every laptop. The same job installs
+the agent where it is missing, upgrades older agents to the current version,
+and repairs laptops showing **Needs reinstall**. Datto runs it as SYSTEM, which
+is what the agent needs.
 
 **Microsoft Intune** — Devices → Scripts → Add → Windows 10 and later:
 - Run this script using the logged-on credentials: **No**
@@ -116,7 +132,7 @@ you want before touching the fleet.
 |---|---|
 | Run now (already enrolled) | `.\TechpioAgent.ps1 -PortalUrl <url>` |
 | Re-enrol after revocation | add `-EnrolmentToken tae_…` |
-| Remove the scheduled task | `.\TechpioAgent.ps1 -PortalUrl <url> -Uninstall` |
+| Remove both scheduled tasks | `.\TechpioAgent.ps1 -PortalUrl <url> -Uninstall` |
 | Fully unenrol a laptop | remove the task, then delete `C:\ProgramData\TechpioAsset\` |
 
 **Logs:** `C:\ProgramData\TechpioAsset\agent.log`
@@ -134,6 +150,8 @@ for the missing-patch count.
 | `Unknown device credential` | The laptop was revoked in the portal. Re-run with `-EnrolmentToken` to re-enrol. |
 | `Could not persist the device credential` | Not elevated. The run still reports; run as administrator so the credential is stored. |
 | `tpmPresent` / `diskEncrypted` are empty | Not elevated. These need administrator rights; they are reported as unknown rather than guessed. |
+| Laptop shows **Reporting daily**, not Online | It runs an agent older than 1.3.0, which only reports once a day. Re-run the install command (or the Datto component) to upgrade it. |
+| Laptop shows **Offline** | No check-in for over 12 minutes: switched off, asleep, or no internet. A **Refresh now** pressed meanwhile is kept for a week and runs when it comes back. |
 | Device appears but is not linked to an asset | Its serial does not match any asset. Resolve it in the Discovery review queue — the portal never guesses a link. |
 
 ---

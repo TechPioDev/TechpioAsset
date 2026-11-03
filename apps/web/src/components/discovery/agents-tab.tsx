@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Eye, EyeOff, Laptop, RefreshCw, ShieldOff, Trash2, X } from 'lucide-react';
 import type { EnrolmentTokenStatus } from '@techpioasset/contracts';
 import {
+  AGENT_HEARTBEAT_INTERVAL_MINUTES,
+  AGENT_STATUS_LABELS,
   LATEST_AGENT_VERSION,
   PERMISSIONS,
   buildAgentInstallCommand,
@@ -58,21 +60,155 @@ interface AgentRow {
   rejectCount: number;
   status: AgentStatus;
   updateAvailable: boolean;
+  checksIn: boolean;
+  refreshPending: boolean;
+  refreshRefusal: string | null;
 }
 
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  ACTIVE: 'Active',
-  OFFLINE: 'Offline',
-  CREDENTIAL_REJECTED: 'Credential rejected — reinstall',
-  REVOKED: 'Revoked',
-};
+/** The live part of an agent, as both Discovery lists receive it (v3.14). */
+export interface AgentLive {
+  id: string;
+  status: AgentStatus;
+  lastSeenAt: string | null;
+  checksIn: boolean;
+  refreshPending: boolean;
+  refreshRefusal: string | null;
+}
+
+const STATUS_LABEL = AGENT_STATUS_LABELS;
 
 const STATUS_TONE: Record<AgentStatus, string> = {
-  ACTIVE: 'success',
+  ONLINE: 'success',
+  ACTIVE: 'info',
   OFFLINE: 'warning',
   CREDENTIAL_REJECTED: 'critical',
   REVOKED: 'neutral',
 };
+
+const STATUS_HINT: Record<AgentStatus, string> = {
+  ONLINE: `Switched on and connected - it checks in every ${AGENT_HEARTBEAT_INTERVAL_MINUTES} minutes.`,
+  ACTIVE: `Reported in the last few days. This older agent only reports once a day, so it cannot show whether the laptop is on right now - update it to ${LATEST_AGENT_VERSION} for Online/Offline.`,
+  OFFLINE: 'Not heard from recently: switched off, asleep, or without internet.',
+  CREDENTIAL_REJECTED: 'The laptop is trying to report but the portal refuses its credential. Run the fix command on it.',
+  REVOKED: 'This laptop can no longer report.',
+};
+
+/** Online / Offline / Reporting daily / Needs reinstall - one pill, both lists. */
+export function AgentStatusPill({ status }: { status: AgentStatus }) {
+  const tone = STATUS_TONE[status];
+  return (
+    <span
+      title={STATUS_HINT[status]}
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
+      style={
+        tone === 'neutral'
+          ? { background: 'var(--color-surface-sunken)', color: 'var(--color-content-muted)' }
+          : { background: `var(--tone-${tone}-bg)`, color: `var(--tone-${tone}-fg)` }
+      }
+    >
+      {status === 'ONLINE' ? (
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+      ) : null}
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+/**
+ * "Refresh now" (v3.14). Nothing can be pushed to a laptop - the agent only
+ * calls out - so this leaves a note its next check-in picks up: within five
+ * minutes when it is on, or as soon as it is switched on.
+ */
+export function useAgentRefresh() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; name: string }) =>
+      apiFetch<AgentLive>(`/discovery/agents/${input.id}/refresh`, { method: 'POST', body: {} }),
+    onSuccess: (live, input) => {
+      toast.success(
+        live.status === 'ONLINE'
+          ? `Asked ${input.name} for fresh details. They arrive within ${AGENT_HEARTBEAT_INTERVAL_MINUTES} minutes.`
+          : `${input.name} is offline. It sends fresh details as soon as it is switched on.`,
+      );
+      void qc.invalidateQueries({ queryKey: ['discovery-agents'] });
+      void qc.invalidateQueries({ queryKey: ['discovery'] });
+    },
+    onError: (e) => toast.error(errorText(e, 'Could not ask the laptop to refresh')),
+  });
+}
+
+/** The button both lists show. Only for agents that check in (1.3.0+). */
+export function AgentRefreshButton({
+  agent,
+  name,
+  refresh,
+}: {
+  agent: AgentLive;
+  name: string;
+  refresh: ReturnType<typeof useAgentRefresh>;
+}) {
+  if (!agent.checksIn || agent.status === 'REVOKED') return null;
+  if (agent.refreshPending) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] text-[var(--color-content-subtle)]"
+        title={
+          agent.status === 'ONLINE'
+            ? 'Waiting for the laptop to check in and send its details.'
+            : 'The laptop is offline. It sends its details when it is next switched on.'
+        }
+      >
+        <RefreshCw aria-hidden="true" className="size-3 animate-spin" />
+        {agent.status === 'ONLINE' ? 'Refreshing…' : 'Refresh when online'}
+      </span>
+    );
+  }
+  const busy = refresh.isPending && refresh.variables?.id === agent.id;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => refresh.mutate({ id: agent.id, name })}
+      title="Ask this laptop to send its full, current details now"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium text-[var(--color-brand)] hover:bg-[var(--color-surface-sunken)] disabled:opacity-50"
+    >
+      <RefreshCw aria-hidden="true" className={`size-3 ${busy ? 'animate-spin' : ''}`} />
+      Refresh now
+    </button>
+  );
+}
+
+/** Poll faster while a refresh is waiting, so the answer shows without a reload. */
+export function liveRefetchInterval(rows: { refreshPending: boolean }[] | undefined): number {
+  return rows?.some((r) => r.refreshPending) ? 15_000 : 60_000;
+}
+
+/**
+ * When a waiting refresh is answered, both Discovery lists change: the
+ * Agents list's contact time and the Devices list's details. Whichever list
+ * notices first reloads the other, so neither shows the old values for a
+ * minute.
+ */
+export function useReloadWhenRefreshAnswered(
+  rows: { id: string; refreshPending: boolean }[] | undefined,
+) {
+  const qc = useQueryClient();
+  const pending = (rows ?? [])
+    .filter((r) => r.refreshPending)
+    .map((r) => r.id)
+    .sort()
+    .join(',');
+  const before = useRef(pending);
+  useEffect(() => {
+    const still = new Set(pending.split(',').filter(Boolean));
+    if (before.current.split(',').some((id) => id && !still.has(id))) {
+      void qc.invalidateQueries({ queryKey: ['discovery'] });
+      void qc.invalidateQueries({ queryKey: ['discovery-agents'] });
+    }
+    before.current = pending;
+  }, [pending, qc]);
+}
 
 const GRACE_OPTIONS = [
   { days: 0, label: 'No grace — the old token stops working now (only if it leaked)' },
@@ -122,7 +258,11 @@ export function AgentsTab() {
   const agents = useQuery({
     queryKey: ['discovery-agents'],
     queryFn: () => apiFetch<AgentRow[]>('/discovery/agents'),
+    // Online/Offline is live; keep it so while the tab is open.
+    refetchInterval: (query) => liveRefetchInterval(query.state.data),
   });
+  const refreshAgent = useAgentRefresh();
+  useReloadWhenRefreshAnswered(agents.data);
 
   // v2.77 - the rollout to-do list: register machines no agent has reported.
   const notEnrolled = useQuery({
@@ -230,11 +370,13 @@ export function AgentsTab() {
   const rows = agents.data ?? [];
   const counts = rows.reduce<Record<AgentStatus, number>>(
     (acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }),
-    { ACTIVE: 0, OFFLINE: 0, CREDENTIAL_REJECTED: 0, REVOKED: 0 },
+    { ONLINE: 0, ACTIVE: 0, OFFLINE: 0, CREDENTIAL_REJECTED: 0, REVOKED: 0 },
   );
-  const summary = (['ACTIVE', 'CREDENTIAL_REJECTED', 'OFFLINE', 'REVOKED'] as AgentStatus[])
+  const summary = (
+    ['ONLINE', 'ACTIVE', 'CREDENTIAL_REJECTED', 'OFFLINE', 'REVOKED'] as AgentStatus[]
+  )
     .filter((status) => counts[status] > 0)
-    .map((status) => `${counts[status]} ${STATUS_LABEL[status].replace(/ —.*$/, '').toLowerCase()}`)
+    .map((status) => `${counts[status]} ${STATUS_LABEL[status].toLowerCase()}`)
     .join(' · ');
   const state = token.data;
 
@@ -505,14 +647,13 @@ export function AgentsTab() {
                   <th className="px-5 py-2.5 font-medium">Laptop</th>
                   <th className="px-4 py-2.5 font-medium">Serial</th>
                   <th className="px-4 py-2.5 font-medium">Agent</th>
-                  <th className="px-4 py-2.5 font-medium">Last reported</th>
+                  <th className="px-4 py-2.5 font-medium">Last contact</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   {canManage || canRevoke ? <th className="px-4 py-2.5" /> : null}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
-                  const tone = STATUS_TONE[row.status];
                   const needsFix = row.status === 'CREDENTIAL_REJECTED' || row.updateAvailable;
                   return (
                     <tr
@@ -551,26 +692,18 @@ export function AgentsTab() {
                         ) : null}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span
-                          className="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
-                          style={
-                            tone === 'neutral'
-                              ? {
-                                  background: 'var(--color-surface-sunken)',
-                                  color: 'var(--color-content-muted)',
-                                }
-                              : {
-                                  background: `var(--tone-${tone}-bg)`,
-                                  color: `var(--tone-${tone}-fg)`,
-                                }
-                          }
-                        >
-                          {STATUS_LABEL[row.status]}
-                        </span>
+                        <AgentStatusPill status={row.status} />
                       </td>
                       {canManage || canRevoke ? (
                         <td className="px-4 py-2.5 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {canManage ? (
+                              <AgentRefreshButton
+                                agent={row}
+                                name={row.hostname ?? 'This laptop'}
+                                refresh={refreshAgent}
+                              />
+                            ) : null}
                             {canManage && needsFix && !row.revokedAt && state?.revealable ? (
                               <button
                                 type="button"

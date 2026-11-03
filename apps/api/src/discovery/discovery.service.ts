@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../integrations/webhooks.service.js';
 import { DiscoveryProvider } from '../providers/discovery/discovery.provider.js';
 import type { AgentPrincipal } from './agent.guard.js';
+import { AgentEnrolmentService } from './agent-enrolment.service.js';
 
 /** The client shape Prisma passes to interactive-transaction callbacks. */
 type Tx = Omit<
@@ -52,6 +53,7 @@ export class DiscoveryService {
     private readonly provider: DiscoveryProvider,
     private readonly health: AssetHealthService,
     private readonly webhooks: WebhooksService,
+    private readonly enrolment: AgentEnrolmentService,
   ) {}
 
   // ── ingest ─────────────────────────────────────────────────────────────────
@@ -123,18 +125,7 @@ export class DiscoveryService {
    * the whole security property: an agent can only ever describe itself.
    */
   async reportFromAgent(agent: AgentPrincipal, input: AgentReportInput) {
-    if (input.hostname || input.serialNumber || input.agentVersion) {
-      await this.prisma.client.deviceAgent.update({
-        where: { id: agent.deviceAgentId },
-        data: {
-          ...(input.hostname ? { hostname: input.hostname } : {}),
-          ...(input.serialNumber ? { serialNumber: input.serialNumber } : {}),
-          ...(input.agentVersion ? { agentVersion: input.agentVersion } : {}),
-        },
-      });
-    }
-
-    return this.ingestForCompany(
+    const summary = await this.ingestForCompany(
       agent.companyId,
       null,
       {
@@ -151,6 +142,20 @@ export class DiscoveryService {
       },
       'AGENT',
     );
+
+    // After the ingest, so a report that failed half-way leaves a pending
+    // "Refresh now" pending and the next check-in asks again.
+    await this.prisma.client.deviceAgent.update({
+      where: { id: agent.deviceAgentId },
+      data: {
+        ...(input.hostname ? { hostname: input.hostname } : {}),
+        ...(input.serialNumber ? { serialNumber: input.serialNumber } : {}),
+        ...(input.agentVersion ? { agentVersion: input.agentVersion } : {}),
+        refreshRequestedAt: null,
+        refreshRequestedById: null,
+      },
+    });
+    return summary;
   }
 
   /** Pull from the configured provider and push through the same ingest path. */
@@ -388,15 +393,27 @@ export class DiscoveryService {
     };
     return paginate(query, {
       count: () => this.prisma.client.discoveredDevice.count({ where }),
-      findMany: (args) =>
-        this.prisma.client.discoveredDevice.findMany({
+      findMany: async (args) => {
+        const rows = await this.prisma.client.discoveredDevice.findMany({
           where,
           orderBy: { lastSeenAt: 'desc' },
           include: {
             asset: { select: { id: true, assetTag: true, name: true, serialNumber: true } },
           },
           ...args,
-        }),
+        });
+        // v3.14 - each agent-reported row carries its laptop's live state, so
+        // the Devices list can say Online/Offline and offer Refresh now. A
+        // device from a connector (Intune, mock) has no agent: null.
+        const machineIds = rows.flatMap((r) =>
+          r.source === 'AGENT' && r.externalId ? [r.externalId] : [],
+        );
+        const live = await this.enrolment.liveStateByMachineId(actor.companyId, machineIds);
+        return rows.map((r) => ({
+          ...r,
+          agent: r.source === 'AGENT' && r.externalId ? (live.get(r.externalId) ?? null) : null,
+        }));
+      },
     });
   }
 

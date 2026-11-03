@@ -14,10 +14,14 @@ import {
   buildAgentInstallCommand,
   coverageSummary,
   notEnrolledDevices,
+  agentChecksIn,
+  agentRefreshRefusal,
   deriveAgentStatus,
   isAgentOutdated,
+  isRefreshPending,
 } from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
+import type { AgentPrincipal } from './agent.guard.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AppConfig } from '../config/config.module.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -406,15 +410,73 @@ export class AgentEnrolmentService {
         revokedAt: true,
         lastRejectedAt: true,
         rejectCount: true,
+        lastHeartbeatAt: true,
+        refreshRequestedAt: true,
       },
     });
     const now = new Date();
     return rows.map((row) => ({
       ...row,
-      status: deriveAgentStatus(row, now),
+      ...agentLiveState(row, now),
       updateAvailable: isAgentOutdated(row.agentVersion),
       latestAgentVersion: LATEST_AGENT_VERSION,
     }));
+  }
+
+  /**
+   * Live state for the agents behind discovered devices, keyed by machineId
+   * (a discovered device's externalId when its source is AGENT). One query
+   * for the whole page.
+   */
+  async liveStateByMachineId(companyId: string, machineIds: string[]) {
+    if (machineIds.length === 0) return new Map<string, AgentLiveRow>();
+    const rows = await this.prisma.client.deviceAgent.findMany({
+      where: { companyId, machineId: { in: machineIds } },
+      select: AGENT_LIVE_SELECT,
+    });
+    const now = new Date();
+    return new Map<string, AgentLiveRow>(
+      rows.map((row) => [row.machineId, { id: row.id, ...agentLiveState(row, now) }]),
+    );
+  }
+
+  /**
+   * A 1.3.0+ agent's five-minute check-in. lastSeenAt was already bumped by
+   * the guard; this marks the agent as one that checks in and answers the
+   * only question it asks: should I send a full report now?
+   */
+  async heartbeat(agent: AgentPrincipal, agentVersion?: string | null) {
+    const row = await this.prisma.client.deviceAgent.update({
+      where: { id: agent.deviceAgentId },
+      data: {
+        lastHeartbeatAt: new Date(),
+        ...(agentVersion ? { agentVersion } : {}),
+      },
+      select: { refreshRequestedAt: true },
+    });
+    return { refresh: isRefreshPending(row.refreshRequestedAt) };
+  }
+
+  /**
+   * "Refresh now": the laptop's next check-in (within five minutes when it is
+   * on, or as soon as it is switched on) is told to send a full report.
+   * Nothing is pushed to the laptop - it only ever calls out.
+   */
+  async requestRefresh(actor: AuthUser, id: string) {
+    const agent = await this.prisma.client.deviceAgent.findFirst({
+      where: { id, companyId: actor.companyId },
+      select: { id: true, revokedAt: true, lastHeartbeatAt: true, agentVersion: true },
+    });
+    if (!agent) throw AppError.notFound('Device agent', id);
+    const refusal = agentRefreshRefusal(agent);
+    if (refusal) throw AppError.conflict('CONFLICT', refusal);
+
+    const row = await this.prisma.client.deviceAgent.update({
+      where: { id },
+      data: { refreshRequestedAt: new Date(), refreshRequestedById: actor.id },
+      select: AGENT_LIVE_SELECT,
+    });
+    return { id: row.id, ...agentLiveState(row, new Date()) };
   }
 
   /**
@@ -540,6 +602,39 @@ export class AgentEnrolmentService {
     });
   }
 }
+
+const AGENT_LIVE_SELECT = {
+  id: true,
+  machineId: true,
+  agentVersion: true,
+  lastSeenAt: true,
+  revokedAt: true,
+  lastRejectedAt: true,
+  lastHeartbeatAt: true,
+  refreshRequestedAt: true,
+} as const;
+
+interface AgentLiveInput {
+  revokedAt: Date | null;
+  lastSeenAt: Date | null;
+  lastRejectedAt: Date | null;
+  lastHeartbeatAt: Date | null;
+  refreshRequestedAt: Date | null;
+  agentVersion: string | null;
+}
+
+/** What every list shows about an agent's liveness - one shape, one rule. */
+function agentLiveState(row: AgentLiveInput, now: Date) {
+  return {
+    status: deriveAgentStatus(row, now),
+    lastSeenAt: row.lastSeenAt,
+    checksIn: agentChecksIn(row),
+    refreshPending: isRefreshPending(row.refreshRequestedAt, now),
+    refreshRefusal: agentRefreshRefusal(row),
+  };
+}
+
+export type AgentLiveRow = { id: string } & ReturnType<typeof agentLiveState>;
 
 function cleanIdentifier(value: unknown, minLength: number): string | null {
   if (typeof value !== 'string') return null;

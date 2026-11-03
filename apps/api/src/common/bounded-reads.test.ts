@@ -67,6 +67,8 @@ const ALLOWED: Record<string, string> = {
   'asset-health/asset-health.service.ts': 'health sweep scores every asset; bounded by the sweep, not a response',
   'budgets/budgets.service.ts': 'consumption report aggregates budgets for a single day; commitments per budget',
   'discovery/discovery.service.ts': 'reconciliation compares the whole inbound batch against candidates',
+  'integrations/m365-license-sync.service.ts':
+    'the sync must see every Microsoft-synced licence to know which to retire; bounded by the SKUs one tenant buys (tens), and a cut-off list would retire real licences',
   'invoices/invoices.service.ts': 'three-way match reads an invoice’s own lines and their assets',
   'licenses/licenses.service.ts': 'seat reconciliation counts assignments for one licence',
   'procurement/procurement.service.ts': 'PO rollup reads the lines of a single purchase order',

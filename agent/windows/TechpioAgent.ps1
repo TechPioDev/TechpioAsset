@@ -15,7 +15,10 @@
         (a count only - see Get-OsInfo)
 
     It is report-only and one-way: the agent POSTs, the portal never pushes
-    anything back. The whole script is plain text so your IT team can read
+    anything back. Every five minutes it also checks in (a few bytes: "I am
+    on"), which is how the portal can say Online or Offline; the only answer
+    the check-in can get is "send a full report now", when someone pressed
+    Refresh now. The whole script is plain text so your IT team can read
     exactly what leaves the machine before trusting it.
 
 .PARAMETER PortalUrl
@@ -28,11 +31,16 @@
     own.
 
 .PARAMETER Install
-    Registers a daily scheduled task that runs this script as SYSTEM.
-    Re-running the install command upgrades an existing install in place.
+    Registers the scheduled tasks that run this script as SYSTEM: the daily
+    report, and the five-minute check-in. Re-running the install command
+    upgrades an existing install in place.
+
+.PARAMETER Heartbeat
+    The five-minute check-in. Used by the check-in scheduled task; never
+    needed by hand.
 
 .PARAMETER Uninstall
-    Removes the scheduled task and the stored enrolment token.
+    Removes both scheduled tasks and the stored enrolment token.
 
 .PARAMETER LoadOnly
     For the local test harness only: defines the functions and stops without
@@ -48,6 +56,17 @@
     reported as null rather than guessed.
 
     CHANGELOG
+    1.3.0  Online/Offline and Refresh now.
+           * A second scheduled task, "TechpioAsset Agent Check-in", runs
+             every five minutes as SYSTEM and tells the portal the laptop is
+             on. It sends the agent version and machineId, nothing else.
+           * When someone presses Refresh now in the portal, the next
+             check-in is told so and the agent sends a full report at once.
+           * A check-in never enrols and never repairs: a refused credential
+             is left to the daily run, which holds the lock and the stored
+             enrolment token. A portal too old to know check-ins (HTTP 404)
+             is ignored quietly.
+           * -Uninstall removes both tasks.
     1.2.1  A refused enrolment token now prints the portal's own reason -
            usually "this install command is out of date" - instead of a bare
            HTTP status, so a kept-from-last-time script is recognised at once.
@@ -86,6 +105,7 @@ param(
     [string]$EnrolmentToken,
     [switch]$Install,
     [switch]$Uninstall,
+    [switch]$Heartbeat,
     [switch]$LoadOnly
 )
 
@@ -99,8 +119,10 @@ try {
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
 
-$script:AgentVersion = '1.2.1'
+$script:AgentVersion = '1.3.0'
 $script:TaskName     = 'TechpioAsset Inventory Agent'
+$script:HeartbeatTaskName = 'TechpioAsset Agent Check-in'
+$script:HeartbeatMinutes  = 5
 $script:LogMaxBytes  = 1MB
 $script:MutexName    = 'Global\TechpioAssetInventoryAgent'
 $script:MaxStoredEnrolmentTokens = 2
@@ -652,13 +674,13 @@ function Get-InventoryPayload {
 # ── portal calls ─────────────────────────────────────────────────────────────
 
 function Invoke-Portal {
-    param([string]$Path, [hashtable]$Headers, $Body)
+    param([string]$Path, [hashtable]$Headers, $Body, [int]$TimeoutSec = 60)
     $uri = "$($PortalUrl.TrimEnd('/'))$Path"
     $json = $Body | ConvertTo-Json -Depth 8 -Compress
     # -UseBasicParsing keeps this working on Server Core, where IE's DOM parser
     # is absent.
     Invoke-RestMethod -Uri $uri -Method Post -Headers $Headers -Body $json `
-        -ContentType 'application/json' -UseBasicParsing -TimeoutSec 60
+        -ContentType 'application/json' -UseBasicParsing -TimeoutSec $TimeoutSec
 }
 
 <#
@@ -845,11 +867,33 @@ function Install-Task {
     Register-ScheduledTask -TaskName $script:TaskName -Action $action `
         -Trigger @($daily, $startup) -Principal $principal -Settings $settings -Force | Out-Null
     Write-Log "Scheduled task '$($script:TaskName)' installed for agent $($script:AgentVersion) (daily 12:00 +/-30m, and at start-up)."
+
+    # 1.3.0 - the five-minute check-in. A daily trigger at midnight that
+    # repeats every five minutes for a day: the one repeating shape every
+    # Windows 10/11 and Server build accepts (an open-ended repetition is
+    # refused on some builds and means "never" on others). The scheduler
+    # keeps the rhythm across sleep and reboot by itself.
+    $hbArgs   = "-NoProfile -ExecutionPolicy Bypass -File `"$self`" -PortalUrl `"$PortalUrl`" -Heartbeat"
+    $hbAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $hbArgs
+    $hbTrigger = New-ScheduledTaskTrigger -Daily -At 12am
+    $hbTrigger.Repetition = (New-ScheduledTaskTrigger -Once -At 12am `
+        -RepetitionInterval (New-TimeSpan -Minutes $script:HeartbeatMinutes) `
+        -RepetitionDuration (New-TimeSpan -Days 1)).Repetition
+    # IgnoreNew: a check-in that turned into a full report (Refresh now) can
+    # outlast five minutes; the next one is skipped rather than queued.
+    $hbSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+                    -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries `
+                    -MultipleInstances IgnoreNew `
+                    -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+    Register-ScheduledTask -TaskName $script:HeartbeatTaskName -Action $hbAction `
+        -Trigger $hbTrigger -Principal $principal -Settings $hbSettings -Force | Out-Null
+    Write-Log "Scheduled task '$($script:HeartbeatTaskName)' installed (check-in every $($script:HeartbeatMinutes) minutes)."
 }
 
 function Uninstall-Agent {
     Try-Get { Unregister-ScheduledTask -TaskName $script:TaskName -Confirm:$false } | Out-Null
-    Write-Log 'Scheduled task removed.'
+    Try-Get { Unregister-ScheduledTask -TaskName $script:HeartbeatTaskName -Confirm:$false } | Out-Null
+    Write-Log 'Scheduled tasks removed.'
     $code = 0
     if (Test-Path -LiteralPath $script:EnrolFile) {
         try {
@@ -1011,12 +1055,53 @@ function Invoke-Agent {
     }
 }
 
+<#
+    The five-minute check-in (1.3.0). Deliberately small: it never enrols and
+    never repairs a credential - that is the daily run's job, under the lock,
+    with the stored enrolment token. It only says "on", and if the portal
+    answers that someone pressed Refresh now, hands over to a full run.
+    Logs only what someone would want to read: a refusal or a refresh. A
+    laptop with no network is offline, which is not news.
+#>
+function Invoke-Heartbeat {
+    $state = Get-AgentState
+    if ($state.Status -ne 'Ok') { return 0 }
+
+    $machineId = Try-Get { Get-MachineId }
+    $body = [ordered]@{ agentVersion = $script:AgentVersion }
+    if ($machineId) { $body['machineId'] = $machineId }
+    $res = $null
+    try {
+        $res = Invoke-Portal -Path '/discovery/agents/heartbeat' -TimeoutSec 30 `
+            -Headers @{ Authorization = "Bearer $($state.DeviceToken)" } -Body $body
+    } catch {
+        $status = Get-HttpStatus $_
+        if ($status -eq 401) {
+            Write-Log 'Check-in refused (HTTP 401). The daily run repairs the credential; nothing to do here.' 'WARN'
+        } elseif ($null -ne $status -and $status -ne 404 -and $status -ne 429) {
+            # 404: a portal older than check-ins. 429: busy. Neither is news.
+            Write-Log ("Check-in failed (HTTP {0})." -f $status) 'WARN'
+        }
+        return 1
+    }
+
+    if ((Get-Prop (Get-Prop $res 'data') 'refresh') -eq $true) {
+        Write-Log 'Refresh now was pressed in the portal; sending a full report.'
+        return (Invoke-Agent)
+    }
+    return 0
+}
+
 if ($LoadOnly) { return }
 
 $exitCode = 1
 try {
-    $exitCode = Invoke-Agent -EnrolmentToken $EnrolmentToken -Install:$Install -Uninstall:$Uninstall |
-        Select-Object -Last 1
+    if ($Heartbeat) {
+        $exitCode = Invoke-Heartbeat | Select-Object -Last 1
+    } else {
+        $exitCode = Invoke-Agent -EnrolmentToken $EnrolmentToken -Install:$Install -Uninstall:$Uninstall |
+            Select-Object -Last 1
+    }
 } catch {
     Write-Log (Get-BaseError $_).Message 'ERROR'
     $exitCode = 1

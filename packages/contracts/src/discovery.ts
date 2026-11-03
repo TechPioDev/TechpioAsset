@@ -136,6 +136,17 @@ export const agentReportSchema = z
 export type AgentReportInput = z.infer<typeof agentReportSchema>;
 
 /**
+ * The five-minute check-in (agent 1.3.0+). Identity comes from the credential;
+ * machineId is here only so a refused check-in can be attributed, exactly as
+ * on the report. Unknown keys are ignored so a newer agent can say more.
+ */
+export const agentHeartbeatSchema = z.object({
+  machineId: z.string().trim().min(8).max(200).optional().nullable(),
+  agentVersion: z.string().trim().max(40).optional().nullable(),
+});
+export type AgentHeartbeatInput = z.infer<typeof agentHeartbeatSchema>;
+
+/**
  * Replacing the company enrolment token. The previous token keeps enrolling
  * new laptops for `graceDays` so installers already handed out do not break the
  * moment someone replaces it; 0 retires it immediately.

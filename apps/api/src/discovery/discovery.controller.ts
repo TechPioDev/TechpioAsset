@@ -14,6 +14,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   agentEnrolSchema,
+  agentHeartbeatSchema,
   agentReportSchema,
   confirmMatchSchema,
   discoveryListQuerySchema,
@@ -25,6 +26,7 @@ import {
   type DiscoveryListQuery,
   type IngestInput,
   type AgentEnrolInput,
+  type AgentHeartbeatInput,
   type AgentReportInput,
 } from '@techpioasset/contracts';
 import { PERMISSIONS } from '@techpioasset/domain';
@@ -131,6 +133,22 @@ export class DiscoveryController {
     return this.discovery.reportFromAgent(req.agent!, body);
   }
 
+  @Post('agents/heartbeat')
+  @Public()
+  @UseGuards(AgentGuard)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Five-minute check-in (agent 1.3.0+)',
+    description:
+      'Keeps the laptop Online in the portal. The answer says whether someone pressed Refresh now, in which case the agent sends a full report straight away.',
+  })
+  heartbeat(
+    @Req() req: { agent?: AgentPrincipal },
+    @Body(zodBody(agentHeartbeatSchema)) body: AgentHeartbeatInput,
+  ) {
+    return this.enrolment.heartbeat(req.agent!, body.agentVersion);
+  }
+
   // ── agent administration (humans) ─────────────────────────────────────────
 
   @Get('agents/enrolment-token')
@@ -200,6 +218,18 @@ export class DiscoveryController {
   @ApiOperation({ summary: 'Enrolled laptops: status, last report, last rejection, agent version' })
   listAgents(@CurrentUser() actor: AuthUser) {
     return this.enrolment.listAgents(actor);
+  }
+
+  @Post('agents/:id/refresh')
+  @RequirePermissions(PERMISSIONS.DISCOVERY_INGEST)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Ask one laptop for a full report now',
+    description:
+      'The laptop is told at its next check-in (within five minutes when it is on, or when it is next switched on). 409 for a revoked laptop or an agent older than 1.3.0, which cannot check in.',
+  })
+  requestRefresh(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.enrolment.requestRefresh(actor, id);
   }
 
   @Delete('agents/:id')
