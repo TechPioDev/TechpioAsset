@@ -190,8 +190,20 @@ describe('a stock count recorded offline', () => {
       data: { companyId, code: `OFF-${tag}`, name: `Offline count ${tag}` },
       select: { id: true },
     });
-    const level = await prisma.client.stockLevel.create({
-      data: { companyId, inventoryItemId: item.id, stockLocationId: location.id, quantity: 7 },
+    // Through the ledger, not a raw row: a level with no movement behind it
+    // is exactly the drift the nightly stock sweep warns about, and that
+    // sweep's own test runs later in the same database.
+    const adjusted = await api(app).post('/api/v1/stock/adjust').set(auth(s.superAdmin)).send({
+      inventoryItemId: item.id,
+      stockLocationId: location.id,
+      delta: 7,
+      reason: 'Offline count fixture',
+    });
+    expect(adjusted.status, JSON.stringify(adjusted.body)).toBe(201);
+    const level = await prisma.client.stockLevel.findUniqueOrThrow({
+      where: {
+        inventoryItemId_stockLocationId: { inventoryItemId: item.id, stockLocationId: location.id },
+      },
       select: { inventoryItemId: true, stockLocationId: true, quantity: true },
     });
     const where = {
