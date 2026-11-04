@@ -13,6 +13,10 @@ overrides:
   # unifying on 19.1.17 (pre-19.2 regression) is the reliable fix.
   '@types/react': '19.1.17'
   '@types/react-dom': '19.1.11'
+  # @nestjs/platform-express 11 pins multer 2.4.0, which has a pending-file
+  # denial-of-service fix in 2.5.0 (GHSA, Nov 2026). The API already uses
+  # 2.5.0 directly; this makes Nest's own copy the same one.
+  'multer@<2.5.0': '>=2.5.0'
 
 # pnpm blocks dependency lifecycle scripts by default. These need them:
 # esbuild fetches its platform binary, Prisma generates its client and engines.
