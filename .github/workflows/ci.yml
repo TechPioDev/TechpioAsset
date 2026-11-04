@@ -70,6 +70,11 @@ jobs:
     name: API integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # Most tests boot the app, which reads the repo .env; six open a Prisma
+      # client of their own and read this variable directly. The first CI run
+      # proved it: 12 failures, every one "Environment variable not found".
+      DATABASE_URL: postgresql://techpioasset:techpioasset@localhost:5432/techpioasset?schema=public
     services:
       postgres:
         image: postgres:16-alpine
