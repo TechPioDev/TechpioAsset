@@ -366,7 +366,7 @@ def main() -> None:
     OUT.mkdir(exist_ok=True)
     for d in (HOST, CONTAINERS, API, POSTGRES):
         path = OUT / f"{d['uid']}.json"
-        path.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"wrote {path.relative_to(Path(__file__).parent.parent)} ({len(d['panels'])} panels)")
 
 

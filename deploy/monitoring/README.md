@@ -102,3 +102,12 @@ docker compose -f /opt/techpioasset/deploy/monitoring/docker-compose.monitoring.
 
 The API side lives in `apps/api/src/observability/metrics.ts`; `METRICS_PORT=0`
 turns the listener off, which the test lanes do.
+
+## Notes from the first rollout (4 Nov 2026)
+
+- Grafana validates the SMTP from-address and the email contact point even
+  with SMTP off, so the compose file defaults them to `monitoring@<host>` and
+  `nobody@<host>`. Replace `ALERT_EMAIL` with a real inbox when you set up SMTP.
+- cAdvisor must be v0.55 or newer on this VPS: Docker 29 keeps images in the
+  containerd store, and v0.52 registered no containers at all.
+- The whole stack measured about 215 MB of RAM with every container running.

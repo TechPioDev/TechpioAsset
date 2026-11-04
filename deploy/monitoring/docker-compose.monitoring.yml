@@ -70,10 +70,14 @@ services:
       GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:-}
       GF_SMTP_USER: ${GRAFANA_SMTP_USER:-}
       GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:-}
-      GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM:-grafana@localhost}
+      # Grafana validates this even with SMTP off, and refuses "@localhost".
+      GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM:-monitoring@${GRAFANA_PUBLIC_HOST}}
       GF_SMTP_FROM_NAME: PioAssets monitoring
       # Read by the provisioned contact point (grafana/provisioning/alerting).
-      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      # Grafana refuses an email contact point with no address, so an unset
+      # ALERT_EMAIL becomes a placeholder nobody reads; with SMTP off nothing is
+      # sent anyway, and the real address is one env edit away.
+      ALERT_EMAIL: ${ALERT_EMAIL:-nobody@${GRAFANA_PUBLIC_HOST}}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -110,14 +114,21 @@ services:
   # Per-container CPU, memory, network and restarts. Needs the Docker socket
   # and cgroups, read-only; --docker_only keeps the host's own cgroups out.
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    # v0.55 or newer: Docker 29 keeps images in the containerd store, and older
+    # cAdvisors (v0.52 tried) fail to register every container ("failed to
+    # identify the read-write layer ID"), leaving the dashboard empty.
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
     restart: unless-stopped
     privileged: true
     command:
       - --docker_only=true
       - --housekeeping_interval=30s
       - --store_container_labels=false
-      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+      # `disk` (per-container filesystem usage) is off deliberately: it walks
+      # every container's filesystem and cost over a gigabyte of page cache in
+      # a trial here. CPU, memory, network and restarts are unaffected; disk
+      # space is on the Host dashboard.
+      - --disable_metrics=advtcp,cpu_topology,cpuset,disk,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
