@@ -1214,6 +1214,49 @@ describe('the nightly sweep that chases a supplier (v2.50)', () => {
     });
     expect(raised?.body).toContain('no units available');
   });
+
+  // v3.22 - the two tests above had failed for weeks: the sweep read the first
+  // 500 matches and stopped, and this database had thousands of expired
+  // offers from earlier runs ahead of the fresh one. The sweep now pages.
+  it('chases every match, not just the first page', async () => {
+    const a = await liveOffer(vendorA, { ram_gb: '16' });
+    const b = await liveOffer(vendorA, { ram_gb: '32' });
+    const inTwoDays = new Date(Date.now() + 2 * 86_400_000);
+    await prisma.vendorProduct.updateMany({
+      where: { id: { in: [a, b] } },
+      data: { availableUntil: inTwoDays },
+    });
+
+    // A page of one: the second offer is only reached if the sweep turns the page.
+    await app.get(AlertSweepService).runVendorOfferSweep(new Date(), 1);
+
+    const user = await prisma.user.findFirstOrThrow({
+      where: { vendorId: vendorA, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    const chased = await prisma.notification.findMany({
+      where: { userId: user.id, type: 'VENDOR_PRODUCT_EXPIRING', entityId: { in: [a, b] } },
+      select: { entityId: true },
+    });
+    expect(chased.map((n) => n.entityId).sort()).toEqual([a, b].sort());
+  });
+
+  it('leaves an offer alone once it has been off sale for more than a week', async () => {
+    const id = await liveOffer(vendorA, { ram_gb: '16' });
+    await prisma.vendorProduct.update({
+      where: { id },
+      data: { availableUntil: new Date(Date.now() - 10 * 86_400_000) },
+    });
+
+    await app.get(AlertSweepService).runVendorOfferSweep();
+
+    // Weekly email about an offer that ended in March is how a supplier
+    // learns to filter the sender; after the week it is theirs to relist.
+    const raised = await prisma.notification.count({
+      where: { type: 'VENDOR_PRODUCT_EXPIRING', entityId: id },
+    });
+    expect(raised).toBe(0);
+  });
 });
 
 describe('stock depth on a listing (v2.51)', () => {

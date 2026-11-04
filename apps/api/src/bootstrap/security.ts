@@ -32,7 +32,6 @@ export function applySecurityMiddleware(app: INestApplication): void {
   // Trusting the loopback hop only means a client cannot forge its address:
   // whatever it puts in the header, nginx appends the real one last and that
   // is the one Express reads.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
   app.getHttpAdapter().getInstance().set('trust proxy', 'loopback');
   // Refresh tokens travel as httpOnly cookies; this reads them back.
   app.use(cookieParser());

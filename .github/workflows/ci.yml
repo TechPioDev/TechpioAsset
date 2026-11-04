@@ -1,0 +1,128 @@
+# TechpioAsset CI (v3.22).
+#
+# Until now every test gate ran on one developer machine. This runs the same
+# gates on every push and pull request, so a red commit is visible to the
+# whole team and never reaches `prod` unseen.
+#
+# Two jobs, so the fast one answers first:
+#   checks       lint, typecheck, and every package's unit tests (~5 min)
+#   integration  the API against a real Postgres: the main integration lane,
+#                the throttle lane and the RLS lane (~20 min)
+#
+# Secrets: none. The API boots from .env.example, whose placeholder secrets
+# are long enough for the schema and never used outside this runner.
+
+name: CI
+
+on:
+  push:
+    branches: [main, prod]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  # Keeps Turbo from trying to talk to a remote cache.
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from "packageManager" in package.json.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma client
+        run: pnpm --filter @techpioasset/api db:generate
+
+      - name: Build shared packages
+        # The apps import @techpioasset/domain and /contracts from dist.
+        run: pnpm turbo run build --filter='./packages/*'
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        # Every package's `test` script: domain, contracts, api (unit lane),
+        # web, mobile. The API's integration lanes are the job below.
+        run: pnpm test
+
+  integration:
+    name: API integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: techpioasset
+          POSTGRES_PASSWORD: techpioasset
+          POSTGRES_DB: techpioasset
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U techpioasset -d techpioasset"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Environment
+        # Same file a developer starts from; its DATABASE_URL already points at
+        # localhost:5432 with the credentials the service above uses.
+        run: cp .env.example .env
+
+      - name: Prisma client
+        run: pnpm --filter @techpioasset/api db:generate
+
+      - name: Build shared packages
+        run: pnpm turbo run build --filter='./packages/*'
+
+      - name: Migrate
+        run: pnpm --filter @techpioasset/api db:migrate:deploy
+
+      - name: Seed
+        # Reference data plus the demonstration tenant the tests log in to.
+        run: pnpm --filter @techpioasset/api seed
+
+      - name: Integration tests
+        run: pnpm --filter @techpioasset/api test:integration
+
+      - name: Throttle lane
+        # Its own lane: a deliberately small rate limit that would make every
+        # other suite flaky.
+        run: pnpm --filter @techpioasset/api test:integration:throttle
+
+      - name: RLS lane
+        # Provisions the non-superuser app role itself (test/setup/rls-role.ts)
+        # and proves row-level security holds for it.
+        run: pnpm --filter @techpioasset/api test:integration:rls

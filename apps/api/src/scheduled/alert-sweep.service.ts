@@ -988,33 +988,76 @@ export class AlertSweepService implements OnModuleInit {
    * The supplier is the only party who can fix either, and they are not sitting
    * in the app, so this goes out by email. Once a week per offer: a daily
    * reminder about a date three weeks out is how people learn to filter you.
+   *
+   * v3.22 - two things the first version got wrong, found by its own tests:
+   *
+   * - It looked at the first 500 matching offers and stopped. Nothing said so;
+   *   the 501st was simply never chased. The test database had 3,800 matches
+   *   and the two sweep tests had been failing for weeks for that reason alone.
+   *   The sweep now walks every match in pages (the `take` is a page size, not
+   *   a ceiling).
+   * - "Already past it" had no lower bound, so an offer that ended in March
+   *   was still emailed about every week in November. An offer is chased from
+   *   seven days before its end date to seven days after - one notice either
+   *   side at most - and then left alone; it is the supplier's to relist.
    */
-  async runVendorOfferSweep(now: Date = new Date()): Promise<number> {
+  async runVendorOfferSweep(now: Date = new Date(), pageSize = 500): Promise<number> {
     const soon = new Date(now.getTime() + 7 * 86_400_000);
+    const recently = new Date(now.getTime() - 7 * 86_400_000);
     let raised = 0;
 
-    const offers = await this.prisma.client.vendorProduct.findMany({
-      where: {
-        deletedAt: null,
-        status: 'APPROVED',
-        OR: [
-          // Coming off sale within the week, or already past it.
-          { availableUntil: { lte: soon } },
-          // In date, but nothing left to sell.
-          { availableUntil: { gt: now }, availableQuantity: { lte: 0 } },
-        ],
-      },
-      select: {
-        id: true,
-        companyId: true,
-        vendorId: true,
-        name: true,
-        availableUntil: true,
-        availableQuantity: true,
-      },
-      take: 500,
-    });
+    const where = {
+      deletedAt: null,
+      status: 'APPROVED' as const,
+      OR: [
+        // Coming off sale within the week, or past it within the week.
+        { availableUntil: { gte: recently, lte: soon } },
+        // In date, but nothing left to sell.
+        { availableUntil: { gt: now }, availableQuantity: { lte: 0 } },
+      ],
+    };
 
+    let cursor: string | undefined;
+    for (;;) {
+      const offers = await this.prisma.client.vendorProduct.findMany({
+        where,
+        select: {
+          id: true,
+          companyId: true,
+          vendorId: true,
+          name: true,
+          availableUntil: true,
+          availableQuantity: true,
+        },
+        orderBy: { id: 'asc' },
+        take: pageSize,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (offers.length === 0) break;
+      const last = offers.at(-1);
+      if (!last) break;
+      cursor = last.id;
+      raised += await this.chaseOffers(offers, now, soon);
+      if (offers.length < pageSize) break;
+    }
+
+    if (raised > 0) this.logger.log(`Vendor offer sweep raised ${raised} alert(s)`);
+    return raised;
+  }
+
+  private async chaseOffers(
+    offers: Array<{
+      id: string;
+      companyId: string;
+      vendorId: string;
+      name: string;
+      availableUntil: Date;
+      availableQuantity: number;
+    }>,
+    now: Date,
+    soon: Date,
+  ): Promise<number> {
+    let raised = 0;
     for (const offer of offers) {
       const daysLeft = Math.ceil((offer.availableUntil.getTime() - now.getTime()) / 86_400_000);
       const expiring = offer.availableUntil <= soon;
@@ -1033,8 +1076,6 @@ export class AlertSweepService implements OnModuleInit {
         raised += 1;
       }
     }
-
-    if (raised > 0) this.logger.log(`Vendor offer sweep raised ${raised} alert(s)`);
     return raised;
   }
 
