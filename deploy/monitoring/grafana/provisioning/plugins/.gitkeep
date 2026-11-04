@@ -1,1 +1,0 @@
-# Grafana reads every provisioning subfolder and logs an error for a missing one; nothing to provision here.

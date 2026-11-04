@@ -46,7 +46,6 @@ import { PushModule } from './providers/push/push.module.js';
 import { ChatModule } from './providers/chat/chat.module.js';
 import { SsoModule } from './providers/sso/sso.module.js';
 import { RequestContextMiddleware } from './common/middleware/request-context.middleware.js';
-import { MetricsMiddleware, MetricsModule } from './observability/metrics.module.js';
 import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor.js';
 import { RlsTenantInterceptor } from './common/interceptors/rls-tenant.interceptor.js';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter.js';
@@ -74,7 +73,6 @@ import { TenantThrottlerGuard } from './common/guards/tenant-throttler.guard.js'
       }),
     }),
     PrismaModule,
-    MetricsModule,
     AuditModule,
     MailModule,
     QueueModule,
@@ -134,8 +132,6 @@ import { TenantThrottlerGuard } from './common/guards/tenant-throttler.guard.js'
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Express 5 / path-to-regexp 8 syntax: a bare '*' is no longer a valid path.
-    // v3.20: metrics first, so the measured duration covers the whole request
-    // including the context middleware; it records on response finish.
-    consumer.apply(MetricsMiddleware, RequestContextMiddleware).forRoutes('{*path}');
+    consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
   }
 }

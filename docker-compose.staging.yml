@@ -57,9 +57,6 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     env_file: .env.staging
-    environment:
-      # v3.20: scrape listener reachable on the Docker network only (see docker-compose.vps.yml).
-      METRICS_HOST: 0.0.0.0
     depends_on:
       postgres:
         condition: service_healthy

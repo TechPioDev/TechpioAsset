@@ -34,9 +34,6 @@ export default defineConfig({
       // would otherwise trip its own brute-force protection. The throttle is
       // exercised deliberately in its own test rather than incidentally here.
       LOGIN_RATE_LIMIT: '10000',
-      // v3.20: no scrape listener in tests - files boot apps back to back and
-      // would race for the port. The metrics test starts its own on port 0.
-      METRICS_PORT: '0',
       // v2.6 A4: the demo Super Admin doubles as the designated platform
       // operator. Must be set before any import - ConfigModule validates the
       // environment eagerly, so a beforeAll assignment is too late.

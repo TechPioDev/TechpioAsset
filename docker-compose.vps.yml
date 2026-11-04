@@ -50,11 +50,6 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     env_file: .env.prod
-    environment:
-      # v3.20: the Prometheus scrape listener (port 9464) binds to the container's
-      # network so the monitoring stack can reach it. It is NOT in `ports`, so
-      # the host and the internet cannot. See deploy/monitoring/.
-      METRICS_HOST: 0.0.0.0
     depends_on:
       postgres:
         condition: service_healthy
