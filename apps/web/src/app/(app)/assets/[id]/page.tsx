@@ -25,6 +25,7 @@ import {
   Paperclip,
   Pencil,
   Printer,
+  Trash2,
   QrCode,
   RefreshCw,
   ShieldCheck,
@@ -65,7 +66,9 @@ import {
   type OwnershipType,
   holderHasLeft,
 } from '@techpioasset/domain';
+import { useRouter } from 'next/navigation';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useConfirm } from '@/providers/confirm-provider';
 import {
   assetDetailNav,
   conditionSentence,
@@ -370,6 +373,10 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
   const toast = useToast();
   const canSeeCost = can(PERMISSIONS.ASSETS_COST_READ);
   const canUpdate = can(PERMISSIONS.ASSETS_UPDATE);
+  // v3.18 - deleting a record is the Super Admin's door (assets:delete).
+  const canDelete = can(PERMISSIONS.ASSETS_DELETE);
+  const confirm = useConfirm();
+  const router = useRouter();
   const [tab, setTab] = useState<AssetTab>('overview');
   // v2.71 - the phone's bottom bar asks the custody panel for one of its forms.
   const [custodyAsk, setCustodyAsk] = useState<{
@@ -426,6 +433,27 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
         caught instanceof ApiError
           ? (caught.problem.detail ?? caught.problem.title)
           : 'Could not report. You may not have permission to change this asset.',
+      );
+    },
+  });
+
+  // v3.18 - the record itself, for an import mistake or a duplicate. Distinct
+  // from disposal, which is a real event in a real device's life.
+  const removeRecord = useMutation({
+    mutationFn: () =>
+      apiFetch(`/assets/${id}?reason=${encodeURIComponent('Deleted from the asset page')}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+      toast.success('Asset record deleted. Its history is kept.');
+      router.push('/assets');
+    },
+    onError: (caught) => {
+      toast.error(
+        caught instanceof ApiError
+          ? (caught.problem.detail ?? caught.problem.title)
+          : 'Could not delete this asset.',
       );
     },
   });
@@ -567,6 +595,26 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
           : []),
         ...(canOfferDisposal
           ? [{ label: 'Record disposal', icon: Archive, onClick: () => jumpTo('asset-disposal') }]
+          : []),
+        ...(canDelete
+          ? [
+              {
+                label: 'Delete record',
+                icon: Trash2,
+                danger: true,
+                onClick: () => {
+                  void (async () => {
+                    const ok = await confirm({
+                      title: `Delete ${data.name} (${data.assetTag})?`,
+                      body: 'Only for a record that should never have existed - an import mistake or a duplicate. For a device that has really reached the end of its life, use Record disposal instead. The record disappears from every list and total; its history is kept, and its tag and serial become free to use again.',
+                      confirmLabel: 'Delete record',
+                      destructive: true,
+                    });
+                    if (ok) removeRecord.mutate();
+                  })();
+                },
+              },
+            ]
           : []),
         ...(canSeeCost
           ? [

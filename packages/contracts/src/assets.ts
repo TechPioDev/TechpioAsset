@@ -278,6 +278,17 @@ export const bulkChangeStatusSchema = z.object({
 });
 export type BulkChangeStatusInput = z.infer<typeof bulkChangeStatusSchema>;
 
+/**
+ * v3.18 - delete several records at once, from the list's selection. Same
+ * meaning as the single delete: records that should never have existed, not
+ * devices that reached the end of their life (that is disposal).
+ */
+export const bulkDeleteAssetsSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, 'Select at least one asset').max(200),
+  reason: z.string().trim().max(500).optional(),
+});
+export type BulkDeleteAssetsInput = z.infer<typeof bulkDeleteAssetsSchema>;
+
 /** Per-asset outcome of a bulk operation, so partial failures surface clearly. */
 export interface BulkActionResult {
   succeeded: string[];

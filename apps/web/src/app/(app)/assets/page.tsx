@@ -12,6 +12,7 @@ import {
   Plus,
   QrCode,
   SlidersHorizontal,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -349,6 +350,8 @@ function AssetsTable() {
   // Bulk actions are for roles that can update assets. Selection is per-page and
   // clears whenever the visible set changes so you never act on unseen rows.
   const canBulk = can(PERMISSIONS.ASSETS_UPDATE);
+  // v3.18 - deleting records in bulk: the Super Admin's door (assets:delete).
+  const canDelete = can(PERMISSIONS.ASSETS_DELETE);
   useEffect(() => {
     setSelected(new Set());
   }, [q, status, lifecycle, availability, ownership, holder, page, pageSize]);
@@ -394,6 +397,41 @@ function AssetsTable() {
     },
     onError: () => toast.error('Bulk update failed'),
   });
+
+  // v3.18 - delete the selection: records that should never have existed.
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<BulkActionResult>('/assets/bulk/delete', {
+        method: 'POST',
+        body: { ids, reason: 'Deleted from the asset list' },
+      }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setSelected(new Set());
+      const why = result.failed[0]?.reason;
+      if (result.failed.length === 0) {
+        toast.success(`${result.succeeded.length} record(s) deleted. History is kept.`);
+      } else if (result.succeeded.length === 0) {
+        toast.error(`Nothing was deleted.${why ? ` ${why}` : ''}`);
+      } else {
+        toast.info(
+          `${result.succeeded.length} deleted; ${result.failed.length} skipped.${why ? ` ${why}` : ''}`,
+        );
+      }
+    },
+    onError: () => toast.error('Bulk delete failed'),
+  });
+
+  const deleteSelected = async () => {
+    if (selected.size === 0) return;
+    const ok = await confirm({
+      title: `Delete ${selected.size} asset record(s)?`,
+      body: 'Only for records that should never have existed - import mistakes and duplicates. For devices that have really reached the end of their life, use Record disposal on each one instead. The records disappear from every list and total; their history is kept, and their tags and serials become free again.',
+      confirmLabel: `Delete ${selected.size} record(s)`,
+      destructive: true,
+    });
+    if (ok) bulkDelete.mutate([...selected]);
+  };
 
   // The statuses worth offering for the current selection: any that at least
   // one selected asset can move to by hand. Read from the rows on screen,
@@ -789,10 +827,12 @@ function AssetsTable() {
         </div>
       </header>
 
-      {canBulk && selected.size > 0 ? (
+      {(canBulk || canDelete) && selected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-control)] border border-[var(--color-brand)] bg-[var(--color-brand-subtle,var(--color-surface-sunken))] px-4 py-2.5">
           <span className="text-sm font-medium">{selected.size} selected</span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {canBulk ? (
+            <>
             <label className="sr-only" htmlFor="bulk-status">
               Set status for selected assets
             </label>
@@ -831,6 +871,19 @@ function AssetsTable() {
             >
               Apply
             </Button>
+            </>
+            ) : null}
+            {canDelete ? (
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={bulkDelete.isPending || bulk.isPending}
+                loading={bulkDelete.isPending}
+                onClick={deleteSelected}
+              >
+                <Trash2 aria-hidden="true" className="size-4" /> Delete
+              </Button>
+            ) : null}
             <button
               type="button"
               onClick={() => setSelected(new Set())}

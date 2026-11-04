@@ -1888,6 +1888,33 @@ export class AssetsService {
     return { id, deleted: true };
   }
 
+  /**
+   * v3.18 - the single delete, applied to a selection. Each id goes through
+   * softDelete itself, so scope, the closing of open assignments and the
+   * audit line are identical to deleting them one by one; a failure for one
+   * (already gone, not in this company) is reported, not fatal to the rest.
+   */
+  async softDeleteBulk(
+    actor: AuthUser,
+    ids: string[],
+    reason?: string,
+  ): Promise<{ succeeded: string[]; failed: { id: string; reason: string }[] }> {
+    const succeeded: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+    for (const id of [...new Set(ids)]) {
+      try {
+        await this.softDelete(actor, id, reason);
+        succeeded.push(id);
+      } catch (error) {
+        failed.push({
+          id,
+          reason: error instanceof AppError ? error.message : 'Could not delete this asset',
+        });
+      }
+    }
+    return { succeeded, failed };
+  }
+
   async dispose(actor: AuthUser, id: string, input: DisposeAssetInput) {
     const asset = await this.loadForWrite(actor, id);
 

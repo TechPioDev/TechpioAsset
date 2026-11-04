@@ -23,8 +23,10 @@ import {
   assetListQuerySchema,
   assignAssetSchema,
   bulkChangeStatusSchema,
+  bulkDeleteAssetsSchema,
   changeAssetStatusSchema,
   type BulkChangeStatusInput,
+  type BulkDeleteAssetsInput,
   createAssetSchema,
   pageQuerySchema,
   disposeAssetSchema,
@@ -389,6 +391,21 @@ export class AssetsController {
     @Body(zodBody(bulkChangeStatusSchema)) body: BulkChangeStatusInput,
   ) {
     return this.assets.changeStatusBulk(actor, body.ids, body.status, body.reason);
+  }
+
+  @Post('bulk/delete')
+  @RequirePermissions(PERMISSIONS.ASSETS_DELETE)
+  @ApiOperation({
+    summary: 'Delete many records that should never have existed',
+    description:
+      'The single delete, applied per id: soft, history kept, open assignments closed. ' +
+      'The response lists what went and what did not.',
+  })
+  deleteBulk(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(bulkDeleteAssetsSchema)) body: BulkDeleteAssetsInput,
+  ) {
+    return this.assets.softDeleteBulk(actor, body.ids, body.reason);
   }
 
   @Post(':id/status')

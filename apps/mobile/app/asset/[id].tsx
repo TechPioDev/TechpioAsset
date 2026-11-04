@@ -290,6 +290,8 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
   const mayAssign = can(PERMISSIONS.ASSETS_ASSIGN);
   const mayReturn = can(PERMISSIONS.ASSETS_RETURN);
   const mayEdit = can(PERMISSIONS.ASSETS_UPDATE);
+  // v3.18 - deleting a record is the Super Admin's door (assets:delete).
+  const mayDelete = can(PERMISSIONS.ASSETS_DELETE);
   const canSeeCost = can(PERMISSIONS.ASSETS_COST_READ);
   const canOpenCatalogue = can(PERMISSIONS.VENDOR_PRODUCTS_READ);
   // Either custody right is enough to photograph a handover (web: condition-photos.tsx).
@@ -350,6 +352,34 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
     }
   }
   reportDamageRef.current = reportDamage;
+
+  // v3.18 - the record itself, for an import mistake or a duplicate. Distinct
+  // from disposal, which is a real event in a real device's life.
+  async function deleteRecord() {
+    if (!asset) return;
+    const ok = await confirm({
+      title: `Delete ${asset.name} (${asset.assetTag})?`,
+      message:
+        'Only for a record that should never have existed - an import mistake or a duplicate. For a device that has really reached the end of its life, record a disposal instead. The record disappears from every list; its history is kept.',
+      confirmLabel: 'Delete record',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.request(
+        `/assets/${asset.id}?reason=${encodeURIComponent('Deleted from the asset page (mobile)')}`,
+        { method: 'DELETE' },
+      );
+      toast.say('Deleted', 'The record is gone from every list. Its history is kept.');
+      if (router.canGoBack()) router.back();
+      else router.replace('/assets');
+    } catch {
+      toast.say('Could not delete', 'You may not have permission to delete this asset.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Only what this screen would offer anyway: the param is a shortcut to a
   // button that is already here, never a way round one that is not.
@@ -723,6 +753,19 @@ export function AssetDetailView({ id, action: actionParam }: { id: string; actio
             disabled={busy}
             style={{ marginTop: spacing.md, paddingVertical: 10 }}
           />
+        ) : null}
+        {mayDelete ? (
+          <Pressable
+            onPress={() => void deleteRecord()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Delete this asset record"
+            style={{ marginTop: spacing.sm, alignSelf: 'flex-end', paddingVertical: 6 }}
+          >
+            <Text style={{ color: c.danger, fontSize: 12, fontWeight: '600' }}>
+              Delete record…
+            </Text>
+          </Pressable>
         ) : null}
       </Card>
 

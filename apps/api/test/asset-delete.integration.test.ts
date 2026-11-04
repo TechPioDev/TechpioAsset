@@ -28,7 +28,12 @@ async function makeAsset() {
   const res = await api(app)
     .post('/api/v1/assets')
     .set(auth(s.itAdmin))
-    .send({ assetTag: `DEL-${suffix}`, name: `Bad import ${suffix}`, categoryId, status: 'AVAILABLE' });
+    .send({
+      assetTag: `DEL-${suffix}`,
+      name: `Bad import ${suffix}`,
+      categoryId,
+      status: 'AVAILABLE',
+    });
   expect(res.status, JSON.stringify(res.body)).toBeLessThan(300);
   created.push(res.body.data.id);
   return res.body.data.id as string;
@@ -48,6 +53,44 @@ afterAll(async () => {
     await prisma.client.$executeRawUnsafe('DELETE FROM assets WHERE id = $1', id);
   }
   await app?.close();
+});
+
+describe('deleting several records at once (v3.18)', () => {
+  it('is refused to anyone without assets:delete', async () => {
+    const id = await makeAsset();
+    const res = await api(app)
+      .post('/api/v1/assets/bulk/delete')
+      .set(auth(s.itAdmin))
+      .send({ ids: [id] });
+    expect(res.status).toBe(403);
+  });
+
+  it('deletes each selected record and reports the ones it could not', async () => {
+    const a = await makeAsset();
+    const b = await makeAsset();
+    const res = await api(app)
+      .post('/api/v1/assets/bulk/delete')
+      .set(auth(s.superAdmin))
+      .send({ ids: [a, b, 'not-a-real-asset-id'], reason: 'Duplicate import rows' });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(201);
+    expect(res.body.data.succeeded.sort()).toEqual([a, b].sort());
+    expect(res.body.data.failed).toEqual([
+      { id: 'not-a-real-asset-id', reason: expect.stringMatching(/not found/i) },
+    ]);
+
+    for (const id of [a, b]) {
+      const gone = await api(app).get(`/api/v1/assets/${id}`).set(auth(s.superAdmin));
+      expect(gone.status).toBe(404);
+    }
+  });
+
+  it('refuses an empty selection', async () => {
+    const res = await api(app)
+      .post('/api/v1/assets/bulk/delete')
+      .set(auth(s.superAdmin))
+      .send({ ids: [] });
+    expect(res.status).toBe(422);
+  });
 });
 
 describe('deleting an incorrect asset record', () => {
