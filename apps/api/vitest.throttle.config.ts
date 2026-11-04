@@ -30,6 +30,9 @@ export default defineConfig({
       RATE_LIMIT_MAX: '25',
       RATE_LIMIT_TTL_SECONDS: '60',
       LOGIN_RATE_LIMIT: '10000',
+      // v3.20: no scrape listener in tests - files boot apps back to back and
+      // would race for the port. The metrics test starts its own on port 0.
+      METRICS_PORT: '0',
       PLATFORM_ADMIN_EMAILS: 'admin@techpioasset.dev',
     },
     testTimeout: 120_000,

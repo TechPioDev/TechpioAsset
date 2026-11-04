@@ -190,3 +190,12 @@ TechpioAsset runs its own Postgres + Redis inside Docker.
 
 Add a `www.piotask.com` A record, then change the site line in `Caddyfile` to
 `piotask.com, www.piotask.com {` and re-up. Caddy will issue a certificate for both.
+
+## Monitoring (Prometheus + Grafana)
+
+v3.20 adds a self-hosted, all-open-source monitoring stack in its own compose
+project: host, containers, the API (requests, latency, errors, fleet counts)
+and Postgres, with ten alert rules. One command sets it up and one nginx
+include puts Grafana at `https://pioassets.com/grafana/`. Everything, including
+how alerts reach you and what it deliberately cannot see, is in
+[deploy/monitoring/README.md](../deploy/monitoring/README.md).

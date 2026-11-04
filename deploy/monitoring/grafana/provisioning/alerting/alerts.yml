@@ -1,0 +1,291 @@
+# Grafana-managed alert rules, contact point and routing (v3.20).
+#
+# Provisioned from this file, so the rules are reviewed in git like code and
+# survive a fresh Grafana volume. The contact point sends email to ALERT_EMAIL
+# once GRAFANA_SMTP_* are set in .env.monitoring; until then alerts still
+# fire and show in Grafana → Alerting, they just reach nobody.
+#
+# Rule shape: query A (instant) → threshold C. "for" is how long the condition
+# must hold before it fires, so a single slow scrape is not a page.
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: ops-email
+    receivers:
+      - uid: ops-email
+        type: email
+        settings:
+          addresses: ${ALERT_EMAIL}
+          singleEmail: true
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: ops-email
+    group_by: [grafana_folder, alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: pioassets
+    folder: PioAssets
+    interval: 1m
+    rules:
+      - uid: pa-api-down
+        title: PioAssets API is not being scraped (production)
+        condition: C
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: The production API's metrics port has been unreachable for 3 minutes.
+          description: Prometheus cannot reach techpioasset-api-1:9464. Either the API container is down or restarting in a loop. Check `docker ps` and `docker logs techpioasset-api-1`.
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'up{job="pioassets-api",env="production"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      - uid: pa-api-5xx
+        title: PioAssets API returning server errors (production)
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 2% of production requests have failed with 5xx for 10 minutes.
+          description: 'Rate of 5xx over all requests, excluding periods with under one request a minute. Look at the API dashboard for the route, then `docker logs techpioasset-api-1 | grep "\"level\":\"error\""`.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: '(sum(rate(http_requests_total{job="pioassets-api",env="production",status=~"5.."}[10m])) / sum(rate(http_requests_total{job="pioassets-api",env="production"}[10m]))) and sum(rate(http_requests_total{job="pioassets-api",env="production"}[10m])) > (1/60)'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.02] } }]
+
+      - uid: pa-api-slow
+        title: PioAssets API slow (production p95 over 2s)
+        condition: C
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: The 95th-percentile request time has been above 2 seconds for 15 minutes.
+          description: Check the API dashboard's latency-by-route panel and the Postgres dashboard; a slow database shows here first.
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="pioassets-api",env="production",route!="unmatched"}[10m])))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [2] } }]
+
+      - uid: pa-disk
+        title: VPS disk nearly full
+        condition: C
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: Less than 15% of the root disk is free.
+          description: 'Both products, their databases, uploads and 22 days of backups share this disk. Start with `docker system df`, `du -sh /var/backups/techpioasset`, and the Prometheus volume.'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'min(node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay"})'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.15] } }]
+
+      - uid: pa-memory
+        title: VPS memory pressure
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Less than 10% of RAM has been available for 10 minutes.
+          description: The Containers dashboard shows which container grew. The kernel will start killing processes if this continues.
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.10] } }]
+
+      - uid: pa-postgres-down
+        title: PioAssets production database unreachable
+        condition: C
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: The postgres exporter cannot connect to the production database.
+          description: 'Check `docker ps` for techpioasset-postgres-1 and `docker logs techpioasset-postgres-1`. If the database is fine, the monitor role may have been dropped - rerun deploy/monitoring/setup.sh.'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'pg_up{job="postgres",env="production"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+
+      - uid: pa-postgres-connections
+        title: PioAssets production database near its connection limit
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 80% of max_connections are in use.
+          description: Usually a connection leak after a deploy or a stuck job. The Postgres dashboard shows connections by state.
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'sum(pg_stat_activity_count{job="postgres",env="production"}) / max(pg_settings_max_connections{job="postgres",env="production"})'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.8] } }]
+
+      - uid: pa-fleet-stale
+        title: PioAssets fleet gauges stale (production)
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: The API has not recomputed its agent/asset counts for over 10 minutes.
+          description: 'The API refreshes these once a minute from the database; stale means every refresh is failing. `docker logs techpioasset-api-1 | grep "Fleet gauges"` has the reason.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'time() - techpioasset_fleet_gauges_refreshed_timestamp_seconds{job="pioassets-api",env="production"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [600] } }]
+
+      - uid: pa-agents-offline
+        title: Laptop agents all offline (production)
+        condition: C
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: No laptop agent has checked in for 30 minutes, though some were online in the last day.
+          description: 'Agents check in every 5 minutes. All of them silent at once points at the portal (enrolment route, nginx, TLS certificate) rather than at the laptops. Try the Devices page and `curl -sI https://pioassets.com/api/v1/discovery/agents/heartbeat`.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 86400, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              # 1 when online is zero now but was above zero at some point in the last day; no series otherwise.
+              expr: '((techpioasset_agents{job="pioassets-api",env="production",status="ONLINE"} == 0) and (max_over_time(techpioasset_agents{job="pioassets-api",env="production",status="ONLINE"}[1d]) > 0)) + 1'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: pa-container-restarts
+        title: A container is restarting repeatedly
+        condition: C
+        for: 0s
+        labels: { severity: warning }
+        annotations:
+          summary: 'A container has started more than twice in the last hour: {{ $labels.name }}.'
+          description: 'A crash loop. `docker logs --tail 100 <name>` shows why. Includes every container on the host, both products.'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'changes(container_start_time_seconds{job="cadvisor",name!=""}[1h])'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [2] } }]

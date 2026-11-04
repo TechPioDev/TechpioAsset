@@ -21,6 +21,12 @@ export const envSchema = z
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
     API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    /** v3.20 - Prometheus scrape listener, separate from API_PORT and never
+     *  published outside the Docker network. 0 turns it off (the test lanes). */
+    METRICS_PORT: z.coerce.number().int().min(0).max(65535).default(9464),
+    /** Loopback by default; the compose files set 0.0.0.0 so Prometheus can
+     *  reach the container over the Docker network. */
+    METRICS_HOST: z.string().default('127.0.0.1'),
     API_URL: z.string().url().default('http://localhost:3001'),
     WEB_URL: z.string().url().default('http://localhost:3000'),
     CORS_ORIGINS: z.string().default('http://localhost:3000').transform(csv),

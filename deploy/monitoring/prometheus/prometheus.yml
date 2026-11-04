@@ -1,0 +1,46 @@
+# Prometheus scrape configuration for the TechpioAsset VPS (v3.20).
+#
+# Targets are reached by container name over the Docker networks the
+# prometheus service joins (see docker-compose.monitoring.yml). None of them
+# is published to the host; this file is the only place they are addressed.
+#
+# Reload after an edit without a restart:
+#   curl -s -X POST http://127.0.0.1:9090/-/reload
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    host: pioassets-vps
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Host: CPU, memory, disk, load.
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Per-container resources, for every container on the host (both products).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # The API's internal metrics port: request rates and latency by route,
+  # Node process health, and the fleet gauges (agents, assets, companies, M365).
+  - job_name: pioassets-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['techpioasset-api-1:9464']
+        labels: { env: production }
+      - targets: ['techpioasset-staging-api-1:9464']
+        labels: { env: staging }
+
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter-prod:9187']
+        labels: { env: production }
+      - targets: ['postgres-exporter-staging:9187']
+        labels: { env: staging }

@@ -32,6 +32,9 @@ export default defineConfig({
     include: ['test/sweep-timing.perf.test.ts', 'test/export-memory.perf.test.ts'],
     env: {
       LOGIN_RATE_LIMIT: '10000',
+      // v3.20: no scrape listener in tests - files boot apps back to back and
+      // would race for the port. The metrics test starts its own on port 0.
+      METRICS_PORT: '0',
       PLATFORM_ADMIN_EMAILS: 'admin@techpioasset.dev',
     },
     // A sweep over a million-row ledger is allowed to take a while; that is the

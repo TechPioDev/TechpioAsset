@@ -69,3 +69,6 @@ apps/api/scripts/sync-gadget-update.json
 
 # Firebase config is supplied on the build server, never committed
 apps/mobile/google-services.json
+
+# v3.20 monitoring stack: generated passwords live here, never in git
+deploy/monitoring/.env.monitoring
