@@ -31,7 +31,10 @@ beforeAll(async () => {
 
   const [vendor, item, category] = await Promise.all([
     prisma.client.vendor.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
-    prisma.client.inventoryItem.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
+    prisma.client.inventoryItem.findFirst({
+      where: { companyId, deletedAt: null, batchTracked: false },
+      select: { id: true },
+    }),
     prisma.client.category.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
   ]);
   vendorId = vendor!.id;

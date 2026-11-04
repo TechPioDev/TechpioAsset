@@ -178,17 +178,27 @@ describe('who may sync what', () => {
 
 describe('a stock count recorded offline', () => {
   it('applies when nothing moved, and is a conflict when stock moved since', async () => {
-    const level = await prisma.client.stockLevel.findFirst({
-      where: { companyId: s.superAdmin.user.companyId },
-      orderBy: { updatedAt: 'desc' },
+    // A fresh database has no stock levels (the seed stops at items), so make
+    // the one this count is taken against. The first CI run found the old
+    // "the seed has at least one" assumption only held on a long-lived machine.
+    const companyId = s.superAdmin.user.companyId;
+    const item = await prisma.client.inventoryItem.findFirstOrThrow({
+      where: { companyId, deletedAt: null },
+      select: { id: true },
+    });
+    const location = await prisma.client.stockLocation.create({
+      data: { companyId, code: `OFF-${tag}`, name: `Offline count ${tag}` },
+      select: { id: true },
+    });
+    const level = await prisma.client.stockLevel.create({
+      data: { companyId, inventoryItemId: item.id, stockLocationId: location.id, quantity: 7 },
       select: { inventoryItemId: true, stockLocationId: true, quantity: true },
     });
-    expect(level, 'the seed has at least one stock level').toBeTruthy();
     const where = {
-      inventoryItemId: level!.inventoryItemId,
-      stockLocationId: level!.stockLocationId,
+      inventoryItemId: level.inventoryItemId,
+      stockLocationId: level.stockLocationId,
     };
-    const before = Number(level!.quantity);
+    const before = Number(level.quantity);
 
     const count = await sync(s.superAdmin, [
       op('STOCK_COUNT', null, { ...where, seenQuantity: before, countedQuantity: before + 2 }),

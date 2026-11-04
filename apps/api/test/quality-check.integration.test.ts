@@ -32,16 +32,27 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   companyId = s.superAdmin.user.companyId;
 
-  const [vendor, item, category, location] = await Promise.all([
+  const [vendor, item, category] = await Promise.all([
     prisma.client.vendor.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
-    prisma.client.inventoryItem.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
+    // Not lot-tracked: a receipt of a lot-tracked item needs a batch number,
+    // and these tests are about inspection, not lots. On a fresh database the
+    // first item is the seeded AA batteries, which are lot-tracked.
+    prisma.client.inventoryItem.findFirst({
+      where: { companyId, deletedAt: null, batchTracked: false },
+      select: { id: true },
+    }),
     prisma.client.category.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
-    prisma.client.stockLocation.findFirst({ where: { companyId, deletedAt: null }, select: { id: true } }),
   ]);
   vendorId = vendor!.id;
   itemId = item!.id;
   categoryId = category!.id;
-  stockLocationId = location!.id;
+  // A fresh database has no stock location (the seed stops at items); make the
+  // one these receipts post to rather than borrow whatever another test left.
+  const location = await prisma.client.stockLocation.create({
+    data: { companyId, code: `QC-${Date.now().toString(36)}`, name: 'Quality check shelf' },
+    select: { id: true },
+  });
+  stockLocationId = location.id;
 });
 
 afterAll(async () => {

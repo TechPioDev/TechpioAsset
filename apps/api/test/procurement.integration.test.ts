@@ -32,7 +32,7 @@ beforeAll(async () => {
   });
   vendorId = vendor!.id;
   const item = await prisma.client.inventoryItem.findFirst({
-    where: { companyId: s.superAdmin.user.companyId, deletedAt: null },
+    where: { companyId: s.superAdmin.user.companyId, deletedAt: null, batchTracked: false },
     select: { id: true },
   });
   itemId = item!.id;
