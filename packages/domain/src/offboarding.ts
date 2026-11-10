@@ -106,7 +106,7 @@ export function deactivateWithAssetsWarning(count: number): string | null {
   if (count <= 0) return null;
   return (
     `${count} asset${count === 1 ? ' is' : 's are'} still assigned to this person. ` +
-    'Deactivating leaves the equipment recorded against them with nobody chasing it. ' +
-    'Offboard instead to record each return and close the account in one go.'
+    'The account cannot be deactivated until each one is returned, handed over, or signed off as an exception. ' +
+    'Offboarding does that and closes the account when done.'
   );
 }

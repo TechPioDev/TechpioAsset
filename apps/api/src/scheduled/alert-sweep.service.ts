@@ -8,7 +8,9 @@ import {
   seatsAvailable,
   PUSH_CATEGORY,
   AGENT_DEVICE_TYPES,
+  ASSET_STATUSES_BLOCKING_OFFBOARDING,
   localWeekStart,
+  type AssetStatus as DomainAssetStatus,
   notEnrolledDevices,
   weeklySummaryDue,
   weeklySummaryText,
@@ -1236,6 +1238,7 @@ export class AlertSweepService implements OnModuleInit {
       agents,
       requestsRaised,
       assetsHandedOut,
+      heldByLeavers,
     ] = await Promise.all([
       this.prisma.client.requestApproval.count({
         where: { decision: 'PENDING', request: { companyId } },
@@ -1292,6 +1295,15 @@ export class AlertSweepService implements OnModuleInit {
       this.prisma.client.assetAssignment.count({
         where: { assignedAt: { gte: weekAgo }, asset: { companyId, deletedAt: null } },
       }),
+      // v3.23 - equipment still recorded against people whose accounts are closed.
+      this.prisma.client.asset.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          status: { in: ASSET_STATUSES_BLOCKING_OFFBOARDING as unknown as DomainAssetStatus[] },
+          assignedUser: { status: 'DEACTIVATED' },
+        },
+      }),
     ]);
     const lowStock = stockLevels.filter(
       (l) =>
@@ -1316,6 +1328,7 @@ export class AlertSweepService implements OnModuleInit {
       laptopsWithoutAgent,
       requestsRaised,
       assetsHandedOut,
+      heldByLeavers,
     };
   }
 

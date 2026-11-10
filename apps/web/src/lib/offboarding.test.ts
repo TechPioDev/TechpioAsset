@@ -23,6 +23,14 @@ describe('canOffboard', () => {
     // Invited or suspended people can still be offboarded - they may hold equipment.
     expect(canOffboard({ can: hr, meId: 'me', person: { id: 'u1', status: 'INVITED' } })).toBe(true);
   });
+
+  it('is offered on a closed account only while it still holds equipment (v3.23)', () => {
+    const left = { id: 'u1', status: 'DEACTIVATED' };
+    expect(canOffboard({ can: hr, meId: 'me', person: left, assetsOut: 2 })).toBe(true);
+    expect(canOffboard({ can: hr, meId: 'me', person: left, assetsOut: 0 })).toBe(false);
+    expect(canOffboard({ can: hr, meId: 'u1', person: left, assetsOut: 2 })).toBe(false);
+    expect(canOffboard({ can: withPerms(), meId: 'me', person: left, assetsOut: 2 })).toBe(false);
+  });
 });
 
 describe('openOffboardingFor', () => {
@@ -63,5 +71,13 @@ describe('button label', () => {
   it('says continue once a task is under way', () => {
     expect(offboardButtonLabel(false)).toBe('Offboard…');
     expect(offboardButtonLabel(true)).toBe('Continue offboarding');
+  });
+});
+
+describe('offboardButtonLabel', () => {
+  it('names the run for a closed account differently (v3.23)', () => {
+    expect(offboardButtonLabel(false)).toBe('Offboard…');
+    expect(offboardButtonLabel(false, true)).toBe('Clear their equipment…');
+    expect(offboardButtonLabel(true, true)).toBe('Continue offboarding');
   });
 });

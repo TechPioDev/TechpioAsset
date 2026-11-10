@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, Prisma } from '@prisma/client';
 import type { AuthUser } from '@techpioasset/contracts';
-import { ASSET_STATUSES_BLOCKING_OFFBOARDING, type AssetStatus } from '@techpioasset/domain';
+import {
+  ASSET_STATUSES_BLOCKING_OFFBOARDING,
+  normaliseSerial,
+  type AssetStatus,
+} from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { tenantFilter } from '../common/scope.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -316,6 +320,16 @@ export class LifecycleService {
       },
     });
 
+    // v3.23 - a laptop signed off as an exception is leaving with the person.
+    // Its agent credential must not keep posting into this company's register.
+    const agentsRevoked =
+      exceptionReason && outstanding.length > 0
+        ? await this.revokeLeaverAgents(
+            actor,
+            outstanding.map((a) => a.assetId),
+          )
+        : [];
+
     // Completing an offboarding means the person has left: disable their login so
     // a former employee can't sign in. Skipped only for the two cases where it
     // would be unsafe — disabling yourself, or removing the last active admin.
@@ -332,11 +346,56 @@ export class LifecycleService {
         outstandingAtCompletion: outstanding.length,
         exception: exceptionReason ?? null,
         accountDeactivated: deactivated,
+        agentsRevoked,
       },
       reason: exceptionReason,
     });
 
-    return this.getTask(actor, taskId);
+    return { ...(await this.getTask(actor, taskId)), agentsRevoked: agentsRevoked.length };
+  }
+
+  /**
+   * Revokes the agents enrolled from laptops that are leaving with a person
+   * (v3.23). Matched by serial number the way the coverage list matches them;
+   * a laptop that does come back after all is simply enrolled again, which
+   * clears the mark. Returns what was revoked, for the audit row.
+   */
+  private async revokeLeaverAgents(
+    actor: AuthUser,
+    assetIds: string[],
+  ): Promise<{ hostname: string | null; serialNumber: string }[]> {
+    const assets = await this.prisma.client.asset.findMany({
+      where: { id: { in: assetIds }, companyId: actor.companyId },
+      select: { serialNumber: true },
+      // One person's outstanding kit; the cap is a guard, not a page.
+      take: 200,
+    });
+    const leaving = new Set(
+      assets.map((a) => normaliseSerial(a.serialNumber)).filter((s): s is string => s !== null),
+    );
+    if (leaving.size === 0) return [];
+
+    const agents = await this.prisma.client.deviceAgent.findMany({
+      where: {
+        companyId: actor.companyId,
+        revokedAt: null,
+        serialNumber: { in: [...leaving], mode: 'insensitive' },
+      },
+      select: { id: true, hostname: true, serialNumber: true },
+      take: 200,
+    });
+    const matched = agents.filter((a) => {
+      const serial = normaliseSerial(a.serialNumber);
+      return serial !== null && leaving.has(serial);
+    });
+    if (matched.length === 0) return [];
+
+    await this.prisma.client.deviceAgent.updateMany({
+      where: { id: { in: matched.map((a) => a.id) } },
+      // Same shape as a manual revoke: no grace credential may come back to life.
+      data: { revokedAt: new Date(), previousTokenHash: null, previousTokenRotatedAt: null },
+    });
+    return matched.map((a) => ({ hostname: a.hostname, serialNumber: a.serialNumber ?? '' }));
   }
 
   /**

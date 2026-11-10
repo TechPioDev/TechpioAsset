@@ -195,8 +195,10 @@ export function ManageSheet({
     }
   };
 
-  // When equipment is still out the confirm says so and points at Offboard,
-  // which records each return; the server still allows a plain deactivate.
+  // v3.23 - with equipment still out the server refuses a plain deactivate.
+  // Offboarding (which records each return and closes the account) lives in
+  // the web app, so the phone says where to go rather than offering a button
+  // that would only come back refused.
   const deactivate = async () => {
     const assetsOut = await api
       .request<{ id: string }[]>(`/assets?assignedUserId=${user.id}&pageSize=${MAX_PAGE_SIZE}`)
@@ -204,12 +206,20 @@ export function ManageSheet({
       .catch(() => 0);
     const warning = deactivateWithAssetsWarning(assetsOut);
     void (async () => {
+      if (warning) {
+        await confirm({
+          title: `${name} still holds equipment`,
+          message: `${warning}\n\nOpen their page in the web app and use Offboard.`,
+          confirmLabel: 'Got it',
+          cancelLabel: 'Close',
+        });
+        return;
+      }
       const ok = await confirm({
         title: `Deactivate ${name}?`,
         message:
-          (warning ? `${warning}\n\n` : '') +
           'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
-        confirmLabel: warning ? 'Deactivate anyway' : 'Deactivate',
+        confirmLabel: 'Deactivate',
         destructive: true,
       });
       if (ok) await setStatus('DEACTIVATED');

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -142,6 +142,7 @@ function ManageUserModal({ user, onClose }: { user: UserRow; onClose: () => void
   const { can, user: me, impersonate } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const router = useRouter();
   const canRoles = can(PERMISSIONS.ROLES_MANAGE);
   const canStatus = can(PERMISSIONS.USERS_MANAGE);
   const canEmployees = can(PERMISSIONS.EMPLOYEES_CREATE);
@@ -252,19 +253,34 @@ function ManageUserModal({ user, onClose }: { user: UserRow; onClose: () => void
   });
 
   // Deactivating removes someone's access — gate it behind an explicit confirm.
-  // When equipment is still out the confirm says so and points at Offboard,
-  // which records each return; the server still allows a plain deactivate.
+  // v3.23 - with equipment still out the server refuses a plain deactivate, so
+  // the confirm takes the admin to offboarding instead, which records each
+  // return or hand-over and closes the account itself.
   const deactivate = async () => {
     const assetsOut = await apiFetchPage(`/assets?assignedUserId=${user.id}&pageSize=1`)
       .then((r) => r.meta.page.totalItems)
       .catch(() => 0);
     const warning = deactivateWithAssetsWarning(assetsOut);
+    if (warning) {
+      const canOffboardHere = can(PERMISSIONS.OFFBOARDING_MANAGE);
+      const go = await confirm({
+        title: `${name} still holds equipment`,
+        body: canOffboardHere
+          ? warning
+          : `${warning} Offboarding is done by whoever holds offboarding:manage; their page shows what is still out.`,
+        confirmLabel: canOffboardHere ? 'Open offboarding' : 'Open their page',
+        destructive: false,
+      });
+      if (go) {
+        onClose();
+        router.push(canOffboardHere ? `/people/${user.id}?offboard=1` : `/people/${user.id}`);
+      }
+      return;
+    }
     const ok = await confirm({
       title: `Deactivate ${name}?`,
-      body:
-        (warning ? `${warning} ` : '') +
-        'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
-      confirmLabel: warning ? 'Deactivate anyway' : 'Deactivate',
+      body: 'They will lose access immediately and cannot sign in until reactivated. Their records and asset history are kept.',
+      confirmLabel: 'Deactivate',
       destructive: true,
     });
     if (ok) setStatus.mutate('DEACTIVATED');

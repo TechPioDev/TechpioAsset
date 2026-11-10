@@ -24,12 +24,14 @@ export function canOffboard(input: {
   can: (permission: string) => boolean;
   meId: string | null | undefined;
   person: { id: string; status: string };
+  /** v3.23 - what the person still holds; lets a closed account be cleared. */
+  assetsOut?: number;
 }): boolean {
-  return (
-    input.can(PERMISSIONS.OFFBOARDING_MANAGE) &&
-    input.person.id !== input.meId &&
-    input.person.status !== 'DEACTIVATED'
-  );
+  if (!input.can(PERMISSIONS.OFFBOARDING_MANAGE) || input.person.id === input.meId) return false;
+  if (input.person.status !== 'DEACTIVATED') return true;
+  // An account closed with equipment still out (deactivated before v3.23, or
+  // by an exception) is cleared through the same routine.
+  return (input.assetsOut ?? 0) > 0;
 }
 
 /** The OPEN offboarding task for a person, if one exists. */
@@ -59,6 +61,7 @@ export function offboardingRowActions(input: {
 }
 
 /** The button's label depends on whether a task is already under way. */
-export function offboardButtonLabel(hasOpenTask: boolean): string {
-  return hasOpenTask ? 'Continue offboarding' : 'Offboard…';
+export function offboardButtonLabel(hasOpenTask: boolean, personLeft = false): string {
+  if (hasOpenTask) return 'Continue offboarding';
+  return personLeft ? 'Clear their equipment…' : 'Offboard…';
 }

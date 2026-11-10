@@ -76,7 +76,8 @@ describe('labels', () => {
     expect(deactivateWithAssetsWarning(0)).toBeNull();
     expect(deactivateWithAssetsWarning(1)).toMatch(/^1 asset is still assigned/);
     expect(deactivateWithAssetsWarning(3)).toMatch(/^3 assets are still assigned/);
-    expect(deactivateWithAssetsWarning(3)).toMatch(/Offboard instead/);
+    expect(deactivateWithAssetsWarning(3)).toMatch(/cannot be deactivated/);
+    expect(deactivateWithAssetsWarning(3)).toMatch(/Offboarding does that/);
   });
 
   it('knows which statuses block', () => {

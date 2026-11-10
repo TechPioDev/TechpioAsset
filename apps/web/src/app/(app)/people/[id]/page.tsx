@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LogOut, Mail, Phone, ShieldCheck, ShieldOff } from 'lucide-react';
@@ -95,6 +95,22 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
     enabled: can(PERMISSIONS.EMPLOYEES_READ),
     retry: false,
   });
+  // v3.23 - how much is still out, so a closed account that still holds
+  // equipment can be cleared through the same routine.
+  const held = useQuery({
+    queryKey: ['person-assets-out', id],
+    queryFn: () =>
+      apiFetchPage<{ id: string }>(`/assets?assignedUserId=${id}&pageSize=1`).then(
+        (r) => r.meta.page.totalItems,
+      ),
+    enabled: can(PERMISSIONS.OFFBOARDING_MANAGE),
+    retry: false,
+  });
+  // Arriving from Manage → Deactivate with equipment still out opens the
+  // routine straight away.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('offboard') === '1') setOffboarding(true);
+  }, []);
 
   if (person.isPending) return <Skeleton className="h-96" />;
   if (person.isError)
@@ -103,7 +119,8 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
   const p = person.data;
   const name = p.profile ? `${p.profile.firstName} ${p.profile.lastName}` : p.email;
   const openTask = openOffboardingFor(openTasks.data, id);
-  const offerOffboard = canOffboard({ can, meId: me?.id, person: p });
+  const offerOffboard = canOffboard({ can, meId: me?.id, person: p, assetsOut: held.data ?? 0 });
+  const personLeft = p.status === 'DEACTIVATED';
 
   return (
     <div className="grid gap-4">
@@ -146,7 +163,7 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
           {offerOffboard ? (
             <Button variant={openTask ? 'primary' : 'secondary'} onClick={() => setOffboarding(true)}>
               <LogOut aria-hidden="true" className="size-4" />
-              {offboardButtonLabel(Boolean(openTask))}
+              {offboardButtonLabel(Boolean(openTask), personLeft)}
             </Button>
           ) : null}
           <Link
@@ -162,10 +179,12 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
         <OffboardingPanel
           personId={id}
           personName={name}
+          personLeft={personLeft}
           onClose={() => {
             setOffboarding(false);
             void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
             void qc.invalidateQueries({ queryKey: ['equipment-kit', id] });
+            void qc.invalidateQueries({ queryKey: ['person-assets-out', id] });
           }}
           onCompleted={() => {
             // The page underneath now shows the Deactivated badge, and the
@@ -174,6 +193,7 @@ export default function PersonPage({ params }: { params: Promise<{ id: string }>
             void qc.invalidateQueries({ queryKey: ['people'] });
             void qc.invalidateQueries({ queryKey: ['offboarding-open'] });
             void qc.invalidateQueries({ queryKey: ['equipment-kit', id] });
+            void qc.invalidateQueries({ queryKey: ['person-assets-out', id] });
           }}
         />
       ) : null}

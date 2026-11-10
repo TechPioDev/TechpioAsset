@@ -78,6 +78,8 @@ export interface WeeklySummaryCounts {
   lowStock: number;
   warrantiesExpiring: number;
   laptopsWithoutAgent: number;
+  /** v3.23 - equipment still recorded against people whose accounts are closed. */
+  heldByLeavers: number;
   requestsRaised: number;
   assetsHandedOut: number;
 }
@@ -89,6 +91,7 @@ const ATTENTION: readonly [keyof WeeklySummaryCounts, string, string][] = [
   ['lowStock', 'item low on stock', 'items low on stock'],
   ['warrantiesExpiring', 'warranty ending in 30 days', 'warranties ending in 30 days'],
   ['laptopsWithoutAgent', 'laptop without the agent', 'laptops without the agent'],
+  ['heldByLeavers', 'item still with someone who left', 'items still with people who left'],
 ];
 
 /**
@@ -115,6 +118,7 @@ export function weeklySummaryText(counts: WeeklySummaryCounts): {
     ['Items low on stock', String(counts.lowStock)],
     ['Warranties ending in 30 days', String(counts.warrantiesExpiring)],
     ['Laptops without the agent', String(counts.laptopsWithoutAgent)],
+    ['Still with people who left', String(counts.heldByLeavers)],
     ['Requests raised last week', String(counts.requestsRaised)],
     ['Assets handed out last week', String(counts.assetsHandedOut)],
   ];

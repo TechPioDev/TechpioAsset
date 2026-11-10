@@ -42,6 +42,8 @@ interface Task {
   checklist: OffboardingAssetRef[] | null;
   outstandingAssets: OffboardingAssetRef[];
   canComplete: boolean;
+  /** v3.23 - laptop agents revoked when an exception let equipment leave. */
+  agentsRevoked?: number;
 }
 
 interface HeldConsumable {
@@ -74,11 +76,14 @@ const problemText = (e: unknown, fallback: string) =>
 export function OffboardingPanel({
   personId,
   personName,
+  personLeft = false,
   onClose,
   onCompleted,
 }: {
   personId: string;
   personName: string;
+  /** v3.23 - the account is already closed; this run only clears equipment. */
+  personLeft?: boolean;
   onClose: () => void;
   /** Called after the server accepts the completion - the caller refreshes the page. */
   onCompleted: () => void;
@@ -181,10 +186,14 @@ export function OffboardingPanel({
       }),
     onSuccess: (t, reason) => {
       qc.setQueryData(['offboarding-task', t.id], t);
+      const account = personLeft ? 'equipment cleared' : 'account deactivated';
+      const agents = t.agentsRevoked
+        ? ` · ${t.agentsRevoked} laptop agent${t.agentsRevoked === 1 ? '' : 's'} revoked`
+        : '';
       toast.success(
         reason
-          ? `${personName} offboarded with a documented exception - account deactivated`
-          : `${personName} offboarded - account deactivated`,
+          ? `${personName} offboarded with a documented exception - ${account}${agents}`
+          : `${personName} offboarded - ${account}`,
       );
       onCompleted();
     },
@@ -421,8 +430,8 @@ export function OffboardingPanel({
                       <span>
                         The {progress.blocking} outstanding{' '}
                         {progress.blocking === 1 ? 'asset stays' : 'assets stay'} recorded against{' '}
-                        {personName} after their account is closed. Your name is recorded as having
-                        approved this.
+                        {personName} after their account is closed. Any laptop among them loses its
+                        agent credential. Your name is recorded as having approved this.
                       </span>
                     </p>
                     <label className="grid gap-1 text-xs text-[var(--color-content-subtle)]">

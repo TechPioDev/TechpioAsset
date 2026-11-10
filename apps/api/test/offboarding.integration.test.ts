@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
 import { api, auth, createTestApp, loginAll, type AccountKey, type Session } from './harness.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 
 /**
  * Phase 2 exit criterion: offboarding is blocked while an asset is unresolved.
@@ -379,6 +380,112 @@ describe('offboarding as the person page drives it', () => {
       .post(`/api/v1/assets/${asset.id}/return`)
       .set(auth(s.itAdmin))
       .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+  });
+
+  it('an exception revokes the agent of a laptop that is not coming back (v3.23)', async () => {
+    const prisma = app.get(PrismaService);
+    const suffix = `R${Date.now().toString().slice(-8)}`;
+    // assignFreshAsset gives the laptop serial OFFSN-<suffix>.
+    const asset = await assignFreshAsset(s.employee3.user.id, suffix);
+    const companyId = s.hr.user.companyId;
+    // Lower-case on purpose: agents and the register are matched without case.
+    const leaving = await prisma.client.deviceAgent.create({
+      data: {
+        companyId,
+        machineId: `OFFM-${suffix}`,
+        tokenHash: `offtok-${suffix}`,
+        hostname: `LEAVER-${suffix}`,
+        serialNumber: `offsn-${suffix}`,
+        platform: 'windows',
+      },
+      select: { id: true },
+    });
+    const staying = await prisma.client.deviceAgent.create({
+      data: {
+        companyId,
+        machineId: `OFFM2-${suffix}`,
+        tokenHash: `offtok2-${suffix}`,
+        hostname: `STAYS-${suffix}`,
+        serialNumber: `OTHER-${suffix}`,
+        platform: 'windows',
+      },
+      select: { id: true },
+    });
+
+    try {
+      const started = await api(app)
+        .post('/api/v1/lifecycle/offboarding')
+        .set(auth(s.hr))
+        .send({ subjectUserId: s.employee3.user.id });
+      expect(started.status, JSON.stringify(started.body)).toBe(201);
+
+      const completed = await api(app)
+        .post(`/api/v1/lifecycle/offboarding/${started.body.data.id}/complete`)
+        .set(auth(s.hr))
+        .send({ exceptionReason: 'Laptop kept by the leaver; written off by Finance.' });
+      expect(completed.status, JSON.stringify(completed.body)).toBe(201);
+      expect(completed.body.data.agentsRevoked).toBe(1);
+
+      const after = await prisma.client.deviceAgent.findMany({
+        where: { id: { in: [leaving.id, staying.id] } },
+        select: { id: true, revokedAt: true, previousTokenHash: true },
+      });
+      const gone = after.find((a) => a.id === leaving.id);
+      const kept = after.find((a) => a.id === staying.id);
+      expect(gone?.revokedAt).not.toBeNull();
+      expect(gone?.previousTokenHash).toBeNull();
+      expect(kept?.revokedAt).toBeNull();
+    } finally {
+      await prisma.client.deviceAgent.deleteMany({ where: { id: { in: [leaving.id, staying.id] } } });
+      await api(app)
+        .post(`/api/v1/assets/${asset.id}/return`)
+        .set(auth(s.itAdmin))
+        .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+    }
+  });
+
+  it('a return, not an exception, leaves the laptop agent alone (v3.23)', async () => {
+    const prisma = app.get(PrismaService);
+    const suffix = `S${Date.now().toString().slice(-8)}`;
+    await assignFreshAsset(s.employee3.user.id, suffix);
+    const agent = await prisma.client.deviceAgent.create({
+      data: {
+        companyId: s.hr.user.companyId,
+        machineId: `OFFM3-${suffix}`,
+        tokenHash: `offtok3-${suffix}`,
+        hostname: `RETURNS-${suffix}`,
+        serialNumber: `OFFSN-${suffix}`,
+        platform: 'windows',
+      },
+      select: { id: true },
+    });
+    try {
+      const started = await api(app)
+        .post('/api/v1/lifecycle/offboarding')
+        .set(auth(s.hr))
+        .send({ subjectUserId: s.employee3.user.id });
+      const taskId = started.body.data.id;
+      const refreshed = await api(app).get(`/api/v1/lifecycle/tasks/${taskId}`).set(auth(s.hr));
+      for (const outstanding of refreshed.body.data.outstandingAssets) {
+        await api(app)
+          .post(`/api/v1/assets/${outstanding.assetId}/return`)
+          .set(auth(s.itAdmin))
+          .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+      }
+      const completed = await api(app)
+        .post(`/api/v1/lifecycle/offboarding/${taskId}/complete`)
+        .set(auth(s.hr))
+        .send({});
+      expect(completed.status, JSON.stringify(completed.body)).toBe(201);
+      expect(completed.body.data.agentsRevoked).toBe(0);
+      const row = await prisma.client.deviceAgent.findUniqueOrThrow({
+        where: { id: agent.id },
+        select: { revokedAt: true },
+      });
+      expect(row.revokedAt).toBeNull();
+    } finally {
+      await prisma.client.deviceAgent.deleteMany({ where: { id: agent.id } });
+    }
   });
 
   it('answers 404 for a subject or task outside the tenant', async () => {

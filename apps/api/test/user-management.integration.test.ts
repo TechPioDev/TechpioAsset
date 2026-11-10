@@ -28,7 +28,30 @@ async function userId(email: string): Promise<string> {
   const res = await api(app)
     .get(`/api/v1/users?q=${encodeURIComponent(email)}&pageSize=1&audience=all`)
     .set(auth(s.superAdmin));
-  return res.body.data[0].id;
+  if (res.body.data[0]) return res.body.data[0].id;
+  // Deactivated accounts sit in their own view; a test that failed between
+  // deactivating and restoring must still be able to find the account.
+  const closed = await api(app)
+    .get(`/api/v1/users?q=${encodeURIComponent(email)}&pageSize=1&audience=all&view=deactivated`)
+    .set(auth(s.superAdmin));
+  return closed.body.data[0].id;
+}
+
+/**
+ * v3.23 - deactivation is refused while equipment is out, so whatever an
+ * earlier file left with employee3 (the offboarding exception tests do) goes
+ * back first. Best effort: a status the return path refuses is left alone.
+ */
+async function returnEverythingHeldBy(id: string) {
+  const held = await api(app)
+    .get(`/api/v1/assets?assignedUserId=${id}&pageSize=100`)
+    .set(auth(s.itAdmin));
+  for (const asset of held.body.data ?? []) {
+    await api(app)
+      .post(`/api/v1/assets/${asset.id}/return`)
+      .set(auth(s.itAdmin))
+      .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+  }
 }
 
 // Return employee3 to its seeded baseline after each mutation test.
@@ -106,6 +129,7 @@ describe('changing roles (roles:manage)', () => {
 describe('changing status (users:manage)', () => {
   it('deactivates and reactivates a user', async () => {
     const id = await userId('employee3');
+    await returnEverythingHeldBy(id);
     const off = await api(app)
       .patch(`/api/v1/users/${id}/status`)
       .set(auth(s.superAdmin))
@@ -118,6 +142,64 @@ describe('changing status (users:manage)', () => {
       .set(auth(s.superAdmin))
       .send({ status: 'ACTIVE' });
     expect(on.body.data.status).toBe('ACTIVE');
+  });
+
+  it('refuses to deactivate someone who still holds equipment, and says to offboard them (v3.23)', async () => {
+    const id = await userId('employee3');
+    await returnEverythingHeldBy(id);
+
+    const categories = await api(app).get('/api/v1/categories').set(auth(s.itAdmin));
+    const itCategory = categories.body.data.find((c: { key: string }) => c.key === 'it-assets');
+    const suffix = Date.now().toString().slice(-8);
+    const created = await api(app)
+      .post('/api/v1/assets')
+      .set(auth(s.itAdmin))
+      .send({
+        assetTag: `USR-${suffix}`,
+        name: `Deactivation gate laptop ${suffix}`,
+        categoryId: itCategory.id,
+        status: 'AVAILABLE',
+      });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const assigned = await api(app)
+      .post(`/api/v1/assets/${created.body.data.id}/assign`)
+      .set(auth(s.itAdmin))
+      .send({ userId: id, conditionOut: 'GOOD' });
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(201);
+
+    const refused = await api(app)
+      .patch(`/api/v1/users/${id}/status`)
+      .set(auth(s.superAdmin))
+      .send({ status: 'DEACTIVATED', reason: 'Left the company' });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(409);
+    // The screen shows the detail, so the count and the way out both live there.
+    expect(refused.body.detail).toContain('1 asset is still assigned');
+    expect(refused.body.detail).toContain('Offboard');
+
+    // Suspension is temporary, so equipment out does not block it.
+    const suspended = await api(app)
+      .patch(`/api/v1/users/${id}/status`)
+      .set(auth(s.superAdmin))
+      .send({ status: 'SUSPENDED' });
+    expect(suspended.status, JSON.stringify(suspended.body)).toBe(200);
+
+    const returned = await api(app)
+      .post(`/api/v1/assets/${created.body.data.id}/return`)
+      .set(auth(s.itAdmin))
+      .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+    expect(returned.status, JSON.stringify(returned.body)).toBe(201);
+
+    const off = await api(app)
+      .patch(`/api/v1/users/${id}/status`)
+      .set(auth(s.superAdmin))
+      .send({ status: 'DEACTIVATED' });
+    expect(off.status, JSON.stringify(off.body)).toBe(200);
+
+    const on = await api(app)
+      .patch(`/api/v1/users/${id}/status`)
+      .set(auth(s.superAdmin))
+      .send({ status: 'ACTIVE' });
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
   });
 
   it('forbids a non-admin from changing status', async () => {

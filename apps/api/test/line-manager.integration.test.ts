@@ -146,10 +146,22 @@ describe('shapes that are refused', () => {
   });
 
   it('refuses a deactivated account - it could never act on the approval', async () => {
-    await api(app)
+    // v3.23 - deactivation is refused while equipment is out; hand back
+    // whatever an earlier file left with employee3.
+    const held = await api(app)
+      .get(`/api/v1/assets?assignedUserId=${s.employee3.user.id}&pageSize=100`)
+      .set(auth(s.itAdmin));
+    for (const asset of held.body.data ?? []) {
+      await api(app)
+        .post(`/api/v1/assets/${asset.id}/return`)
+        .set(auth(s.itAdmin))
+        .send({ conditionIn: 'GOOD', resultingStatus: 'AVAILABLE' });
+    }
+    const off = await api(app)
       .patch(`/api/v1/users/${s.employee3.user.id}/status`)
       .set(auth(s.superAdmin))
       .send({ status: 'DEACTIVATED' });
+    expect(off.status, JSON.stringify(off.body)).toBe(200);
     try {
       const res = await setManager(s.employee, s.employee3.user.id);
       expect(res.status).toBe(422);

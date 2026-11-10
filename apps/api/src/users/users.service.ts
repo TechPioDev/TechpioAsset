@@ -11,7 +11,11 @@ import type {
   UserListQuery,
 } from '@techpioasset/contracts';
 import type { AuthUser } from '@techpioasset/contracts';
-import { findSodConflicts } from '@techpioasset/domain';
+import {
+  ASSET_STATUSES_BLOCKING_OFFBOARDING,
+  findSodConflicts,
+  type AssetStatus,
+} from '@techpioasset/domain';
 import { AppError } from '../common/errors/app-error.js';
 import { buildOrderBy, paginate } from '../common/paginate.js';
 import { userScopeFilter } from '../common/scope.js';
@@ -746,6 +750,32 @@ export class UsersService {
           detail: 'Activate another Super Admin before deactivating this one.',
         },
       );
+    }
+
+    // v3.23 - a plain deactivate used to go through with equipment still out,
+    // which is how laptops ended up recorded against people who had left, with
+    // nobody chasing them. Offboarding is the routine for that: it records each
+    // return or hand-over (or a signed-off exception) and then closes the
+    // account itself. Suspension stays open - it is temporary.
+    if (input.status === 'DEACTIVATED') {
+      const held = await this.prisma.client.asset.count({
+        where: {
+          companyId: actor.companyId,
+          deletedAt: null,
+          assignedUserId: id,
+          status: { in: ASSET_STATUSES_BLOCKING_OFFBOARDING as unknown as AssetStatus[] },
+        },
+      });
+      if (held > 0) {
+        // The count goes in the detail: a 409 reaches the screen as its detail,
+        // and "Conflict" alone would send the admin looking for what conflicts.
+        const still = `${held} asset${held === 1 ? ' is' : 's are'} still assigned to this person.`;
+        throw new AppError('CONFLICT', still, {
+          detail:
+            `${still} Offboard them from their page instead: it records each return or ` +
+            'hand-over, or a signed-off exception, and deactivates the account when done.',
+        });
+      }
     }
 
     await this.prisma.client.user.update({

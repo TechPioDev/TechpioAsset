@@ -52,6 +52,7 @@ describe('what the Monday summary says', () => {
     lowStock: 0,
     warrantiesExpiring: 0,
     laptopsWithoutAgent: 0,
+    heldByLeavers: 0,
     requestsRaised: 4,
     assetsHandedOut: 2,
   };
@@ -73,9 +74,19 @@ describe('what the Monday summary says', () => {
     expect(weeklySummaryText(zero).pushBody).toBe('Nothing is waiting on anyone this week.');
   });
 
+  it('counts equipment still with people who left as something to do (v3.23)', () => {
+    expect(weeklySummaryText({ ...zero, heldByLeavers: 1 }).pushBody).toBe(
+      '1 item still with someone who left',
+    );
+    expect(weeklySummaryText({ ...zero, heldByLeavers: 4 }).pushBody).toBe(
+      '4 items still with people who left',
+    );
+  });
+
   it('keeps every figure in the email', () => {
     const { rows } = weeklySummaryText(zero);
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(9);
     expect(rows).toContainEqual(['Requests raised last week', '4']);
+    expect(rows).toContainEqual(['Still with people who left', '0']);
   });
 });
