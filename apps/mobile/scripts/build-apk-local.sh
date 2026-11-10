@@ -5,7 +5,8 @@
 # Run from Git Bash:
 #     bash apps/mobile/scripts/build-apk-local.sh
 #
-# Output: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+# Output: apps/mobile/build/app-release.apk (copied there from wherever Gradle
+# ran - see SHORT CHECKOUT below).
 #
 # The APK is signed with the Android *debug* key, because that is what
 # `expo prebuild` writes into android/app/build.gradle. It installs by sideload
@@ -18,10 +19,26 @@
 # ---------------------------------------------------------------------------
 #
 # JAVA_HOME / ANDROID_HOME
-#   There is no standalone JDK or Android SDK installed. Unity's Android build
-#   support ships both, but its SDK lives under "C:\Program Files\...", which is
-#   read-only to Gradle and contains a space (see CMAKE below). So C:\Android\sdk
-#   is a writable SDK assembled from it - see SDK LAYOUT.
+#   JAVA_HOME is taken from the environment, else the first JDK that exists:
+#   C:\dev\jdk-17, Android Studio's bundled one, then Unity's (which no longer
+#   ships its Android module on this machine - it vanished between August and
+#   November 2026 and took the SDK platforms and NDK with it). ANDROID_HOME is
+#   C:\Android\sdk, a writable SDK assembled from pieces - see SDK LAYOUT. It
+#   must stay writable and space-free (see CMAKE below).
+#
+# SHORT CHECKOUT  (the 260-character limit, again)
+#   Since the repo moved to E:\TechPio-Data\TechpioAsset the arm64 prefab paths
+#   inside the pnpm store reach 257 characters, and ninja reports the fbjni
+#   config it just wrote as missing and loops until "manifest 'build.ninja'
+#   still dirty after 100 tries". Clearing .cxx does not help; the path is
+#   simply too long. Enabling long paths is a system setting that is the
+#   owner's to change, so instead the build runs from a git worktree at a short
+#   real path (SHORT_ROOT, default E:\ta) whenever the checkout path is longer
+#   than MAX_ROOT_LEN characters. The worktree is moved to the current HEAD,
+#   installed from the pnpm store, and this same script re-runs itself inside
+#   it. It therefore builds what is COMMITTED - commit first. (subst drives
+#   and junctions do not work: node resolves the real path and React Native's
+#   Gradle plugin refuses to relativize across the two roots.)
 #
 # TMP / TEMP  (instead of JAVA_TOOL_OPTIONS)
 #   Gradle's daemon cannot open its AF_UNIX socket under this machine's default
@@ -44,14 +61,10 @@
 #   root to apps/mobile, matching what Gradle passes.
 #
 # reactNativeArchitectures=arm64-v8a
-#   armeabi-v7a cannot be built here. Its prefab output sits at a 246-character
-#   path inside the pnpm store, and ninja stats it via "armeabi-v7a\..\", which
-#   crosses the 260-character Windows limit - so ninja reports a file that
-#   exists as missing and loops until "manifest 'build.ninja' still dirty after
-#   100 tries". arm64-v8a's paths are shorter and build cleanly. arm64-v8a
-#   covers essentially every Android device sold since about 2017; a universal
-#   APK needs either long-path support enabled on the machine or a much shorter
-#   checkout path.
+#   armeabi-v7a hits the same 260-character limit even from the short checkout
+#   (ninja stats its prefab output via "armeabi-v7a\..\"). arm64-v8a covers
+#   essentially every Android device sold since about 2017; a universal APK
+#   needs long-path support enabled on the machine.
 #
 # android.buildToolsVersion=34.0.0
 #   The Expo modules ask for build-tools 34 regardless of the root project's
@@ -59,19 +72,19 @@
 #   licence agreements.
 #
 # ---------------------------------------------------------------------------
-# SDK LAYOUT - one-time setup, already done on this machine
+# SDK LAYOUT - one-time setup, already done on this machine (re-pointed 10 Nov 2026)
 # ---------------------------------------------------------------------------
-#   C:\Android\sdk\platforms\android-34,-35   junctions into Unity's SDK
-#   C:\Android\sdk\platform-tools             junction into Unity's SDK
-#   C:\Android\sdk\build-tools\36.0.0         junction into Unity's SDK
+#   C:\Android\sdk\platforms\android-35,-36   junctions into %LOCALAPPDATA%\Android\Sdk
+#   C:\Android\sdk\platform-tools             junction into %LOCALAPPDATA%\Android\Sdk
+#   C:\Android\sdk\build-tools\35.0.0,36.0.0  junctions into %LOCALAPPDATA%\Android\Sdk
 #   C:\Android\sdk\build-tools\34.0.0         real copy (dl.google.com build-tools_r34)
 #   C:\Android\sdk\ndk\26.1.10909125          real copy (dl.google.com android-ndk-r26b)
 #   C:\Android\sdk\cmake\3.22.1               real COPY, not a junction
 #
-#   The NDK and build-tools 34 are unpacked rather than installed through
-#   sdkmanager so that Gradle never has to install anything - a package that is
-#   already present is not licence-checked, so no agreement has to be accepted
-#   on the owner's behalf.
+#   %LOCALAPPDATA%\Android\Sdk is the owner's Android Studio SDK (licences
+#   accepted there, by them). It has no NDK or CMake, which is why those stay
+#   as real copies here. Unpacked packages are not licence-checked, so Gradle
+#   never has to install anything.
 #
 #   CMake must be a real copy. Through a junction, CMake resolves its own module
 #   paths back to "C:\Program Files\Unity\...", and ninja cannot match dependency
@@ -79,10 +92,29 @@
 #
 set -euo pipefail
 
-MOBILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# When re-run inside the short worktree, MOBILE_DIR points there, not at the
+# directory this script file lives in.
+MOBILE_DIR="${MOBILE_DIR_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_ROOT="$(cd "$MOBILE_DIR/../.." && pwd)"
 
-: "${JAVA_HOME:=C:/Program Files/Unity/Hub/Editor/6000.3.20f1/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK}"
+if [ -z "${JAVA_HOME:-}" ]; then
+  for candidate in \
+    /c/dev/jdk-17 \
+    "/c/Program Files/Android/Android Studio/jbr" \
+    "/c/Program Files/Unity/Hub/Editor/6000.3.20f1/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK"; do
+    if [ -x "$candidate/bin/java.exe" ]; then
+      JAVA_HOME="$(cygpath -m "$candidate")"
+      break
+    fi
+  done
+fi
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$(cygpath -u "$JAVA_HOME")/bin/java.exe" ]; then
+  echo "No JDK found. Set JAVA_HOME to a JDK 17 (C:\\dev\\jdk-17 or Android Studio's jbr)." >&2
+  exit 1
+fi
 : "${ANDROID_HOME:=C:/Android/sdk}"
+: "${SHORT_ROOT:=/e/ta}"
+: "${MAX_ROOT_LEN:=20}"
 : "${GRADLE_BIN:=/c/Gradle/gradle-8.10.2/bin/gradle}"
 : "${ANDROID_ABI:=arm64-v8a}"
 
@@ -96,6 +128,29 @@ export EXPO_NO_METRO_WORKSPACE_ROOT=1
 unset JAVA_TOOL_OPTIONS GRADLE_OPTS
 
 mkdir -p /c/Temp
+
+# SHORT CHECKOUT - see the note above. Builds the committed HEAD.
+WIN_ROOT="$(cygpath -w "$REPO_ROOT")"
+if [ "${#WIN_ROOT}" -gt "$MAX_ROOT_LEN" ] && [ -z "${TECHPIO_IN_SHORT_ROOT:-}" ]; then
+  HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  echo "==> checkout path is ${#WIN_ROOT} characters; building from the short worktree $SHORT_ROOT at ${HEAD_SHA:0:7}"
+  if [ -n "$(git -C "$REPO_ROOT" status --porcelain -- apps/mobile packages)" ]; then
+    echo "    note: uncommitted changes under apps/mobile or packages are NOT in this build"
+  fi
+  if [ ! -e "$SHORT_ROOT/.git" ]; then
+    git -C "$REPO_ROOT" worktree add --detach "$SHORT_ROOT" "$HEAD_SHA"
+  else
+    git -C "$SHORT_ROOT" checkout --quiet --detach "$HEAD_SHA"
+  fi
+  ( cd "$SHORT_ROOT" && { pnpm install --frozen-lockfile --offline >/dev/null 2>&1 || pnpm install --frozen-lockfile; } )
+  TECHPIO_IN_SHORT_ROOT=1 MOBILE_DIR_OVERRIDE="$SHORT_ROOT/apps/mobile" APK_OUT_DIR="${APK_OUT_DIR:-$MOBILE_DIR/build}" \
+    exec bash "${BASH_SOURCE[0]}"
+fi
+
+# The app imports @techpioasset/domain, contracts and ui-tokens from their
+# dist/ folders, which a fresh checkout does not have.
+echo "==> building the shared packages"
+( cd "$REPO_ROOT" && pnpm turbo run build --filter='./packages/*' >/dev/null )
 
 if [ ! -d "$MOBILE_DIR/android" ]; then
   echo "==> android/ is not present; generating it with expo prebuild"
@@ -113,6 +168,15 @@ cd "$MOBILE_DIR/android"
   -PreactNativeArchitectures="$ANDROID_ABI"
 
 APK="$MOBILE_DIR/android/app/build/outputs/apk/release/app-release.apk"
+OUT_DIR="${APK_OUT_DIR:-$MOBILE_DIR/build}"
+mkdir -p "$OUT_DIR"
+cp -f "$APK" "$OUT_DIR/app-release.apk"
 echo
-echo "APK: $APK"
-ls -la "$APK"
+echo "APK: $OUT_DIR/app-release.apk"
+ls -la "$OUT_DIR/app-release.apk"
+BT="$(ls -d "$(cygpath -u "$ANDROID_HOME")"/build-tools/* 2>/dev/null | sort -V | head -1)"
+if [ -n "$BT" ] && [ -x "$BT/aapt.exe" ]; then
+  "$BT/aapt.exe" dump badging "$OUT_DIR/app-release.apk" 2>/dev/null \
+    | grep -oE "versionCode='[0-9]+'|versionName='[^']+'|native-code: .*" | tr '\n' ' '
+  echo
+fi
