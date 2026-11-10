@@ -23,7 +23,7 @@
   "dependencies": {
     "@techpioasset/domain": "workspace:*",
     "decimal.js": "^10.6.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@techpioasset/config": "workspace:*",

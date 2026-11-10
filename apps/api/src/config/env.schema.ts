@@ -28,17 +28,17 @@ export const envSchema = z
     // v2.1 Workstream A — when on, asset writes dual-write the four status
     // dimensions alongside the legacy `status`, and reads/filters expose them.
     // Off by default so v1 behaviour is unchanged until a tenant opts in.
-    STATUS_MODEL_V2: booleanish.default('false'),
+    STATUS_MODEL_V2: booleanish.default(false),
 
     // v2.1 Workstream C — when on, a user's data scope honours a per-role-assignment
     // override (UserRole.scope) instead of being fixed by the role default.
-    RBAC_SCOPES: booleanish.default('false'),
+    RBAC_SCOPES: booleanish.default(false),
 
     // v2.1 Workstream B — when on, each request sets the `app.tenant_id` GUC so the
     // Row-Level Security policies enforce tenant isolation. Requires the app to
     // connect as a NON-superuser DB role (superusers bypass RLS). Off = policies
     // stay dormant (permissive) and behaviour is exactly v1.
-    RLS_ENFORCE: booleanish.default('false'),
+    RLS_ENFORCE: booleanish.default(false),
 
     DATABASE_URL: z.string().url(),
     REDIS_URL: z.string().url(),
@@ -98,7 +98,7 @@ export const envSchema = z
     S3_SECRET_ACCESS_KEY: z.string().optional(),
 
     AI_PROVIDER: z.enum(['mock', 'azure', 'anthropic']).default('mock'),
-    AI_ENABLED: booleanish.default('false'),
+    AI_ENABLED: booleanish.default(false),
     AZURE_DOC_INTELLIGENCE_ENDPOINT: z.string().optional(),
     AZURE_DOC_INTELLIGENCE_KEY: z.string().optional(),
     // Anthropic (Claude) document extraction. The key is a secret with no
@@ -113,7 +113,7 @@ export const envSchema = z
     MAIL_FROM: z.string().default('TechpioAsset <no-reply@techpioasset.local>'),
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().optional(),
-    SMTP_SECURE: booleanish.default('false'),
+    SMTP_SECURE: booleanish.default(false),
     SMTP_USER: z.string().optional(),
     SMTP_PASSWORD: z.string().optional(),
 

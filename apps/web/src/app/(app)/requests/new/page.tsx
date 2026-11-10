@@ -128,7 +128,9 @@ const requestSchema = z
       .array(
         z.object({
           description: z.string().min(1, 'Required'),
-          quantity: z.coerce.number().int().min(1, 'Min 1'),
+          // Zod 4 types a coerced input as unknown; <number> keeps the form's input and
+          // output types the same, which is what react-hook-form's resolver expects.
+          quantity: z.coerce.number<number>().int().min(1, 'Min 1'),
           estimatedCost: z.string().optional(),
           notes: z.string().optional(),
           categoryId: z.string().optional(),
