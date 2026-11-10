@@ -17,6 +17,31 @@ export interface ReleaseNotes {
 
 export const WHATS_NEW: readonly ReleaseNotes[] = [
   {
+    version: '0.3.47',
+    items: [
+      {
+        icon: 'people-outline',
+        title: 'Equipment still with people who left',
+        body: 'An asset held by someone whose account is closed is marked Left, and the list has a filter that shows only those.',
+      },
+      {
+        icon: 'log-out-outline',
+        title: 'Leavers go through offboarding',
+        body: 'Deactivating someone who still holds equipment now points you to Offboard on their page in the web app, which records each return and closes the account itself.',
+      },
+      {
+        icon: 'trash-outline',
+        title: 'Delete a record that should never have existed',
+        body: 'From the asset page, for import mistakes and duplicates. History is kept, and the tag and serial become free again. A device that really reached the end of its life still goes through disposal.',
+      },
+      {
+        icon: 'pricetags-outline',
+        title: 'Statuses that say what they mean',
+        body: 'Disposed and donated assets sit in their own list, and the status words read the same on the phone as on the web.',
+      },
+    ],
+  },
+  {
     version: '0.3.46',
     items: [
       {
