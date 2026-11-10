@@ -24,9 +24,11 @@ import {
   assignAssetSchema,
   bulkChangeStatusSchema,
   bulkDeleteAssetsSchema,
+  bulkReturnAssetsSchema,
   changeAssetStatusSchema,
   type BulkChangeStatusInput,
   type BulkDeleteAssetsInput,
+  type BulkReturnAssetsInput,
   createAssetSchema,
   pageQuerySchema,
   disposeAssetSchema,
@@ -406,6 +408,22 @@ export class AssetsController {
     @Body(zodBody(bulkDeleteAssetsSchema)) body: BulkDeleteAssetsInput,
   ) {
     return this.assets.softDeleteBulk(actor, body.ids, body.reason);
+  }
+
+  @Post('bulk/return')
+  @RequirePermissions(PERMISSIONS.ASSETS_RETURN)
+  @ApiOperation({
+    summary: 'Receive many assets back at once',
+    description:
+      'The single return, applied per id with one condition and one resulting status - ' +
+      'a leaver’s kit in one go. The response lists what came back and what did not; ' +
+      'an asset nobody holds is skipped with the reason.',
+  })
+  returnBulk(
+    @CurrentUser() actor: AuthUser,
+    @Body(zodBody(bulkReturnAssetsSchema)) body: BulkReturnAssetsInput,
+  ) {
+    return this.assets.returnBulk(actor, body);
   }
 
   @Post(':id/status')

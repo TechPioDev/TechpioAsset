@@ -8,6 +8,7 @@ import type {
   CreateAssetInput,
   PageQuery,
   ReassignAssetInput,
+  BulkReturnAssetsInput,
   ReturnAssetInput,
   DisposeAssetInput,
   ReceiveTransferInput,
@@ -1443,6 +1444,42 @@ export class AssetsService {
               : error instanceof AppError || error instanceof IllegalTransitionError
                 ? error.message
                 : 'Could not update this asset',
+        });
+      }
+    }
+
+    return { succeeded, failed };
+  }
+
+  /**
+   * v3.24 - several returns in one call, from the list's selection.
+   *
+   * Each id goes through return() unchanged, so custody, the state machine
+   * and the audit trail are exactly what a single return produces; this only
+   * adds the loop and the per-id outcome. An asset nobody holds comes back as
+   * a failure with return()'s own reason rather than stopping the batch.
+   */
+  async returnBulk(
+    actor: AuthUser,
+    input: BulkReturnAssetsInput,
+  ): Promise<{ succeeded: string[]; failed: { id: string; reason: string }[] }> {
+    const { ids, ...each } = input;
+    const succeeded: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+
+    for (const id of [...new Set(ids)]) {
+      try {
+        await this.return(actor, id, each);
+        succeeded.push(id);
+      } catch (error) {
+        failed.push({
+          id,
+          reason:
+            error instanceof IllegalTransitionError && error.machine === 'AssetStatus'
+              ? describeAssetStatusRefusal(error.from as AssetStatus, error.to as AssetStatus)
+              : error instanceof AppError || error instanceof IllegalTransitionError
+                ? error.message
+                : 'Could not return this asset',
         });
       }
     }

@@ -289,6 +289,21 @@ export const bulkDeleteAssetsSchema = z.object({
 });
 export type BulkDeleteAssetsInput = z.infer<typeof bulkDeleteAssetsSchema>;
 
+/**
+ * v3.24 - take several assets back at once, from the list's selection. One
+ * condition and one resulting status for the whole batch: a leaver's kit
+ * collected from a desk comes back in one state, to one shelf. Each id still
+ * goes through the single return, so what cannot be returned is reported, not
+ * forced.
+ */
+export const bulkReturnAssetsSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, 'Select at least one asset').max(200),
+  conditionIn: assetConditionEnum,
+  resultingStatus: assetStatusEnum.default('AVAILABLE'),
+  notes: z.string().trim().max(2000).optional().nullable(),
+});
+export type BulkReturnAssetsInput = z.infer<typeof bulkReturnAssetsSchema>;
+
 /** Per-asset outcome of a bulk operation, so partial failures surface clearly. */
 export interface BulkActionResult {
   succeeded: string[];

@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronDown,
   Download,
+  Undo2,
   FileSpreadsheet,
   IndianRupee,
   Plus,
@@ -52,6 +53,8 @@ import type { BulkActionResult } from '@techpioasset/contracts';
 import { apiFetch, apiFetchPage } from '@/lib/api-client';
 import { downloadCsv } from '@/lib/download-csv';
 import { LeftTag } from '@/components/people/left-tag';
+import { BulkReturnDialog } from '@/components/assets/bulk-return-dialog';
+import { bulkReturnOutcome, returnableIds } from '@/lib/bulk-return';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/providers/toast-provider';
 import { useConfirm } from '@/providers/confirm-provider';
@@ -236,6 +239,8 @@ function AssetsTable() {
   const [pageSize, setPageSize] = usePageSize('techpioasset:assets:pageSize');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
+  // v3.24 - the bulk return dialog.
+  const [returnOpen, setReturnOpen] = useState(false);
   const q = params.get('q') ?? '';
 
   /**
@@ -352,11 +357,14 @@ function AssetsTable() {
   const canBulk = can(PERMISSIONS.ASSETS_UPDATE);
   // v3.18 - deleting records in bulk: the Super Admin's door (assets:delete).
   const canDelete = can(PERMISSIONS.ASSETS_DELETE);
+  // v3.24 - returning the selection (assets:return, the same door as Record return).
+  const canReturn = can(PERMISSIONS.ASSETS_RETURN);
   useEffect(() => {
     setSelected(new Set());
   }, [q, status, lifecycle, availability, ownership, holder, page, pageSize]);
 
   const rows = data?.data ?? [];
+  const returnable = returnableIds(rows, selected);
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   const toggleAll = () =>
@@ -420,6 +428,28 @@ function AssetsTable() {
       }
     },
     onError: () => toast.error('Bulk delete failed'),
+  });
+
+  // v3.24 - take back the selection: a leaver's kit in one go rather than one
+  // asset page at a time. Only the selected rows somebody holds are sent.
+  const bulkReturn = useMutation({
+    mutationFn: (input: {
+      ids: string[];
+      conditionIn: AssetCondition;
+      resultingStatus: AssetStatus;
+      notes?: string;
+    }) => apiFetch<BulkActionResult>('/assets/bulk/return', { method: 'POST', body: input }),
+    onSuccess: (result, input) => {
+      void queryClient.invalidateQueries({ queryKey: ['assets'] });
+      setSelected(new Set());
+      setReturnOpen(false);
+      const outcome = bulkReturnOutcome(
+        result,
+        ASSET_STATUS_TOKENS[input.resultingStatus]?.label ?? input.resultingStatus,
+      );
+      toast[outcome.tone](outcome.message);
+    },
+    onError: () => toast.error('Bulk return failed'),
   });
 
   const deleteSelected = async () => {
@@ -827,7 +857,7 @@ function AssetsTable() {
         </div>
       </header>
 
-      {(canBulk || canDelete) && selected.size > 0 ? (
+      {(canBulk || canDelete || canReturn) && selected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-control)] border border-[var(--color-brand)] bg-[var(--color-brand-subtle,var(--color-surface-sunken))] px-4 py-2.5">
           <span className="text-sm font-medium">{selected.size} selected</span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -873,11 +903,21 @@ function AssetsTable() {
             </Button>
             </>
             ) : null}
+            {canReturn && returnable.length > 0 ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={bulkReturn.isPending || bulk.isPending || bulkDelete.isPending}
+                onClick={() => setReturnOpen(true)}
+              >
+                <Undo2 aria-hidden="true" className="size-4" /> Record return ({returnable.length})
+              </Button>
+            ) : null}
             {canDelete ? (
               <Button
                 size="sm"
                 variant="danger"
-                disabled={bulkDelete.isPending || bulk.isPending}
+                disabled={bulkDelete.isPending || bulk.isPending || bulkReturn.isPending}
                 loading={bulkDelete.isPending}
                 onClick={deleteSelected}
               >
@@ -894,6 +934,15 @@ function AssetsTable() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {returnOpen ? (
+        <BulkReturnDialog
+          count={returnable.length}
+          pending={bulkReturn.isPending}
+          onClose={() => setReturnOpen(false)}
+          onSubmit={(input) => bulkReturn.mutate({ ids: returnable, ...input })}
+        />
       ) : null}
 
       <Card>
