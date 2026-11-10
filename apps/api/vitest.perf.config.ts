@@ -40,7 +40,8 @@ export default defineConfig({
     // Without it, peak heapUsed measures how much was ALLOCATED before the
     // collector happened to run - which for a two-second export is mostly
     // garbage, and moved by 25% between identical runs.
-    poolOptions: { forks: { execArgv: ['--expose-gc'] } },
+    // Vitest 4+ took execArgv out of poolOptions; the forks still get --expose-gc.
+    execArgv: ['--expose-gc'],
     testTimeout: 900_000,
     hookTimeout: 180_000,
     fileParallelism: false,

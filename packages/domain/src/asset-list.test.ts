@@ -12,8 +12,6 @@ import {
   toQueryString,
   assetListFiltersFromLink,
   assetListArrivedFiltered,
-  assetListFilterParams,
-  toQueryString,
 } from './asset-list';
 
 describe('the asset list query', () => {
