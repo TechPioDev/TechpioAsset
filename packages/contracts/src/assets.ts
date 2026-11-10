@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partialUpdate } from './partial-update';
 import {
   ASSET_STATUSES,
   ASSET_CONDITIONS,
@@ -103,7 +104,7 @@ export const createAssetSchema = z.object({
 });
 export type CreateAssetInput = z.infer<typeof createAssetSchema>;
 
-export const updateAssetSchema = createAssetSchema.partial().extend({
+export const updateAssetSchema = partialUpdate(createAssetSchema).extend({
   /** Optimistic-locking token; a stale value is rejected with 409. */
   version: z.number().int().nonnegative().optional(),
 });

@@ -1,5 +1,6 @@
 export * from './errors';
 export * from './pagination';
+export * from './partial-update';
 export * from './money';
 export * from './envelope';
 export * from './health';

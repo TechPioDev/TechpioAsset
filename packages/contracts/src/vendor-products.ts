@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partialUpdate } from './partial-update';
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) =>
@@ -118,9 +119,7 @@ function checkCrossFields(
 
 export const createVendorProductSchema = vendorProductFields.superRefine(checkCrossFields);
 
-export const updateVendorProductSchema = vendorProductFields
-  .omit({ vendorId: true })
-  .partial()
+export const updateVendorProductSchema = partialUpdate(vendorProductFields.omit({ vendorId: true }))
   .strict()
   .superRefine(checkCrossFields);
 

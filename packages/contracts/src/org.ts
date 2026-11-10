@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partialUpdate } from './partial-update';
 
 /**
  * Office writes (v2.11). Offices were seed-only reference data until now —
@@ -35,7 +36,7 @@ export const createDepartmentSchema = z.object({
 });
 export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
 
-export const updateDepartmentSchema = createDepartmentSchema.partial().extend({
+export const updateDepartmentSchema = partialUpdate(createDepartmentSchema).extend({
   isActive: z.boolean().optional(),
 });
 export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
@@ -57,8 +58,7 @@ export const createOfficeSchema = z
   })
   .strict();
 
-export const updateOfficeSchema = createOfficeSchema
-  .partial()
+export const updateOfficeSchema = partialUpdate(createOfficeSchema)
   .extend({
     /** Deactivating hides the office from pickers without unlinking anyone. */
     isActive: z.boolean().optional(),
@@ -99,8 +99,7 @@ export const createVendorSchema = z
   })
   .strict();
 
-export const updateVendorSchema = createVendorSchema
-  .partial()
+export const updateVendorSchema = partialUpdate(createVendorSchema)
   .extend({
     /**
      * Deactivating hides a vendor from pickers without touching a single

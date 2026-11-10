@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partialUpdate } from './partial-update';
 
 /**
  * Spec templates (v2.42).
@@ -93,10 +94,7 @@ export const createSpecFieldSchema = z
   .strict()
   .superRefine(checkShape);
 
-export const updateSpecFieldSchema = z
-  .object(specFieldFields)
-  .strict()
-  .partial()
+export const updateSpecFieldSchema = partialUpdate(z.object(specFieldFields).strict())
   .superRefine((v, ctx) => {
     // Only check the shape when enough of it is present to judge.
     if (v.dataType === undefined) return;

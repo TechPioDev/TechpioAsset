@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partialUpdate } from './partial-update';
 import { pageQuerySchema } from './pagination.js';
 
 /** v2.9 C2 contracts: cost centres, budgets, and the consumption view. */
@@ -30,9 +31,9 @@ export const createCostCentreSchema = z.object({
 });
 export type CreateCostCentreInput = z.infer<typeof createCostCentreSchema>;
 
-export const updateCostCentreSchema = createCostCentreSchema
-  .partial()
-  .extend({ isActive: z.boolean().optional() });
+export const updateCostCentreSchema = partialUpdate(createCostCentreSchema).extend({
+  isActive: z.boolean().optional(),
+});
 export type UpdateCostCentreInput = z.infer<typeof updateCostCentreSchema>;
 
 export const budgetListQuerySchema = pageQuerySchema.extend({
